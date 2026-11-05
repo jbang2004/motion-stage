@@ -114,3 +114,10 @@ test('an equal file hash in another model cannot borrow the prior model frozen d
  const ctx=vm.createContext({state,observationFrame,$:()=>({value:'shared'})});vm.runInContext(extract('function recordedFrame(','\nasync function loadSlot('),ctx);
  const frame=vm.runInContext('pairFrame',ctx)({baseline:{meta:{sha256:'equal',assetId:'B'},bbox:box}});assert.equal(frame.factor,.5);assert.equal(frame.offset[1],-0);
 });
+
+test('manual scale switching rebuilds project normalization caches and cannot refit a superseding load',async()=>{
+ const body=extract("$('scaleMode').onchange=", "$('progress').onchange="),field={},state={view:'side',observationTransform:{scale:10}},viewState=createViewState('A');viewState.markLoaded(viewState.beginLoad(),'A');let release,fit=0,rebuilt=0;
+ const ctx=vm.createContext({state,viewState,$:()=>field,appearance:{mode:'project'},refreshModels:async({force})=>{assert.equal(force,true);rebuilt++;const ticket=viewState.beginLoad();await new Promise(resolve=>release=resolve);return {observationTicket:ticket};},normalizePair(){assert.fail('Project adapters must be rebuilt');},view:()=>fit++,fail:assert.fail});
+ vm.runInContext(body,ctx);let pending=field.onchange();release();await pending;assert.equal(state.observationTransform,null);assert.equal(rebuilt,1);assert.equal(fit,1);
+ pending=field.onchange();viewState.beginLoad();release();await pending;assert.equal(fit,1);
+});
