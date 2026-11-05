@@ -28,8 +28,23 @@ function graph(doc){
 }
 function equalMatrix(a,b){return a.elements.every((value,i)=>Number.isFinite(value)&&Math.abs(value-b.elements[i])<=1e-5*Math.max(1,Math.abs(value),Math.abs(b.elements[i])));}
 
+export function motionTargetResolver(base,source,nodeMap={}){
+ const from=graph(source),to=graph(base),mapped=new Map();
+ function target(index){
+  if(mapped.has(index))return mapped.get(index);
+  const name=from.nodes[index]?.name;requireValue(name,'动画目标节点缺少名称，无法跨文件绑定');
+  const dest=to.resolve(Object.hasOwn(nodeMap,name)?nodeMap[name]:name);
+  requireValue(equalMatrix(from.local(index),to.local(dest))&&equalMatrix(from.world(index),to.world(dest)),'需要重定向：节点参考姿势或坐标不同：'+name);
+  let parent=from.parents.get(index),destParent=to.parents.get(dest);
+  while(parent!==undefined&&destParent!==undefined){const p=from.nodes[parent].name;requireValue((!p||to.nodes[destParent].name===(Object.hasOwn(nodeMap,p)?nodeMap[p]:p))&&equalMatrix(from.local(parent),to.local(destParent)),'需要重定向：父骨骼不同：'+name);parent=from.parents.get(parent);destParent=to.parents.get(destParent);}
+  requireValue(parent===destParent,'需要重定向：父骨架深度不同：'+name);
+  mapped.set(index,dest);return dest;
+ }
+ return target;
+}
+
 export async function gltfClips(base,bytes,options={}){
- const source=parseGlb(bytes),from=graph(source.doc),to=graph(base),mapped=new Map();
+ const source=parseGlb(bytes);
  const decoded=new Map();let expanded=0;
  const selected=(source.doc.animations||[]).filter((a,i)=>!options.clips||options.clips.includes(a.name||'animation_'+i));
  for(const animation of selected)for(const sampler of animation.samplers||[])for(const index of [sampler.input,sampler.output]){
@@ -43,17 +58,7 @@ export async function gltfClips(base,bytes,options={}){
   decoded.set(accessor.bufferView,out);
  }
  const read=index=>{const a=source.doc.accessors[index],data=decoded.get(a.bufferView);return data?readAccessor({buffers:[{byteLength:data.length}],bufferViews:[{byteLength:data.length,byteStride:source.doc.bufferViews[a.bufferView].byteStride}],accessors:[{...a,bufferView:0}]},data,0):readAccessor(source.doc,source.bin,index);};
- const nodeMap=options.nodeMap||{};
- function target(index){
-  if(mapped.has(index))return mapped.get(index);
-  const name=from.nodes[index]?.name;requireValue(name,'动画目标节点缺少名称，无法跨文件绑定');
-  const dest=to.resolve(Object.hasOwn(nodeMap,name)?nodeMap[name]:name);
-  requireValue(equalMatrix(from.local(index),to.local(dest))&&equalMatrix(from.world(index),to.world(dest)),'需要重定向：节点参考姿势或坐标不同：'+name);
-  let parent=from.parents.get(index),destParent=to.parents.get(dest);
-  while(parent!==undefined&&destParent!==undefined){const p=from.nodes[parent].name;requireValue((!p||to.nodes[destParent].name===(Object.hasOwn(nodeMap,p)?nodeMap[p]:p))&&equalMatrix(from.local(parent),to.local(destParent)),'需要重定向：父骨骼不同：'+name);parent=from.parents.get(parent);destParent=to.parents.get(destParent);}
-  requireValue(parent===destParent,'需要重定向：父骨架深度不同：'+name);
-  mapped.set(index,dest);return dest;
- }
+ const target=motionTargetResolver(base,source.doc,options.nodeMap||{});
  return (source.doc.animations||[]).map((animation,index)=>({animation,index})).filter(({animation,index})=>!options.clips||options.clips.includes(animation.name||'animation_'+index)).map(({animation,index})=>{
   const name=animation.name||'animation_'+index;
   return {name,tracks:(animation.channels||[]).map(channel=>{

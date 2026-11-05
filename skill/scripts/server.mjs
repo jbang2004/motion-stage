@@ -1,3 +1,4 @@
+import {discoverCharacterActions,previewCharacterAction,stopCharacterActionDiscovery} from './character-actions.mjs';
 import {motionLibrary,registerMotionPack,saveMotionMapping,previewMotion,adoptMotion,materializeMotion,motionRigOptions} from './motion-library.mjs';
 import {createServer} from 'node:http';
 import {readFile,stat,realpath} from 'node:fs/promises';
@@ -42,6 +43,7 @@ export async function serve(work,port=5178,options={}){
    const url=new URL(req.url,origin),p=decodeURIComponent(url.pathname);
    if(p==='/api/session'&&req.method==='GET')return send(200,{token,paths:{workspace:work,cli:ROOT+'/scripts/motion-feedback.mjs'},project:projectView(await readProject(work),url.searchParams.get('assetId')||undefined),feedback:await json(await inside(work,'feedback.json')),marks:await readMarks(work)});
    if(p==='/api/doctor'&&req.method==='GET')return send(200,url.searchParams.get('cached')==='1'?runtime:await recheck());
+   if(p==='/api/actions'&&req.method==='GET')return send(200,await discoverCharacterActions(work,Object.fromEntries(url.searchParams)));
    if(p==='/api/motions'&&req.method==='GET')return send(200,await motionLibrary(work));
    if(p==='/api/motions/export'&&req.method==='GET'){const result=await materializeMotion(work,{...Object.fromEntries(url.searchParams),exportOnly:true});res.writeHead(200,{'Content-Type':'model/gltf-binary','Content-Disposition':"attachment; filename=motion-stage-character.glb",'Content-Length':result.bytes.length,'Cache-Control':'no-store'});return res.end(result.bytes);}
    if(p==='/api/catalog'&&req.method==='GET')return send(200,await catalogPage(work,Object.fromEntries(url.searchParams)));
@@ -70,6 +72,7 @@ export async function serve(work,port=5178,options={}){
    if(p.startsWith('/api/')&&req.method!=='GET'){
     if(req.headers['x-motion-token']!==token)return send(403,{error:'请刷新页面后重试'});
     const data=await body(req,p.startsWith('/api/assets/')?200*1024*1024:12*1024*1024);
+    if(p==='/api/actions/preview'&&req.method==='POST')return send(200,await previewCharacterAction(work,JSON.parse(data)));
     if(p.startsWith('/api/motions/')&&req.method==='POST'){const action=p.slice('/api/motions/'.length),input=JSON.parse(data),fn={register:registerMotionPack,mapping:saveMotionMapping,rigs:motionRigOptions,preview:previewMotion,adopt:adoptMotion,prepare:materializeMotion}[action];if(fn)return send(200,await fn(work,input));}
     if(p==='/api/catalog/scan'&&req.method==='POST')return send(200,await startCatalogScan(work,{force:true}));
     const modelName=p.match(/^\/api\/models\/([a-zA-Z0-9_-]{1,80})\/name$/);if(modelName&&req.method==='POST')return send(200,await withWorkspaceLock(work,async()=>{const input=JSON.parse(data),cfg=await readProject(work),m=cfg.models[modelName[1]];if(!m||typeof input.name!=='string'||!input.name.trim()||input.name.length>160)throw Error('模型名称需为 1–160 个字符');if(input.expectedHeadRevision!==m.headRevision||input.expectedName!==m.name)throw Error('模型版本已变化，请刷新后重试');m.name=input.name.trim();cfg.revision=(cfg.revision||0)+1;await atomic(await inside(work,'project.json'),cfg);return {project:projectView(cfg,m.id)};}));
@@ -170,7 +173,7 @@ export async function serve(work,port=5178,options={}){
   }catch(e){if(!res.headersSent)send(e.code==='ENOENT'?404:e.code==='MODEL_JOB_ACTIVE'?409:400,{error:e.message,...(e.code?{code:e.code}:{}),...(e.jobId?{jobId:e.jobId}:{})});else res.end();}
  });
  server.once('close',()=>{if(workspaceServers.get(work)===server)workspaceServers.delete(work);serverCloseCleanup();});
- const close=server.close.bind(server);server.close=callback=>{workerGeneration++;connecting=null;workerAbort?.abort();Promise.all([workerRun,stopCatalogScan(work),...[...children].filter(c=>c.listening).map(c=>new Promise(r=>c.close(r)))]).catch(()=>{}).finally(()=>close(callback));return server;};
+ const close=server.close.bind(server);server.close=callback=>{workerGeneration++;connecting=null;workerAbort?.abort();Promise.all([workerRun,stopCharacterActionDiscovery(work),stopCatalogScan(work),...[...children].filter(c=>c.listening).map(c=>new Promise(r=>c.close(r)))]).catch(()=>{}).finally(()=>close(callback));return server;};
  try{await new Promise((ok,no)=>{server.once('error',no);server.listen(port,'127.0.0.1',ok);});}
  catch(error){throw Object.assign(Error(error.code==='EADDRINUSE'?'本地服务端口已被占用，请关闭旧服务或使用 --port 0 自动选择端口。':'本地服务无法启动，请检查本机网络权限后重试。',{cause:error}),{code:error.code});}
  runtime.server={status:'ready',host:'127.0.0.1',port:server.address().port};workspaceServers.set(work,server);

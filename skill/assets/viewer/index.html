@@ -25,7 +25,7 @@
     </button>
     <span id="workspaceTitle" class="workspace-name" hidden>动作修改工作台</span>
     <nav class="header-actions" aria-label="工作台工具">
-      <button id="openMotionWorkspace" class="quiet" data-icon="layers">角色与动作</button>
+      <button id="openMotionWorkspace" class="quiet" data-icon="layers">版本与来源</button>
       <button id="openModelCatalog" class="quiet" data-icon="folder">项目文件 <span id="modelCount">—</span></button>
       <button id="openHistory" class="quiet" data-icon="history">修改记录 <span id="headerJobCount">—</span></button>
       <button id="openEnvironment" class="quiet" data-icon="shield">环境检查</button>
@@ -39,19 +39,23 @@
       <div class="sidebar-section-label">工作空间</div>
       <nav class="workspace-nav" aria-label="工作空间导航">
         <button id="navStudio" class="sidebar-item active" aria-current="page" data-icon="studio"><span>动作工作室</span></button>
-        <button id="navMotionWorkspace" class="sidebar-item" data-icon="layers"><span>角色与动作</span><span class="mw-nav-new">NEW</span></button>
+        <button id="navMotionWorkspace" class="sidebar-item" data-icon="layers"><span>版本与来源</span><span class="mw-nav-new">NEW</span></button>
         <button id="navCatalog" class="sidebar-item" data-icon="folder"><span>项目文件</span><span id="sidebarModelCount" class="nav-count">—</span></button>
-        <button id="navLibrary" class="sidebar-item" data-icon="layers"><span>素材与动作</span><span id="sidebarClipCount" class="nav-count">—</span></button>
+        <button id="navLibrary" hidden class="sidebar-item" data-icon="layers"><span>素材与动作</span><span id="sidebarClipCount" class="nav-count">—</span></button>
         <button id="navHistory" class="sidebar-item" data-icon="history"><span>修改记录</span><span id="sidebarJobCount" class="nav-count">—</span></button>
       </nav>
       <div class="sidebar-divider"></div>
-      <div class="sidebar-section-label sidebar-label-row"><span>当前素材</span><button id="sidebarAssetInfo" class="icon-button" aria-label="查看当前素材信息" title="素材信息" data-icon="more"></button></div>
+      <div class="sidebar-section-label sidebar-label-row"><span>当前角色</span><button id="sidebarAssetInfo" class="icon-button" aria-label="查看当前素材信息" title="素材信息" data-icon="more"></button></div>
       <div class="sidebar-asset">
         <span class="asset-glyph" data-icon="cube"></span>
         <div><b id="sidebarAssetName">正在读取角色</b><small id="sidebarAssetMeta">本地素材</small></div>
       </div>
-      <div class="sidebar-section-label motion-list-label">动作片段</div>
-      <div id="sidebarClipList" class="sidebar-clips" role="group" aria-label="当前资源动作"></div>
+      <div id="desktopActionMount"><section id="inlineActionPanel" aria-label="此角色可用动作"><div class="inline-action-panel-title">角色与可用动作</div>
+      <label class="inline-character-label" for="inlineCharacterSelect">切换角色</label><select id="inlineCharacterSelect" aria-label="切换角色" disabled><option>正在读取项目角色…</option></select>
+      <div class="inline-action-tools"><input id="inlineActionSearch" type="search" placeholder="搜索此角色可用的动作" aria-label="搜索角色动作"><select id="inlineActionFilter" aria-label="动作来源筛选"><option value="all">全部动作</option><option value="preset">角色预设</option><option value="compatible">其他兼容</option><option value="variants">预设其他版本</option></select></div>
+      <div class="inline-action-status"><span id="inlineActionStatus" role="status">自动匹配兼容动作</span><button id="refreshCompatibleActions" aria-label="重新匹配兼容动作">↻</button></div>
+      <div id="inlineActionScroll" class="inline-action-scroll"><div id="inlineAllActionList" class="inline-all-actions" role="group" aria-label="全部可用动作"></div><section id="presetActionGroup"><div class="inline-action-heading"><span>角色预设</span><b id="presetActionCount">—</b></div><div id="sidebarClipList" class="sidebar-clips" role="group" aria-label="当前资源动作"></div></section><section id="savedActionGroup" hidden><div class="inline-action-heading"><span>已保存动作</span></div><div id="savedActionList"></div></section><section id="compatibleActionGroup"><div class="inline-action-heading"><span>其他兼容动作</span><b id="compatibleActionCount">—</b></div><div id="compatibleActionList" role="group" aria-label="其他兼容动作"></div></section></div>
+      </section></div>
       <button id="sidebarImport" class="sidebar-add" data-icon="plus">导入新素材</button>
       <div class="sidebar-bottom">
         <div class="preservation-note"><span data-icon="shield"></span><div><b>原版始终保留</b><small>每一次尝试，都可以回看。</small></div></div>
@@ -106,6 +110,7 @@
       </section>
       <p id="observationConditions" class="observation-conditions" role="status"></p>
       <div class="stage-footnote"><span><span class="live-dot"></span>本地三维预览</span><span class="desktop-shortcuts"><kbd>空格</kbd> 播放 / 暂停 <span class="key-separator">·</span> <kbd>←</kbd><kbd>→</kbd> 逐帧</span><span class="touch-hint">拖动旋转 · 双指缩放 · 轻点选部位</span></div>
+      <div id="mobileActionMount"></div>
       <div id="notice" class="inline-notice" hidden role="status"></div>
     </main>
     <aside id="taskPanel" class="task-panel" aria-label="修改任务">
@@ -130,7 +135,7 @@
           </form>
           <details id="localTools" class="local-tools"><summary>先试一次本地微调 <span>无需 AI</span></summary><p>选择身体部位，直接调整旋转摆幅，快速比较效果。</p><button id="localTarget" class="text-button">选择修改部位 ↗</button><label class="field-label" for="swingFactor">摆动幅度 <output id="factorLabel">70%</output></label><input id="swingFactor" type="range" min="0.2" max="1.5" step=".05" value=".7" aria-label="摆动幅度倍率"><button id="localEdit" class="secondary-button" disabled>生成本地微调候选</button><small>数值工具，不调用 AI。其他骨骼与时长保留。</small></details>
         </section>
-        <section id="motionTrialInspector" class="mw-trial-inspector" hidden><span class="mw-overline">MOTION EXPLORER</span><h2>先试动作，再决定。</h2><p>你正在角色上试播公共动作。可以收录当前版本，或准备一个独立工作版本交给 Agent 修改。</p><div class="mw-trial-note">角色模型 · 公共动作 · 骨架映射<br>各自独立，版本固定。</div><button id="trialBrowse" class="secondary-button">继续浏览公共动作 ↗</button></section>
+        <section id="motionTrialInspector" class="mw-trial-inspector" hidden><span class="mw-overline">MOTION EXPLORER</span><h2>直接试播，再决定。</h2><p>这是其他来源的兼容动作。可继续点选旁边的动作，或将当前版本加入常用。</p><div class="mw-trial-note">原有动作保留。<br>试播满意后，再保存选择。</div><button id="trialBrowse" class="secondary-button">查看动作来源与版本 ↗</button></section>
         <section id="latestJob" class="task-state" hidden aria-live="polite"></section>
       </div>
       <footer id="taskFooter" class="task-footer" hidden><button id="agentConnect" class="agent-status" title="连接本机 Codex"><span class="status-dot" id="agentDot"></span><span id="agentLabel">本机 Codex 未连接</span></button><button id="footerHelp" class="text-button" aria-label="打开使用指南" data-icon="help"></button></footer>

@@ -1,3 +1,4 @@
+import {createCharacterActions,displayActionName} from './character-actions.mjs';
 import {createMotionWorkspace} from './motion-workspace.mjs';
 import {runtimeMotionClips} from './motion-runtime.mjs';
 import {findJoint,jointValue,selectedJoint,correspondingJoint} from './joint-targets.mjs';
@@ -21,7 +22,7 @@ decorateIcons();
 
 const $=id=>document.getElementById(id),slots=['baseline','candidate'];
 const state={switching:false,allJobs:[],jobCounts:{},totalJobs:0,jobsRevision:null,studioRevision:null,studioAssetId:null,historyJobs:[],historyAssetId:null,historyRevision:null,historyHasMore:false,historyTotal:0,catalog:null,initialized:false,ready:false,loading:false,playing:false,loop:true,time:0,speed:1,fps:30,display:'single',focus:'baseline',view:'front',models:{},project:null,token:null,paths:{},jobs:[],agent:null,target:null,selectedJob:null,archivedJobId:null,capturing:false,submitting:false,submissionOwner:null,panelMode:'compose',composerSource:null,comparisonPair:null,observationTransform:null,explicitCompose:false,projectLink:null,projectPreview:null,projectPreviewError:null,lineageParentJobId:null};
-let renderLoop;
+let renderLoop,flatActions;
 const viewState=createViewState(new URLSearchParams(location.search).get('asset'));
 const viewPositions={front:[0,1.12,4.8],side:[4.8,1.12,0],back:[0,1.12,-4.8],top:[0,5,.001]};
 const statusNames={queued:'等待 Agent',running:'正在处理',complete:'候选已就绪',failed:'处理失败','needs-input':'需要补充信息',cancelled:'已取消',stale:'版本已变化',interrupted:'执行已中断'};
@@ -106,15 +107,16 @@ function catalogMessage(message,error=false){modelCatalog.message(message,error)
 
 // A trial owns only clip bindings; canonical model heads remain untouched.
 const assetThumbnails=new Map();
-const motionWorkspace=createMotionWorkspace({api,
+const motionWorkspace=createMotionWorkspace({api,onAdopt:()=>flatActions?.refresh(),
  onThumbnail:(id,sha)=>{const m=activeModel(),key=id+'|'+sha;if(id===state.project?.activeAssetId&&m?.meta.sha256===sha&&m.capabilities.hasMesh&&!state.motionPreview&&!assetThumbnails.has(key)){render();assetThumbnails.set(key,canvas.toDataURL('image/webp',.7));while(assetThumbnails.size>24)assetThumbnails.delete(assetThumbnails.keys().next().value);}return assetThumbnails.get(key);},
  getTarget:()=>({assetId:state.project?.activeAssetId,slot:activeSlot(),expectedModelSha:activeModel()?.meta.sha256}),
- onPreview:async result=>{
+ onPreview:async (result,isCurrent=()=>true)=>{
   if(state.archivedJobId||state.loading||state.switching||state.submitting)throw Error('请先返回当前角色，等待载入结束后试播');
   const slot=result.recipe.slot,m=state.models[slot];if(!m||m.meta.sha256!==result.recipe.modelSha||state.project.activeAssetId!==result.recipe.assetId)throw Error('角色版本已变化，请重新选择动作');
   const clips=await runtimeMotionClips(T,result.clips,async index=>{const node=await m.parser.getDependency('node',index);if(!m.root.getObjectByProperty('uuid',node.uuid))throw Error('动作目标不在当前角色场景中');return node;});
+  if(!isCurrent())return;
   if(state.models[slot]!==m)throw Error('模型已切换，请重新试播');
-  persistView();clearMotionTrial(false);m.libraryOriginalClips=m.clips;m.libraryOriginalClip=m.clip;m.clips=clips;state.motionPreview={recipe:result.recipe,slot};state.focus=slot;state.display='single';state.time=0;state.playing=true;selectClip(slot,clips[0].name);drawLibrary();drawMetadata();drawJobs();updateDisplay();renderLoop?.wake();notice('公共动作试播中。确认收录会保存版本引用；准备修改时才生成独立工作版本。');
+  persistView();clearMotionTrial(false);m.libraryOriginalClips=m.clips;m.libraryOriginalClip=m.clip;m.clips=clips;state.motionPreview={recipe:result.recipe,slot};state.focus=slot;state.display='single';state.time=0;state.playing=true;selectClip(slot,clips[0].name);drawLibrary();drawMetadata();drawJobs();updateDisplay();renderLoop?.wake();notice('正在试播其他来源的兼容动作。可直接切换，满意后加入常用。');
  },
  onExitPreview:async()=>{clearMotionTrial();notice('已结束试播，角色恢复原有动作。');},
  onPrepare:async result=>{if(state.project?.activeAssetId!==result.project.activeAssetId||state.project.revision>result.project.revision)return;clearMotionTrial(false);state.project=result.project;state.selectedJob=null;state.archivedJobId=null;state.panelMode='compose';state.studioRevision=null;await refreshModels({preserve:false});state.focus='candidate';state.display='single';selectMotion(result.recipe.clip);await beginCompose({source:'candidate'});notice('已准备独立动作工作版本。修改会生成角色专属候选，公共动作源保持固定。');},
@@ -126,6 +128,15 @@ function clearMotionTrial(redraw=true){
  state.motionPreview=null;state.playing=false;state.time=0;jobsRenderSignature='';motionWorkspace.clear();$('motionTrialInspector').hidden=true;if(redraw){drawLibrary();drawMetadata();drawJobs();updateDisplay();renderLoop?.wake();}
 }
 $('openMotionWorkspace').onclick=$('navMotionWorkspace').onclick=$('trialBrowse').onclick=()=>motionWorkspace.open();
+flatActions=createCharacterActions({api,
+ getTarget:()=>state.ready&&!state.switching&&!state.archivedJobId?{assetId:state.project?.activeAssetId,slot:activeSlot(),expectedModelSha:activeModel()?.meta.sha256}:null,
+ getPreset:()=>activeModel()?.libraryOriginalClips||activeModel()?.clips||[],
+ getSelection:()=>({presetName:state.motionPreview?null:activeModel()?.clip,recipeId:state.motionPreview?.recipe.id}),
+ onPreset:name=>{clearMotionTrial(false);selectMotion(name);},
+ onPreview:(result,request,isCurrent)=>motionWorkspace.play(result,request,isCurrent),
+ onCharacter:(id,{character=false}={})=>openCatalogModel(id,{character,stored:!character}),onError:fail
+});
+
 
 async function restoreModelDraft(){
  const saved=readViewDraft(()=>localStorage,{workspace:state.paths.workspace,assetId:viewState.loadedAssetId,view:viewState});
@@ -266,12 +277,12 @@ function updateDisplay(){
  for(const slot of slots){const surface=$('surface-'+slot);surface.hidden=!split&&slot!==active;surface.style.left=split?(slot==='candidate'?'0':'50%'):'0';surface.style.right=split?(slot==='candidate'?'50%':'0'):'0';controls[slot].enabled=split||slot===active;}
  $('stageDivider').hidden=!split;$('candidateLabel').hidden=!split&&active!=='candidate';$('baselineLabel').hidden=!split&&active!=='baseline';$('baselineLabel').style.left=split?'calc(50% + 17px)':'17px';
  $('compareControls').hidden=!comparison;$('focusSlot').disabled=state.display!=='single';$('focusSlot').value=state.focus;
- $('versionModes').hidden=!comparison;$('singleVersion').hidden=comparison;$('singleVersion').textContent=state.focus==='candidate'?'正在观察当前版本':state.models.baseline?.meta.sha256===state.project?.slots.baseline?.sha256?'正在观察最初原版':'正在观察修改前';document.querySelector('[data-version="baseline"]').textContent=comparison?'修改前':'最初原版';$('baselineLabel').querySelector('span').firstChild.nodeValue=state.motionPreview?'公共动作试播':comparison?'修改前':'最初原版';if(state.motionPreview){$('singleVersion').textContent='临时试播 · 模型版本保持';$('versionModes').hidden=true;$('singleVersion').hidden=false;}
+ $('versionModes').hidden=!comparison;$('singleVersion').hidden=comparison;$('singleVersion').textContent=state.focus==='candidate'?'正在观察当前版本':state.models.baseline?.meta.sha256===state.project?.slots.baseline?.sha256?'正在观察最初原版':'正在观察修改前';document.querySelector('[data-version="baseline"]').textContent=comparison?'修改前':'最初原版';$('baselineLabel').querySelector('span').firstChild.nodeValue=state.motionPreview?'兼容动作试播':comparison?'修改前':'最初原版';if(state.motionPreview){$('singleVersion').textContent='临时试播 · 模型版本保持';$('versionModes').hidden=true;$('singleVersion').hidden=false;}
  document.querySelectorAll('[data-display]').forEach(b=>{const yes=b.dataset.display===state.display;b.classList.toggle('active',yes);b.setAttribute('aria-pressed',String(yes));});
  document.querySelectorAll('[data-version]').forEach(b=>{const yes=b.dataset.version===(state.display==='single'?state.focus:'compare');b.classList.toggle('active',yes);b.setAttribute('aria-pressed',String(yes));});
  $('comparisonMeaning').textContent=$('progress').checked?'按进度对齐 · 速度可能不同':'同一秒数比较 · 保留真实节奏';size();updateWorkflow();
 }
-function selectMotion(name){if(state.switching||state.loading)return;for(const slot of slots)if(state.models[slot]?.clips.some(c=>c.name===name))selectClip(slot,name);state.time=0;state.playing=duration()>0;clearTarget();drawLibrary();updateBoneChoices();drawMetadata();render();}
+function selectMotion(name){flatActions?.cancelPreview();if(state.switching||state.loading)return;for(const slot of slots)if(state.models[slot]?.clips.some(c=>c.name===name))selectClip(slot,name);state.time=0;state.playing=duration()>0;clearTarget();drawLibrary();updateBoneChoices();drawMetadata();render();}
 function seek(time){state.playing=false;state.time=Math.max(0,Math.min(duration(),Number(time)||0));render();updateClock();}
 function updateClock(){const d=duration();$('timeline').max=String(d||1);$('timeline').value=String(Math.min(state.time,d));$('timeline').style.setProperty('--progress',(d?Math.min(100,state.time/d*100):0)+'%');$('clock').replaceChildren(document.createTextNode(state.time.toFixed(3)+' '),el('span','/ '+d.toFixed(3)+' s'));const symbol=state.playing?'pause':'play';if($('play').dataset.symbol!==symbol){$('play').replaceChildren(icon(symbol));$('play').dataset.symbol=symbol;}$('play').setAttribute('aria-label',state.playing?'暂停':'播放');$('play').disabled=!state.ready||!d;$('prev').disabled=!d;$('next').disabled=!d;$('contextTime').textContent=localTime(activeSlot()).toFixed(3)+'s';$('frameInfo').textContent='第 '+Math.round(localTime(activeSlot())*state.fps)+' 帧 · '+state.fps+' fps 审阅';$('contextClip').textContent=activeModel()?.clip||'静态姿态';$('tickQuarter').textContent=(d/4).toFixed(2);$('tickMid').textContent=(d/2).toFixed(2);$('tickThreeQuarter').textContent=(d*.75).toFixed(2);$('tickEnd').textContent=d.toFixed(2)+' s';updateScopeVisual();}
 function context(){const slot=activeSlot(),m=state.models[slot];return{assetId:viewState.loadedAssetId,slot,asset:m?{sha256:m.meta.sha256,file:m.meta.file}:null,clip:m?.clip||null,time:localTime(slot),frame:Math.round(localTime(slot)*state.fps),fps:state.fps,speed:state.speed,loop:state.loop,scaleMode:$('scaleMode').value,view:state.view,displayMode:state.display==='single'?'all':'comparison',display:state.display,mode:$('progress').checked?'progress':'elapsed',normalized:$('scaleMode').value!=='raw'&&Boolean(m?.capabilities.hasMesh||m?.capabilities.hasNodes),rootLocked:$('lockRoot').checked,linkedCameras:$('linkCameras').checked,cameras:Object.fromEntries(slots.map(s=>[s,{position:cameras[s].position.toArray(),target:controls[s].target.toArray(),fov:cameras[s].fov,projection:'perspective'}])),slots:Object.fromEntries(slots.filter(s=>state.models[s]).map(s=>[s,{sha256:state.models[s].meta.sha256,file:state.models[s].meta.file,clip:state.models[s].clip,duration:state.models[s].duration,time:localTime(s)}])),normalization:Object.fromEntries(slots.filter(s=>state.models[s]).map(s=>[s,{scale:state.models[s].factor,restOffset:state.models[s].offset.toArray(),displayOffset:state.models[s].holder.position.toArray(),sourceHeight:state.models[s].height}])),selection:state.target?structuredClone(state.target):null,appearance:appearance.snapshot(m),resourceObservation:resourcePanels[slot].observe()};}
@@ -292,10 +303,9 @@ const nodeIndex=associated?m.parser?.associations?.get(associated)?.nodes:undefi
 for(const slot of slots){let down=null;const surface=$('surface-'+slot);surface.addEventListener('pointerdown',e=>{down={x:e.clientX,y:e.clientY};});surface.addEventListener('pointerup',e=>{if(down&&Math.hypot(e.clientX-down.x,e.clientY-down.y)<5)pickSurface(e,slot);down=null;});}
 $('boneSelect').onchange=()=>{const slot=activeSlot(),m=state.models[slot],b=selectedJoint(m,$('boneSelect').value);if(!b)return clearTarget();setTarget({slot,assetSha256:m.meta.sha256,bone:rawName(m,b),nodeIndex:m.parser?.associations?.get(b)?.nodes,mesh:null,space:'bone-local',inferred:false});};$('clearSelection').onclick=clearTarget;
 function drawSidebar(){
- const m=activeModel(),host=$('sidebarClipList');host.replaceChildren();$('sidebarClipCount').textContent=m?.clips.length||0;
- for(const c of m?.clips||[]){const active=m.clip===c.name,b=el('button',undefined,'sidebar-clip'+(active?' active':'')),text=el('span');b.type='button';b.setAttribute('aria-pressed',String(active));text.append(el('b',c.name),el('small',c.duration.toFixed(2)+' s'));b.append(icon('motion'),text);b.onclick=()=>selectMotion(c.name);host.append(b);}
- if(m&&!m.clips.length)host.append(el('p',resourceLabel(m.capabilities)+' · 无内置动作','sidebar-static'));
+ const clips=activeModel()?.libraryOriginalClips||activeModel()?.clips||[];$('sidebarClipCount').textContent=clips.length;$('presetActionCount').textContent=clips.length;flatActions?.sync();
 }
+
 function drawLibrary(){const m=activeModel(),list=$('clipList'),query=$('search').value.trim().toLowerCase();drawSidebar();list.replaceChildren();const clips=(m?.clips||[]).filter(c=>!query||c.name.toLowerCase().includes(query));$('clipCount').textContent=m?.clips.length||0;const chooser=$('motionSelect');chooser.replaceChildren();for(const c of m?.clips||[]){const o=el('option',c.name);o.value=c.name;chooser.append(o);}if(m?.clip)chooser.value=m.clip;if(!m?.clips.length){const o=el('option','无内置动作');o.value='';chooser.append(o);}chooser.disabled=!m?.clips.length;if(!m?.clips.length){list.append(el('p',m?resourceLabel(m.capabilities)+'。此资源没有内置动作；可独立检查，或明确关联兼容动作。':'导入模型、骨架或动作，或稍候读取示例。','clip-empty'));return;}for(const [index,c] of clips.entries()){const b=el('button',undefined,'motion-card'+(m.clip===c.name?' active':''));b.setAttribute('role','option');b.setAttribute('aria-selected',String(m.clip===c.name));b.dataset.clip=c.name;const glyph=el('span',undefined,'motion-icon'),text=el('span',undefined,'motion-text');glyph.append(icon('motion'));text.append(el('strong',c.name),el('small',c.duration.toFixed(2)+' 秒 · '+(state.display==='single'&&state.focus==='baseline'?'原版动作':'版本对照')));b.append(glyph,text,el('span',String(index+1).padStart(2,'0'),'motion-index'));b.onclick=()=>{selectMotion(c.name);$('libraryDialog').close();};list.append(b);}if(!clips.length)list.append(el('p','没有找到这个动作，试试其他名称。','clip-empty'));}
 function drawMetadata(){
  for(const b of $('versionModes')?.querySelectorAll?.('button')||[])b.disabled=Boolean(state.motionPreview);
@@ -303,11 +313,11 @@ function drawMetadata(){
  const m=activeModel();if(!m)return;
  const teaching=m.meta.generator?.includes('original teaching');
  const title=state.project.title&&state.project.title!=='动作反馈练习'?state.project.title:teaching?'原创练习角色':m.meta.label.replace(/\.(glb|fbx)$/i,'');
- $('sidebarAssetName').textContent=(title||'当前角色').replace(/ · (修改前|修改后)$/,'');$('sidebarAssetName').title=title||'当前角色';$('sidebarAssetMeta').textContent=(m.meta.bytes/1048576).toFixed(1)+' MB · GLB';
+ $('sidebarAssetName').textContent=(title||'当前角色').replace(/ · (修改前|修改后)$/,'');$('sidebarAssetName').title=title||'当前角色';$('sidebarAssetMeta').textContent=(m.meta.bytes/1048576).toFixed(1)+' MB · GLB';flatActions?.sync();
  $('roleName').textContent=title||'当前角色';$('workspaceTitle').textContent=title||'动作修改工作台';$('assetKind').textContent=resourceLabel(m.capabilities);
  const motionOrigin=m.meta.source?.assembly?.clips?.[m.clip];
  $('assetDescription').textContent=motionOrigin?'动作来源：'+motionOrigin.file+' · '+motionOrigin.sourceClip:teaching?'原创教学角色，可以直接体验一次动作修改。':m.capabilities.limitations.join('；')||'素材留在本机，原文件与每次修改独立保留。';$('assetLabel').textContent=m.meta.label;$('assetStats').textContent=(m.meta.bytes/1048576).toFixed(1)+' MB · '+m.joints.length+' 个骨骼 / 节点';
- $('clipTitle').textContent=m.clip==='mixamo.com'?'角色动作':m.clip||resourceLabel(m.capabilities);$('stageEyebrow').textContent=state.motionPreview?'公共动作试播':state.archivedJobId?'历史版本':state.focus==='candidate'?'修改后的版本':m.clip?'当前动作':'当前资源';
+ $('clipTitle').textContent=state.motionPreview?displayActionName(m.clip):m.clip==='mixamo.com'?'角色动作':m.clip||resourceLabel(m.capabilities);$('stageEyebrow').textContent=state.motionPreview?'兼容动作试播':state.archivedJobId?'历史版本':state.focus==='candidate'?'修改后的版本':m.clip?'当前动作':'当前资源';
  $('currentHash').textContent=m.meta.sha256;$('stageStatus').textContent=state.motionPreview?'动作试播 · 模型版本保持':state.archivedJobId?'历史对照 · 当前素材保持':(m.appearance?'项目外观 · ':'中性检查 · ')+resourceLabel(m.capabilities);
  $('baselineFile').textContent=state.models.baseline?.meta.label||'—';$('candidateFile').textContent=state.models.candidate?.meta.label||'尚无候选';$('baselineImportName').textContent=state.models.baseline?.meta.label||'';$('candidateImportName').textContent=state.models.candidate?.meta.label||'';
  if(!state.target){$('targetText').textContent=m.capabilities.preview==='curves'?resourcePanels[activeSlot()].observe()?.binding||'全部曲线':m.capabilities.hasMesh?'整个模型':'整个资源';}$('openTarget').disabled=!m.capabilities.canPickNode&&!m.capabilities.canPickSurface;
