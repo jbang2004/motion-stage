@@ -14,6 +14,7 @@ export const VERSION=(await json(resolve(ROOT,'package.json'))).version;
 // compatibility projection only. Version 3 used the active projection as its
 // authority, so adopt it once while migrating, before installing the getter.
 export function normalizeProject(cfg){
+ if(cfg.version>4)throw Error('工作区由更新版本的动作台创建，请升级程序后再打开。');
  if(!cfg.models){
   cfg.models={};cfg.legacyAssetId='legacy';
   if(cfg.slots?.baseline||cfg.slots?.candidate){cfg.activeAssetId='legacy';cfg.models.legacy={id:'legacy',name:cfg.slots.baseline?.label||'已有素材',origin:'import',slots:structuredClone(cfg.slots)};}

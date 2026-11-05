@@ -30,4 +30,5 @@ test('legacy single-model and empty workspaces retain compatible views',()=>{
  assert.equal(cfg.activeAssetId,'legacy');assert.deepEqual(cfg.slots,slots('old'));
  const empty=normalizeProject({version:2,slots:{}});
  assert.deepEqual(empty.slots,{});assert.deepEqual(modelSlots(empty,'missing'),{});
+ assert.throws(()=>normalizeProject({version:5,models:{}}),/更新版本/);
 });
