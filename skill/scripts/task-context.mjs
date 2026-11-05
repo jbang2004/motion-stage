@@ -4,6 +4,7 @@ import {atomic,inside,json,sha} from './core.mjs';
 import {buildProjectContext,getProjectLink} from './project-context.mjs';
 import {buildContinuity} from './continuity.mjs';
 import {consumedDependencies,characterBindingDigest} from './source-dependencies.mjs';
+import {projectPreviewIndex} from './project-preview-index.mjs';
 
 async function effectiveJobSource(work,job,continuity){
  const selected=job.inputs?.[job.slot],effective={...job,context:{...job.context}},label=String(selected?.label||'').split(' · ')[0];
@@ -26,12 +27,13 @@ async function effectiveJobSource(work,job,continuity){
  return effective;
 }
 
-async function ownedAuthoringSources(work,job,packet){
+async function ownedAuthoringSources(work,job,packet,{preview=false}={}){
+ const hashFile=async path=>preview?(await projectPreviewIndex.read('sha256',path,async()=>sha(await readFile(path)))).value:sha(await readFile(path));
  const source=job.source||job.inputs?.[job.slot]?.source;if(!source)return;
  const selectedSha=job.inputs?.[job.slot]?.sha256,items=[];
  const add=async(file,kind,expected=null,metadata={})=>{
   try{const path=await inside(work,file),s=await stat(path);if(!s.isFile()||s.size>512*1024*1024)return;
-   const hash=sha(await readFile(path));if(expected&&hash!==expected){packet.warnings.push('导入制作源副本已变化：'+file);return;}
+   const hash=await hashFile(path);if(expected&&hash!==expected){packet.warnings.push('导入制作源副本已变化：'+file);return;}
    const projectPath=packet.project?relative(packet.project.root,path).split(sep).join('/'):file;
    items.push({relativePath:projectPath,workspaceRelativePath:file,rootKind:'workspace',sha256:hash,bytes:s.size,confidence:'linked',why:kind,evidence:[{kind:'import-provenance',detail:'由本工作区导入/转换记录明确关联；不依赖文件名猜测。'}],excerpts:[],metadata});
   }catch{packet.warnings.push('导入制作源副本缺失或不可读：'+file);}
@@ -41,7 +43,7 @@ async function ownedAuthoringSources(work,job,packet){
  if(match){
   const base='conversions/'+match[1];
   try{const mapping=await json(await inside(work,base+'/source-map.json'));if(mapping.source?.sha256===source.sha256){
-   const exported=sha(await readFile(await inside(work,base+'/converted.glb'))),upstream=exported!==selectedSha;
+   const exported=await hashFile(await inside(work,base+'/converted.glb')),upstream=exported!==selectedSha;
    await add(base+'/editable.blend',upstream?'导入时生成的上游 Blender 制作源；尚未同步后续候选改动。':'与当前导入预览对应的 Blender 制作源。',null,{sourceAssetSha256:exported,upstreamOnly:upstream,fps:mapping.source.fps,frameRange:mapping.source.frameRange});
    if(upstream)packet.warnings.push('Blender 源对应上游导入版本；请先衔接当前候选与历史修改，不要用旧源直接覆盖当前候选。');
   }}catch{}
@@ -54,7 +56,7 @@ async function ownedAuthoringSources(work,job,packet){
 export async function assembleTaskContext(work,job,options={}){
  const continuity=await buildContinuity(work,job),effective=await effectiveJobSource(work,job,continuity);
  const request=[job.request,...(job.clarifications||[]).map(c=>c.message)].filter(Boolean).join('\n');
- const projectContext=await buildProjectContext(work,{...effective,request},options);await ownedAuthoringSources(work,effective,projectContext);
+ const projectContext=await buildProjectContext(work,{...effective,request},options);await ownedAuthoringSources(work,effective,projectContext,options);
  if(effective.source?.nativeSourceSynchronized===false&&projectContext.project&&(projectContext.code.length||projectContext.sources.length)){projectContext.task.sourceProvenance={selectedSha256:job.inputs?.[job.slot]?.sha256,upstreamAssetSha256:effective.source.nativeSourceAtAssetSha256||effective.source.previewSha256||null,upstreamOnly:true};projectContext.warnings.push('关联工程文件或制作源对应上游版本；本次以选定候选为基础衔接历史修改，不代表已将该候选安装到正式工程。');}
  return{version:1,createdAt:new Date().toISOString(),source:{assetId:job.assetId||null,slot:job.slot,sha256:job.inputs?.[job.slot]?.sha256,clip:job.clip},projectContext,continuity};
 }
