@@ -4,7 +4,7 @@
 
 ## 身份、版本与兼容
 
-`project.json` 的 version 3 增加 `models`、`activeAssetId` 与 `legacyAssetId`。每个模型记录独立 `slots`、`headRevision`、来源及源更新前的 `revisions`。顶层 `slots` 保持当前选中模型的兼容投影。旧工作区按固定 `legacy` 身份读取，第一次写入才保存新结构；旧任务、截图、上下文及验收证据不重写。
+`project.json` 使用 version 4。每个 `models[id]` 记录独立 `slots`、`headRevision`、来源及源更新前的 `revisions`，并以模型内的槽位为唯一内部版本来源。`activeAssetId` 指定当前模型，顶层 `slots` 仅作兼容投影。读取 version 3 时采用其当时的顶层活动槽位；更旧工作区按固定 `legacy` 身份迁移，第一次写入才保存新结构。旧任务、截图、上下文及验收证据不重写，未知的未来元数据版本会被拒绝。
 
 扫描结果保存在 `catalog.json`。相对路径对应稳定 `assetId`，同名不同路径独立。相同 SHA 只复用存储，不能建立历史关联。改名或移动到另一相对路径目前作为新条目；原条目标记缺失，已有快照与任务保持。项目整体移动仍通过项目关联的相对根路径恢复。
 
