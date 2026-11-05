@@ -100,6 +100,7 @@
           <button id="openScope" class="text-button" data-icon="range">选一段修改</button>
         </div>
       </section>
+      <p id="observationConditions" class="observation-conditions" role="status"></p>
       <div class="stage-footnote"><span><span class="live-dot"></span>本地三维预览</span><span class="desktop-shortcuts"><kbd>空格</kbd> 播放 / 暂停 <span class="key-separator">·</span> <kbd>←</kbd><kbd>→</kbd> 逐帧</span><span class="touch-hint">拖动旋转 · 双指缩放 · 轻点选部位</span></div>
       <div id="notice" class="inline-notice" hidden role="status"></div>
     </main>
@@ -276,6 +277,10 @@
 <span>原地看动作<small>锁定角色水平位移，方便检查姿态</small>
 </span>
 <input id="lockRoot" type="checkbox" checked>
+</label>
+<label>
+<span>尺度检查<small>两版共用输入变换；切换后按当前输入重新构图，原始尺度保留文件原点与单位</small></span>
+<select id="scaleMode"><option value="shared">共用修改前尺度</option><option value="raw">原始尺度与原点</option></select>
 </label>
 <label>
 <span>显示骨架</span>

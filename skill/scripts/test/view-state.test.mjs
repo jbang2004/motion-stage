@@ -31,7 +31,7 @@ test('autosave, visibility changes and unload cannot overwrite a draft during a 
  assert.equal(saveViewDraft(storage,view,state,()=>draft('A','Original A draft')),true);
  storage.setItem(draftStorageKey('/review','B'),JSON.stringify(draft('B','Important B draft')));
  view.select('B');state.switching=true;state.loading=true;state.project={activeAssetId:'B'};
- const ctx=vm.createContext({state,viewState:view,localStorage:storage,saveViewDraft,context:()=>({assetId:view.loadedAssetId,asset:{sha256:'A-version'}}),$:()=>({value:''})});
+ const ctx=vm.createContext({renderLoop:null,state,viewState:view,localStorage:storage,saveViewDraft,context:()=>({assetId:view.loadedAssetId,asset:{sha256:'A-version'}}),$:()=>({value:''})});
  vm.runInContext(persistSource,ctx);
  for(let i=0;i<3;i++)assert.equal(vm.runInContext('persistView()',ctx),false);
  assert.equal(readViewDraft(storage,{workspace:'/review',assetId:'B'}).request,'Important B draft');
@@ -96,7 +96,7 @@ test('temporary screenshot camera positions are never saved as the user draft vi
 });
 
 function pollHarness(view,state,response){
- let redraws=0;const ctx=vm.createContext({viewState:view,state,api:async()=>response.promise,drawAgent:()=>redraws++,drawJobs:()=>redraws++,updateDisplay:()=>redraws++,notice:()=>redraws++});
+ let redraws=0;const ctx=vm.createContext({renderLoop:null,viewState:view,state,api:async()=>response.promise,drawAgent:()=>redraws++,drawJobs:()=>redraws++,updateDisplay:()=>redraws++,notice:()=>redraws++});
  vm.runInContext('let polling=false,pollErrors=0;\n'+pollSource,ctx);
  return {run:()=>vm.runInContext('pollStudio()',ctx),redraws:()=>redraws};
 }
@@ -127,7 +127,7 @@ test('production polling applies a current response and retains other-model jobs
 test('production pair loading disposes stale completed geometry without committing it into a newer view',async()=>{
  const {view}=loadedView('A'),ticket=view.beginLoad(),one=deferred(),two=deferred(),released=[],committed=[];
  const state={models:{baseline:{meta:{sha256:'old',assetId:'A'}},candidate:{meta:{sha256:'old',assetId:'A'}}}};
- const ctx=vm.createContext({state,slots:['baseline','candidate'],loadSlot:slot=>slot==='baseline'?one.promise:two.promise,dispose:model=>released.push(model.id),commitModel:(slot,model)=>committed.push([slot,model.id])});
+ const ctx=vm.createContext({renderLoop:null,state,slots:['baseline','candidate'],loadSlot:slot=>slot==='baseline'?one.promise:two.promise,dispose:model=>released.push(model.id),commitModel:(slot,model)=>committed.push([slot,model.id])});
  vm.runInContext(pairSource,ctx);ctx.wanted={baseline:{sha256:'new',assetId:'A'},candidate:{sha256:'new',assetId:'A'}};ctx.current=()=>view.isUnchanged(ticket,'A');
  const pending=vm.runInContext('loadPair(wanted,false,current)',ctx);view.select('B');one.resolve({id:'A-baseline'});two.resolve({id:'A-candidate'});
  assert.equal(await pending,false);assert.deepEqual(released.sort(),['A-baseline','A-candidate']);assert.equal(committed.length,0);assert.equal(state.models.baseline.meta.sha256,'old');
@@ -135,7 +135,7 @@ test('production pair loading disposes stale completed geometry without committi
 
 test('production pair loading releases successful siblings when one load fails, retaining the previous pair',async()=>{
  const released=[],state={models:{baseline:{meta:{sha256:'old'}},candidate:{meta:{sha256:'old'}}}};
- const ctx=vm.createContext({state,slots:['baseline','candidate'],loadSlot:slot=>slot==='baseline'?Promise.resolve({id:'prepared'}):Promise.reject(Error('damaged geometry')),dispose:model=>released.push(model.id),commitModel:()=>assert.fail('must not commit partial pair')});
+ const ctx=vm.createContext({renderLoop:null,state,slots:['baseline','candidate'],loadSlot:slot=>slot==='baseline'?Promise.resolve({id:'prepared'}):Promise.reject(Error('damaged geometry')),dispose:model=>released.push(model.id),commitModel:()=>assert.fail('must not commit partial pair')});
  vm.runInContext(pairSource,ctx);ctx.wanted={baseline:{sha256:'new'},candidate:{sha256:'new'}};
  await assert.rejects(vm.runInContext('loadPair(wanted)',ctx),/damaged geometry/);assert.deepEqual(released,['prepared']);assert.equal(state.models.candidate.meta.sha256,'old');
 });
@@ -149,7 +149,7 @@ function selectionHarness({storageFailure,existingA=false}={}){
  if(existingA)storage.setItem(draftStorageKey('/review','A'),JSON.stringify({...draft('A','Older persisted A request'),preserve:'Older A preserve'}));
  if(storageFailure==='quota')storage.setItem=()=>{throw Error('QuotaExceededError');};
  const requestLog=[];
- const ctx=vm.createContext({state,viewState:view,localStorage:storage,saveViewDraft,readViewDraft,
+ const ctx=vm.createContext({renderLoop:null,state,viewState:view,localStorage:storage,saveViewDraft,readViewDraft,
   $:field,clearTimeout,history:{replaceState(){}},location:{href:'http://local/?asset=A'},
   api:async(path,method,body,request)=>{
    requestLog.push({path,method,body,request});
