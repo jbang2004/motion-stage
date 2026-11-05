@@ -10,27 +10,33 @@ export const ROOT=resolve(import.meta.dirname,'..');
 export const sha=b=>createHash('sha256').update(b).digest('hex');
 export const json=async p=>JSON.parse(await readFile(p,'utf8'));
 export const VERSION=(await json(resolve(ROOT,'package.json'))).version;
-// slots remains the active-view projection for older clients. Model heads are
-// independent of that projection, so browsing never changes another task's input.
+// Version 4 has one authority: models[id].slots. Top-level slots is a serialized
+// compatibility projection only. Version 3 used the active projection as its
+// authority, so adopt it once while migrating, before installing the getter.
 export function normalizeProject(cfg){
  if(!cfg.models){
   cfg.models={};cfg.legacyAssetId='legacy';
   if(cfg.slots?.baseline||cfg.slots?.candidate){cfg.activeAssetId='legacy';cfg.models.legacy={id:'legacy',name:cfg.slots.baseline?.label||'已有素材',origin:'import',slots:structuredClone(cfg.slots)};}
  }
- cfg.slots??={};cfg.version=3;return cfg;
+ if((cfg.version||0)<4&&cfg.activeAssetId&&Object.hasOwn(cfg.models,cfg.activeAssetId)&&cfg.slots){
+  cfg.models[cfg.activeAssetId].slots=structuredClone(cfg.slots);
+ }
+ Object.defineProperty(cfg,'slots',{enumerable:true,configurable:true,get(){
+  return structuredClone(modelSlots(this,this.activeAssetId));
+ }});
+ cfg.version=4;return cfg;
 }
 export const readProject=async work=>normalizeProject(await readWorkspaceJSON(work,'project.json'));
 export function modelSlots(cfg,id=cfg.activeAssetId){
- if(!id)return cfg.slots||{};
+ if(!id)return {};
  if(!Object.hasOwn(cfg.models||{},id))return {};
- return id===cfg.activeAssetId?cfg.slots:cfg.models[id].slots||{};
+ return cfg.models[id].slots||{};
 }
 export function projectView(cfg,id=cfg.activeAssetId){if(id&&!Object.hasOwn(cfg.models,id))throw Error('模型不存在');return {version:3,title:cfg.models[id]?.name||cfg.title,fps:cfg.fps,revision:cfg.revision||0,activeAssetId:id||null,legacyAssetId:cfg.legacyAssetId||null,slots:modelSlots(cfg,id)};}
 export function setModelSlots(cfg,id,slots,{activate=false}={}){
  if(!Object.hasOwn(cfg.models,id))throw Error('模型不存在');
- if(cfg.activeAssetId&&cfg.models[cfg.activeAssetId])cfg.models[cfg.activeAssetId].slots=structuredClone(cfg.slots);
  cfg.models[id].slots=structuredClone(slots);cfg.models[id].updatedAt=new Date().toISOString();
- if(activate||cfg.activeAssetId===id){cfg.activeAssetId=id;cfg.slots=structuredClone(slots);}
+ if(activate||cfg.activeAssetId===id)cfg.activeAssetId=id;
  cfg.revision=(cfg.revision||0)+1;
 }
 export async function activateModel(work,id){return withWorkspaceLock(work,async()=>{

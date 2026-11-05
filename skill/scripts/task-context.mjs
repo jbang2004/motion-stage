@@ -51,10 +51,10 @@ async function ownedAuthoringSources(work,job,packet){
  while(JSON.stringify(packet).length>max){let trimmed=false;for(const key of ['history','code','sources'])if(packet[key]?.length>(key==='sources'?items.length:0)){packet[key].pop();trimmed=true;break;}if(!trimmed)break;packet.budget.truncated=true;}
  if(packet.budget)packet.budget.usedCharacters=JSON.stringify(packet).length;
 }
-export async function assembleTaskContext(work,job){
+export async function assembleTaskContext(work,job,options={}){
  const continuity=await buildContinuity(work,job),effective=await effectiveJobSource(work,job,continuity);
  const request=[job.request,...(job.clarifications||[]).map(c=>c.message)].filter(Boolean).join('\n');
- const projectContext=await buildProjectContext(work,{...effective,request});await ownedAuthoringSources(work,effective,projectContext);
+ const projectContext=await buildProjectContext(work,{...effective,request},options);await ownedAuthoringSources(work,effective,projectContext);
  if(effective.source?.nativeSourceSynchronized===false&&projectContext.project&&(projectContext.code.length||projectContext.sources.length)){projectContext.task.sourceProvenance={selectedSha256:job.inputs?.[job.slot]?.sha256,upstreamAssetSha256:effective.source.nativeSourceAtAssetSha256||effective.source.previewSha256||null,upstreamOnly:true};projectContext.warnings.push('关联工程文件或制作源对应上游版本；本次以选定候选为基础衔接历史修改，不代表已将该候选安装到正式工程。');}
  return{version:1,createdAt:new Date().toISOString(),source:{assetId:job.assetId||null,slot:job.slot,sha256:job.inputs?.[job.slot]?.sha256,clip:job.clip},projectContext,continuity};
 }

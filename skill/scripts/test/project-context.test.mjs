@@ -98,3 +98,18 @@ test('reference extraction preserves real spaced literals without reporting comm
  await linkProject(work,root);const result=await buildProjectContext(work,job);assert.ok(result.sources.some(i=>i.relativePath===spaced),'quoted filenames containing spaces remain resolvable');assert.ok(!result.references.some(i=>/BEFORE=|node --test|numbers|rules they|moves\.js;|basename-only|not-present|also-missing/.test(i.reference)));assert.equal(result.references.filter(i=>i.reference===missing).length,1,'same missing path across documents is reported once');
  const mentioned=result.code.find(i=>i.relativePath==='tools/command-only.mjs');assert.ok(mentioned);assert.equal(mentioned.confidence,'candidate','a command mention must not certify an authoring-source binding');
 }));
+
+test('preview index is query-independent, refreshes edits/additions and is bypassed for frozen context',()=>fixture(async({root,work})=>{
+ const job=await assetFixture(root,work);await linkProject(work,root);
+ const first=await buildProjectContext(work,job,{preview:true});
+ const second=await buildProjectContext(work,{...job,request:'Haru keep legs and reduce arm'},{preview:true});
+ assert.ok(second.scan.previewCacheHits>0);
+ assert.deepEqual(second.code.map(x=>x.relativePath),first.code.map(x=>x.relativePath));
+ await put(root,'src/haru.js',"export const model = '/models/haru.glb';\nexport const updated = true;\n");
+ await put(root,'src/haru-extra.js',"export const model = '/models/haru.glb';\n");
+ const changed=await buildProjectContext(work,job,{preview:true});
+ assert.notEqual(changed.code.find(x=>x.relativePath==='src/haru.js').sha256,first.code.find(x=>x.relativePath==='src/haru.js').sha256);
+ assert.ok(changed.code.some(x=>x.relativePath==='src/haru-extra.js'));
+ const frozen=await buildProjectContext(work,job);assert.equal(frozen.scan.previewCacheHits,undefined);
+ assert.deepEqual(frozen.code,changed.code);
+}));

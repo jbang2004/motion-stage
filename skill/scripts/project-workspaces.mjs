@@ -4,7 +4,7 @@ import {homedir} from 'node:os';
 import {execFile} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
 import {promisify} from 'node:util';
-import {atomic,json,inside,importAsset,withWorkspaceLock,sha,stageAsset,commitWorkspace,readProject} from './core.mjs';
+import {atomic,json,inside,importAsset,withWorkspaceLock,sha,stageAsset,commitWorkspace,readProject,normalizeProject,setModelSlots,modelSlots} from './core.mjs';
 import {buildDemo} from './practice.mjs';
 import {getProjectLink,linkProject,detectProjectRoot} from './project-context.mjs';
 
@@ -76,11 +76,11 @@ export async function prepareProject(work,path,{adoptCurrent=true,settingsPath}=
     const filter=async source=>{if((await lstat(source)).isSymbolicLink())throw Error('工作区含符号链接，未自动迁移：'+relative(from,source));return true;};
     for(const name of ['assets','sources','conversions','incoming','jobs','snapshots','checkpoints','decisions'])if(await exists(join(from,name)))await cp(join(from,name),join(stage,name),{recursive:true,errorOnExist:true,force:false,filter});
     for(const name of ['feedback.json','marks.json','task.md','practice-report.json','catalog.json'])if(await exists(join(from,name)))await cp(join(from,name),join(stage,name),{errorOnExist:true,force:false,filter});
-    const cfg=await json(join(from,'project.json')),cfgTime=(await stat(join(from,'project.json'))).mtimeMs;
+    const cfg=normalizeProject(await json(join(from,'project.json'))),cfgTime=(await stat(join(from,'project.json'))).mtimeMs;
     // Older studios recorded 'return to original' without moving the active head.
     // Honor only an explicit later legacy decision, preserving its exact selected SHA.
     const prior=(await jobs.listJobs(from,{raw:true})).flatMap(j=>{const r=j.reviews?.at(-1);return j.candidate?.sha256===cfg.slots?.candidate?.sha256&&r?.decision==='keep-baseline'&&!r.recordFile&&Date.parse(r.at)>=cfgTime&&r.assets?.baseline?[{j,r}]:[];}).sort((a,b)=>Date.parse(b.r.at)-Date.parse(a.r.at))[0];
-    if(prior){const chosen=prior.r.assets.baseline,bytes=await readFile(await inside(from,chosen.file));if(sha(bytes)!==chosen.sha256)throw Error('先前选择保留的版本已损坏，未迁移');cfg.slots.candidate=structuredClone(chosen);cfg.revision=(cfg.revision||0)+1;cfg.migrationNotes=[...(cfg.migrationNotes||[]),{kind:'honored-recorded-legacy-return',jobId:prior.j.id,from:prior.j.candidate.sha256,to:chosen.sha256,userDecisionAt:prior.r.at,at:new Date().toISOString()}];}
+    if(prior){const chosen=prior.r.assets.baseline,bytes=await readFile(await inside(from,chosen.file));if(sha(bytes)!==chosen.sha256)throw Error('先前选择保留的版本已损坏，未迁移');setModelSlots(cfg,cfg.activeAssetId,{...modelSlots(cfg),candidate:structuredClone(chosen)});cfg.migrationNotes=[...(cfg.migrationNotes||[]),{kind:'honored-recorded-legacy-return',jobId:prior.j.id,from:prior.j.candidate.sha256,to:chosen.sha256,userDecisionAt:prior.r.at,at:new Date().toISOString()}];}
     await atomic(join(stage,'project.json'),cfg);migrated=true;
    });
   }
