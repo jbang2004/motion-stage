@@ -9,6 +9,10 @@ import {listJobs,getJob,createJob,cancelJob,localEditJob,reviewJob,inspectSlot,i
 import {projectStatus,prepareProject,chooseProjectFolder,revealWorkspace} from './project-workspaces.mjs';
 import {diagnoseRuntime} from './runtime-diagnostics.mjs';
 import {appearanceStatus,appearanceFile} from './project-appearance.mjs';
+import {readJobIndex,jobsPage,activeJobStates} from './job-index.mjs';
+import * as jobLifecycle from './jobs.mjs';
+
+async function studioJobIndex(work){return withWorkspaceLock(work,async()=>{let index=await readJobIndex(work);if(jobLifecycle.reconcileExecutions&&(await jobLifecycle.reconcileExecutions(work,{index})).changed)index=await readJobIndex(work);return index;});}
 
 const MIME={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json; charset=utf-8','.glb':'model/gltf-binary','.wasm':'application/wasm','.svg':'image/svg+xml','.png':'image/png','.jpg':'image/jpeg','.mp4':'video/mp4','.md':'text/plain; charset=utf-8'};
 const workspaceServers=new Map();
@@ -42,8 +46,18 @@ export async function serve(work,port=5178,options={}){
    if(p==='/api/appearance'&&req.method==='GET')return send(200,await appearanceStatus(work,url.searchParams.get('assetId')||undefined));
    if(p==='/api/project'&&req.method==='GET')return send(200,await projectStatus(work,options));
    const pc=p.match(/^\/api\/jobs\/([a-f0-9-]{36})\/project-context$/);if(pc&&req.method==='GET')return send(200,await getJobProjectContext(work,pc[1]));
-   if(p==='/api/studio'&&req.method==='GET'){const capabilities=await getCaps();return send(200,await withWorkspaceLock(work,async()=>({version:2,project:projectView(await readProject(work),url.searchParams.get('assetId')||undefined),jobs:await listJobs(work),capabilities,agent:{...agent,lastError:agent.error}})));}
-   if(p==='/api/jobs'&&req.method==='GET')return send(200,{jobs:await listJobs(work)});
+   if(p==='/api/studio'&&req.method==='GET'){
+    const capabilities=await getCaps();
+    if(url.searchParams.get('compact')!=='1')return send(200,await withWorkspaceLock(work,async()=>({version:2,project:projectView(await readProject(work),url.searchParams.get('assetId')||undefined),jobs:await listJobs(work),capabilities,agent:{...agent,lastError:agent.error}})));
+    return send(200,await withWorkspaceLock(work,async()=>{
+     const project=projectView(await readProject(work),url.searchParams.get('assetId')||undefined),index=await studioJobIndex(work),rows=index.rows.filter(j=>j.assetId===project.activeAssetId),selected=url.searchParams.get('jobId');
+     const currentCandidate=rows.find(j=>j.state==='complete'&&j.candidate?.sha256===project.slots.candidate?.sha256);
+     const jobs=rows.filter((j,i)=>i===0||activeJobStates.has(j.state)||j.id===selected||j.id===currentCandidate?.id);
+     const payload={version:3,project,jobs,jobCounts:index.counts,totalJobs:index.total,jobsRevision:index.revision,capabilities,agent:{...agent,lastError:agent.error}};
+     const revision=sha(Buffer.from(JSON.stringify(payload)));return url.searchParams.get('since')===revision?{version:3,unchanged:true,revision,assetId:project.activeAssetId}:{...payload,revision};
+    }));
+   }
+   if(p==='/api/jobs'&&req.method==='GET')return send(200,url.searchParams.get('page')==='1'?await jobsPage(work,Object.fromEntries(url.searchParams),{index:await studioJobIndex(work)}):{jobs:await listJobs(work)});
    if(/^\/api\/jobs\/[a-f0-9-]{36}$/.test(p)&&req.method==='GET')return send(200,await getJob(work,p.split('/').pop()));
    if(p==='/api/inspect'&&req.method==='GET')return send(200,await inspectSlot(work,url.searchParams.get('slot')||'baseline',url.searchParams.get('assetId')||undefined));
    if(p==='/api/feedback'&&req.method==='GET')return send(200,await json(await inside(work,'feedback.json')));

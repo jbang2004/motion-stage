@@ -16,22 +16,22 @@ const tick=()=>new Promise(setImmediate);
 const asset=(id='A',sha256='source')=>({assetId:id,sha256,file:'assets/'+sha256+'.glb'});
 const queued={id:'local-job',assetId:'A',state:'queued',slot:'baseline',executor:'local',inputs:{baseline:asset(),candidate:asset()},scope:{wholeClip:false,start:.2,end:.8}};
 const complete={...queued,state:'complete',candidate:asset('A','edited'),audit:{factor:.7}};
-function harness({createGate,editGate,result=complete,editError,getResult,refreshError,range={wholeClip:false,start:.2,end:.8}}={}){
+function harness({createGate,createError,editGate,result=complete,editError,getResult,refreshError,range={wholeClip:false,start:.2,end:.8}}={}){
  const view=createViewState('A');view.markLoaded(view.beginLoad(),'A');
  const state={ready:true,initialized:true,loading:false,switching:false,capturing:false,submitting:false,archivedJobId:null,panelMode:'compose',project:{activeAssetId:'A',slots:{baseline:asset(),candidate:asset()}},models:{baseline:{meta:asset(),action:{}},candidate:{meta:asset(),action:{}}},jobs:[],allJobs:[],agent:{connected:true},target:{bone:'LeftShoulder'}};
  const fields=new Map(),field=id=>{if(!fields.has(id))fields.set(id,{value:'',disabled:false,textContent:'',focus(){},showModal(){}});return fields.get(id);};field('swingFactor').value='.7';field('request').value='Current A draft';field('preserve').value='Keep all other tracks';
  const requests=[],errors=[],shown=[],toasts=[],refreshes=[],pollGates=[],notices=[];let scopeValue=range;
- const api=async(path,method='GET',body)=>{
-  requests.push({path,method,body});
+ const api=async(path,method='GET',body,request)=>{
+  requests.push({path,method,body,request});
   if(path==='/api/studio'){assert.ok(pollGates.length,'unexpected poll');return pollGates.shift().promise;}
-  if(path==='/api/jobs')return createGate?createGate.promise:structuredClone(queued);
+  if(path==='/api/jobs'){if(createError)throw Error(createError);return createGate?createGate.promise:structuredClone(queued);}
   if(path==='/api/jobs/local-job/local-edit'){if(editError)throw Error(editError);return editGate?editGate.promise:structuredClone(result);}
   if(path==='/api/jobs/local-job')return structuredClone(getResult||{...queued,state:'failed',error:'stored failure'});
   throw Error('Unexpected API '+path);
  };
  const ctx=vm.createContext({state,viewState:view,$:field,api,clearTimeout,structuredClone,
   context:()=>({assetId:view.loadedAssetId,slot:'baseline',asset:state.models.baseline.meta}),scope:()=>({...scopeValue}),activeSlot:()=> 'baseline',activeModel:()=>state.models.baseline,parentJobId:()=>null,captureStage:()=>({toDataURL:()=> 'data:image/png;base64,fixture'}),canvas:{toDataURL:()=> 'data:image/png;base64,fixture'},
-  render(){},drawJobs(){},updateClock(){},drawMetadata(){},drawLatestJob(){},drawAgent(){},updateDisplay(){},notice:message=>notices.push(message),connectAgent:async()=>assert.fail('Agent must not connect in fixture'),errorString:e=>typeof e==='string'?e:e?.message||'',fail:error=>errors.push(error.message),toast:message=>toasts.push(message),
+  render(){},drawJobs(){},updateClock(){},updateTaskClock(){},drawMetadata(){},drawLatestJob(){},drawAgent(){},drawCatalog(){},loadJobHistory:async()=>{},mergeJobSummary:s=>s,persistView(){},updateDisplay(){},notice:message=>notices.push(message),connectAgent:async()=>assert.fail('Agent must not connect in fixture'),errorString:e=>typeof e==='string'?e:e?.message||'',fail:error=>errors.push(error.message),toast:message=>toasts.push(message),
   refreshModels:async()=>{refreshes.push(true);const ticket=view.beginLoad();assert.ok(ticket);if(refreshError)throw Error(refreshError);assert.ok(view.markLoaded(ticket,'A'));state.project.slots.candidate=asset('A','edited');state.models.candidate.meta=asset('A','edited');return {candidateChanged:true};},
   showCandidate:async job=>{assert.equal(job.state,'complete');assert.ok(job.candidate&&job.inputs.baseline);shown.push(job);const ticket=view.beginLoad();assert.ok(view.markLoaded(ticket,'A'));state.display='split';return true;}
  });
@@ -108,4 +108,25 @@ test('an old operation cannot clear submission state owned by a newer mutation',
 
 test('a delayed ordinary submit cannot clear a newly selected model draft or connect its Agent',async()=>{
  const createGate=deferred(),h=harness({createGate}),pending=h.submit();await tick();h.select('B');createGate.resolve(structuredClone(queued));await pending;assert.equal(h.field('request').value,'Current B draft');assert.equal(h.state.jobs[0].id,'current-B');assert.equal(h.toasts.length,0);assert.deepEqual(h.errors,[]);assert.equal(h.state.submitting,false);
+});
+
+for(const failure of ['geometry','detail'])test('compact poll retries the complete response after '+failure+' application fails',async()=>{
+ const h=harness();h.state.jobs=[queued];let attempts=0;
+ h.ctx.ensureJobDetail=async()=>{attempts++;if(failure==='detail'&&attempts===1)throw Error('Detail unavailable');return complete;};
+ const goodRefresh=h.ctx.refreshModels;let geometry=0;h.ctx.refreshModels=async()=>{if(failure==='geometry'&&geometry++===0)throw Error('Geometry unavailable');return goodRefresh();};
+ const result={version:3,revision:'revision-1',jobsRevision:'jobs-1',jobCounts:{A:{total:1}},totalJobs:1,project:{activeAssetId:'A',slots:{baseline:asset(),candidate:asset('A','edited')}},jobs:[{...complete,summaryOnly:true,detailRevision:'detail-1'}]};
+ let response=deferred();h.pollGates.push(response);const first=h.poll();response.resolve(result);await first;
+ assert.equal(h.shown.length,0);assert.equal(h.state.studioRevision,null);assert.equal(h.state.pendingCandidate.id,complete.id);
+ response=deferred();h.pollGates.push(response);const second=h.poll();response.resolve(result);await second;
+ assert.equal(h.shown.length,1);assert.equal(h.state.studioRevision,'revision-1');assert.equal(h.state.pendingCandidate,null);
+ assert.equal(h.requests.filter(r=>r.path==='/api/studio')[1].request.since,null);
+});
+test('a foreground mutation during complete-detail loading prevents automatic candidate display',async()=>{
+ const h=harness(),detail=deferred();h.state.jobs=[queued];h.ctx.ensureJobDetail=()=>detail.promise;
+ const response=deferred();h.pollGates.push(response);const pending=h.poll();response.resolve({version:3,revision:'r1',project:{activeAssetId:'A',slots:{baseline:asset(),candidate:asset('A','edited')}},jobs:[{...complete,summaryOnly:true,detailRevision:'d1'}]});await tick();h.view.beginMutation();detail.resolve(complete);await pending;
+ assert.equal(h.shown.length,0);assert.notEqual(h.state.studioRevision,'r1');
+});
+
+test('a same-model active-task rejection retains the submitted draft and observation',async()=>{
+ const h=harness({createError:'MODEL_JOB_ACTIVE'});await h.submit();assert.equal(h.field('request').value,'Current A draft');assert.equal(h.field('preserve').value,'Keep all other tracks');assert.equal(h.state.target.bone,'LeftShoulder');assert.equal(h.state.submitting,false);assert.deepEqual(h.errors,['MODEL_JOB_ACTIVE']);assert.equal(h.state.jobs.length,0);
 });

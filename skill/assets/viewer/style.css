@@ -775,3 +775,4 @@ dialog p { font-size: 13px; color: #656e7d; line-height: 1.85; }
 .resource-panel canvas { grid-column: 1 / -1; display: block; position: static; width: 100%; height: 100%; min-height: 100px; min-width: 0; }
 
 .observation-conditions{margin:8px 2px 0;color:var(--text-muted,#a8b7c9);font-size:11px;line-height:1.5;overflow-wrap:anywhere;}
+.review-feedback{margin:12px 0}.review-feedback label{display:block;margin:10px 0 6px;font-size:12px;color:var(--muted)}.review-feedback select{width:100%}.result-checks{margin:16px 0}.result-checks p{font-size:12px;line-height:1.65}.version-provenance{display:grid;gap:5px;margin:14px 0;color:var(--muted)}.status-label.interrupted{color:#b77924}.state-symbol.interrupted{color:#b77924;background:#fff5dd}

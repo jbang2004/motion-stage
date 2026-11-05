@@ -188,9 +188,10 @@ export function createModelCatalog({
         copy.append(details);
       }
     }
-    const jobs = view.jobs.filter(job => (job.assetId || 'legacy') === row.id);
+    const jobs = (view.jobs||[]).filter(job => (job.assetId || 'legacy') === row.id);
     const pendingJobs = jobs.filter(job => ['queued', 'running', 'needs-input'].includes(job.state));
-    if (pendingJobs.length) copy.append(el('small', pendingJobs.length + ' 条任务处理中'));
+    const pendingCount=view.jobCounts?.[row.id]?.active??pendingJobs.length;
+    if (pendingCount) copy.append(el('small', pendingCount + ' 条任务处理中'));
     else if (row.hasCandidate) copy.append(el('small', '已有独立候选，可继续查看'));
     if (row.error) copy.append(el('small', row.error, 'catalog-error'));
     actions.append(el('span', badge(row, selected), 'catalog-badge'));

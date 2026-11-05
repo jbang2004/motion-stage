@@ -17,11 +17,11 @@ import {createDemandLoop} from './render-loop.mjs';
 decorateIcons();
 
 const $=id=>document.getElementById(id),slots=['baseline','candidate'];
-const state={switching:false,allJobs:[],catalog:null,initialized:false,ready:false,loading:false,playing:false,loop:true,time:0,speed:1,fps:30,display:'single',focus:'baseline',view:'front',models:{},project:null,token:null,paths:{},jobs:[],agent:null,target:null,selectedJob:null,archivedJobId:null,capturing:false,submitting:false,submissionOwner:null,panelMode:'compose',composerSource:null,comparisonPair:null,observationTransform:null,explicitCompose:false,projectLink:null,projectPreview:null,projectPreviewError:null,lineageParentJobId:null};
+const state={switching:false,allJobs:[],jobCounts:{},totalJobs:0,jobsRevision:null,studioRevision:null,studioAssetId:null,historyJobs:[],historyAssetId:null,historyRevision:null,historyHasMore:false,historyTotal:0,catalog:null,initialized:false,ready:false,loading:false,playing:false,loop:true,time:0,speed:1,fps:30,display:'single',focus:'baseline',view:'front',models:{},project:null,token:null,paths:{},jobs:[],agent:null,target:null,selectedJob:null,archivedJobId:null,capturing:false,submitting:false,submissionOwner:null,panelMode:'compose',composerSource:null,comparisonPair:null,observationTransform:null,explicitCompose:false,projectLink:null,projectPreview:null,projectPreviewError:null,lineageParentJobId:null};
 let renderLoop;
 const viewState=createViewState(new URLSearchParams(location.search).get('asset'));
 const viewPositions={front:[0,1.12,4.8],side:[4.8,1.12,0],back:[0,1.12,-4.8],top:[0,5,.001]};
-const statusNames={queued:'等待 Agent',running:'正在处理',complete:'候选已就绪',failed:'处理失败','needs-input':'需要补充信息',cancelled:'已取消',stale:'版本已变化'};
+const statusNames={queued:'等待 Agent',running:'正在处理',complete:'候选已就绪',failed:'处理失败','needs-input':'需要补充信息',cancelled:'已取消',stale:'版本已变化',interrupted:'执行已中断'};
 const partNames={leftarm:'左上臂',rightarm:'右上臂',leftforearm:'左前臂',rightforearm:'右前臂',lefthand:'左手',righthand:'右手',leftshoulder:'左肩',rightshoulder:'右肩',leftupleg:'左大腿',rightupleg:'右大腿',leftleg:'左小腿',rightleg:'右小腿',leftfoot:'左脚',rightfoot:'右脚',lefttoebase:'左脚趾',righttoebase:'右脚趾',hips:'骨盆',pelvis:'骨盆',spine:'脊柱',spine1:'胸部',spine2:'上胸部',neck:'颈部',head:'头部',leftelbow:'左肘',rightelbow:'右肘',lefthip:'左髋',righthip:'右髋',leftknee:'左膝',rightknee:'右膝'};
 function part(name){const key=name.replace(/^.*:/,'').replace(/^mixamorig/i,'').replace(/[_ .-]/g,'').toLowerCase();return partNames[key]||name;}
 function semanticPart(name){const mapped=part(name);if(mapped!==name)return mapped;const finger=name.match(/(left|right).*hand.*(thumb|index|middle|ring|pinky)/i);if(finger)return(finger[1].toLowerCase()==='left'?'左手':'右手')+({thumb:'拇指',index:'食指',middle:'中指',ring:'无名指',pinky:'小指'}[finger[2].toLowerCase()]);return null;}
@@ -33,7 +33,7 @@ let toastTimer;
 function toast(message){$('toast').textContent=message;$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').hidden=true,4500);}
 function notice(message,error=false){$('notice').textContent=message;$('notice').hidden=!message;$('notice').classList.toggle('error',error);}
 function fail(e,fatal=false){const message=e?.message||String(e);notice(message,true);if(fatal){$('errorMessage').textContent=message;$('stageError').hidden=false;$('stageLoading').hidden=true;}console.error(e);}
-async function api(path,method='GET',body,request={}){if(method==='GET'&&['/api/session','/api/studio'].includes(path)){const id=request.assetId??state.project?.activeAssetId??new URLSearchParams(location.search).get('asset');if(id)path+='?assetId='+encodeURIComponent(id);}const response=await fetch(path,{method,signal:request.signal,headers:method==='GET'?{}:{'x-motion-token':state.token,'Content-Type':body instanceof Blob?'application/octet-stream':'application/json'},body:body===undefined?undefined:body instanceof Blob?body:JSON.stringify(body)});let data;try{data=await response.json();}catch{throw Error('工作台服务没有返回有效结果，请检查服务是否仍在运行。');}if(!response.ok)throw Error(data.error||'请求失败（'+response.status+'）');return data;}
+async function api(path,method='GET',body,request={}){if(method==='GET'&&['/api/session','/api/studio'].includes(path)){const params=new URLSearchParams(),id=request.assetId??state.project?.activeAssetId??new URLSearchParams(location.search).get('asset');if(id)params.set('assetId',id);if(request.compact){params.set('compact','1');if(request.since)params.set('since',request.since);if(state.selectedJob)params.set('jobId',state.selectedJob);}if(params.size)path+='?'+params;}const response=await fetch(path,{method,signal:request.signal,headers:method==='GET'?{}:{'x-motion-token':state.token,'Content-Type':body instanceof Blob?'application/octet-stream':'application/json'},body:body===undefined?undefined:body instanceof Blob?body:JSON.stringify(body)});let data;try{data=await response.json();}catch{throw Error('工作台服务没有返回有效结果，请检查服务是否仍在运行。');}if(!response.ok)throw Error(data.error||'请求失败（'+response.status+'）');return data;}
 const environmentPanel=createEnvironmentPanel({button:$('openEnvironment'),dialog:$('environmentDialog'),body:$('environmentResults'),recheck:$('recheckEnvironment'),close:$('closeEnvironment'),reload:$('reloadEnvironment'),loadReport:refresh=>api('/api/doctor'+(refresh?'':'?cached=1'))});
 const appearance=createAppearanceController({revision:T.REVISION,runCreate:(fn,ctx)=>withRendererState(renderer,T,()=>fn(ctx)),loadStatus:id=>api('/api/appearance?assetId='+encodeURIComponent(id||''),'GET',undefined,{signal:AbortSignal.timeout?.(5000)}),onChange:drawAppearance});
 function drawAppearance({mode,descriptor,error,loading}){const select=$('appearanceMode');select.value=mode;select.querySelector('option[value="project"]').disabled=descriptor?.status!=='ready'||activeModel()?.capabilities.hasMesh===false;select.disabled=activeModel()?.capabilities.hasMesh===false||loading||state.switching||state.loading||state.capturing||state.submitting; $('appearanceStatus').textContent=error||(mode==='project'?descriptor.label+' · '+(descriptor.limitations||[]).join('；'):'中性检查 · '+(descriptor?.status==='ready'?'可切换为 '+descriptor.label:descriptor?.message||'未配置项目外观'));}
@@ -88,9 +88,10 @@ const modelCatalog=createModelCatalog({
  getView:()=>({
   activeAssetId:state.project?.activeAssetId,
   jobs:state.allJobs,
+  jobCounts:state.jobCounts,
   switching:state.switching,
   allowAutomaticOpen:!state.switching&&!state.loading&&!state.submitting&&
-   !$('request').value.trim()&&!state.allJobs.length&&
+   !$('request').value.trim()&&!(state.totalJobs||state.allJobs.length)&&
    Boolean(activeModel()?.meta.generator?.includes('original teaching'))
  }),
  onOpen:openCatalogModel,
@@ -338,6 +339,7 @@ async function restoreContext(ctx){
 
 function viewMatchesJob(job,needCandidateVisible=false){return Boolean((job.assetId||state.project?.legacyAssetId||'legacy')===state.project?.activeAssetId&&job.candidate&&state.models.candidate?.meta.sha256===job.candidate.sha256&&state.models.baseline?.meta.sha256===jobSourceAsset(job)?.sha256&&(!needCandidateVisible||state.display!=='single'||state.focus==='candidate'));}
 async function showCandidate(job,{restoreAppearance=false}={}){
+ if(job?.summaryOnly){const ticket=viewState.capture();job=await ensureJobDetail(job);if(!job||!viewState.isUnchanged(ticket,job.assetId))return false;}
  const assetId=job?.assetId||state.project?.legacyAssetId||'legacy';
  if(assetId!==state.project?.activeAssetId)throw Error('请先打开这条任务所属的模型。');
  if(state.switching||state.capturing)return false;
@@ -367,6 +369,7 @@ function jobText(job){
  if(job.state==='queued'){if(job.executor==='local')return'正在准备本地数值工具，未调用 AI。';if(!state.agent?.connected)return'修改要求和当前画面已经保存。连接本机 Codex 后即可开始。';const ahead=queuedAhead(job);return ahead?'本机 Agent 会按顺序处理，前方还有 '+ahead+' 个任务。':'本机 Codex 已连接，正在等待它领取这条任务。';}
  if(job.state==='running')return job.executor==='local'?'正在按你指定的倍率调整旋转摆幅，未调用 AI。':'原版独立保留。Agent 将根据你的要求生成一个修改候选。';
  if(job.state==='complete')return job.executor==='local'?'本地数值候选已生成，未调用 AI。请播放完整动作检查。':'修改后的版本已返回。请播放完整动作，检查它是否符合你的想法。';
+ if(job.state==='interrupted')return '执行器已停止响应，本轮要求和已有输出已保留。可以在原输入版本上重新执行。';
  if(job.state==='failed')return errorString(job.error)||'这次处理没有完成。你的要求和观察现场已经保留。';
  if(job.state==='needs-input')return job.question||errorString(job.error)||'Agent 需要你再说明一点，补充后会继续处理原来的任务。';
  if(job.state==='stale')return'任务发起后的素材发生了变化。旧意见保留，请回到当前素材重新确认。';
@@ -403,18 +406,49 @@ async function beginCompose({job=null,source=null,prefill=false}={}){
  $('composeKicker').textContent=focus==='candidate'?'基于当前版本':'提出修改';$('composeTitle').textContent=focus==='candidate'?'还想怎样调整？':'你想改哪里？';$('composeIntro').textContent=focus==='candidate'?'下一次会在当前版本上修改，最初原版继续保留。':'描述你想要的变化，让 Agent 处理余下的细节。';
  drawLibrary();updateBoneChoices();drawMetadata();updateDisplay();jobsRenderSignature='';drawJobs();$('taskPanel').scrollIntoView({block:'nearest',behavior:'smooth'});$('request').focus({preventScroll:true});
 }
-let jobsRenderSignature='';
+const jobDetails=new Map(),jobDetailLoads=new Map();
+function mergeJobSummary(summary){const cached=jobDetails.get(summary.id);return cached?.detailRevision===summary.detailRevision?cached:summary;}
+async function ensureJobDetail(summary){
+ if(!summary?.summaryOnly)return summary;
+ const key=summary.id+':'+summary.detailRevision,ticket=viewState.capture();
+ let pending=jobDetailLoads.get(key);
+ if(!pending){pending=api('/api/jobs/'+encodeURIComponent(summary.id),'GET',undefined,{signal:ticket.signal}).finally(()=>jobDetailLoads.delete(key));jobDetailLoads.set(key,pending);}
+ const job=await pending;if(!viewState.isUnchanged(ticket,summary.assetId)||job.id!==summary.id||(job.assetId||state.project?.legacyAssetId||'legacy')!==summary.assetId)return null;
+ // A newer poll may have retired this summary while detail was in flight.
+ const current=state.jobs.find(j=>j.id===summary.id);if(current?.detailRevision&&current.detailRevision!==summary.detailRevision)return null;
+ const full={...job,assetId:summary.assetId,detailRevision:summary.detailRevision};jobDetails.delete(job.id);jobDetails.set(job.id,full);while(jobDetails.size>40)jobDetails.delete(jobDetails.keys().next().value);
+ state.jobs=[full,...state.jobs.filter(j=>j.id!==job.id)].sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''));return full;
+}
+let historyLoading=false,historyLoadingAssetId=null,historyGeneration=0,historyRenderSignature='',jobsRenderSignature='';
+async function loadJobHistory({more=false}={}){
+ if(historyLoading&&historyLoadingAssetId===viewState.loadedAssetId)return;
+ const ticket=viewState.capture(),assetId=viewState.loadedAssetId,generation=++historyGeneration;
+ const append=more&&state.historyAssetId===assetId,offset=append?state.historyJobs.length:0;
+ historyLoading=true;historyLoadingAssetId=assetId;$('historyMore').disabled=true;
+ try{const wanted=append?30:Math.max(30,state.historyAssetId===assetId?state.historyJobs.length:0),pages=[];
+  for(let loaded=0;loaded<wanted;loaded+=100){const page=await api('/api/jobs?page=1&assetId='+encodeURIComponent(assetId)+'&offset='+(offset+loaded)+'&limit='+Math.min(100,wanted-loaded),'GET',undefined,{signal:ticket.signal});
+   if(generation!==historyGeneration||!viewState.isUnchanged(ticket,assetId))return;pages.push(page);if(!page.hasMore)break;
+  }
+  const page=pages[0],rows=pages.flatMap(p=>p.jobs);state.historyJobs=append?[...state.historyJobs,...rows.filter(j=>!state.historyJobs.some(old=>old.id===j.id))]:rows;state.historyAssetId=assetId;state.historyRevision=page.revision;state.historyHasMore=pages.at(-1).hasMore;state.historyTotal=page.total;historyRenderSignature='';drawJobs();
+ }finally{if(generation===historyGeneration){historyLoading=false;$('historyMore').disabled=false;}}
+}
 function drawJobs(){
- const signature=JSON.stringify({jobs:state.jobs,selected:state.selectedJob,panel:state.panelMode,agent:state.agent?.connected,baseline:state.models.baseline?.meta.sha256,candidate:state.models.candidate?.meta.sha256,display:state.display,focus:state.focus});
- if(signature===jobsRenderSignature){updateTaskClock();return;}jobsRenderSignature=signature;
- const host=$('historyList');host.replaceChildren();$('jobCount').textContent=state.jobs.length;$('headerJobCount').textContent=state.jobs.length;$('sidebarJobCount').textContent=state.jobs.length;
- for(const job of [...state.jobs].sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''))){const card=el('button',undefined,'history-card');card.append(el('span',statusNames[job.state]||job.state,'status-label '+job.state),el('strong',job.request),el('small',(job.context?.clip||'静态角色')+' · '+new Date(job.createdAt||Date.now()).toLocaleString([],{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})));card.onclick=async()=>{state.selectedJob=job.id;state.panelMode='task';$('libraryDialog').close();try{if(job.state==='complete')await showCandidate(job,{restoreAppearance:true});else drawLatestJob();$('taskPanel').scrollIntoView({block:'nearest',behavior:'smooth'});}catch(e){fail(e);}};host.append(card);}
- if(!state.jobs.length)host.append(el('p','每一次要求、候选和决定都会保存在这里。','clip-empty'));drawLatestJob();
+ const count=state.jobCounts?.[state.project?.activeAssetId]?.total??state.jobs.length;
+ $('jobCount').textContent=count;$('headerJobCount').textContent=count;$('sidebarJobCount').textContent=count;
+ const history=state.historyAssetId===state.project?.activeAssetId?state.historyJobs:[],historyKey=history.map(j=>j.id+':'+j.detailRevision).join('|');
+ if(historyKey!==historyRenderSignature){historyRenderSignature=historyKey;const host=$('historyList');host.replaceChildren();
+  for(const job of history){const card=el('button',undefined,'history-card');card.append(el('span',statusNames[job.state]||job.state,'status-label '+job.state),el('strong',job.request),el('small',(job.clip||'静态资源')+' · '+new Date(job.createdAt||Date.now()).toLocaleString([],{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})));card.onclick=async()=>{const ticket=viewState.capture();try{const full=await ensureJobDetail(job);if(!full||!viewState.isUnchanged(ticket,job.assetId))return;state.selectedJob=job.id;state.panelMode='task';$('libraryDialog').close();if(full.state==='complete')await showCandidate(full,{restoreAppearance:true});else drawLatestJob();$('taskPanel').scrollIntoView({block:'nearest',behavior:'smooth'});}catch(e){fail(e);}};host.append(card);}
+  if(!history.length)host.append(el('p',count?'打开修改记录后按需读取历史。':'每一次要求、候选和决定都会保存在这里。','clip-empty'));
+ }
+ $('historyMore').hidden=$('historyList').hidden||!state.historyHasMore||state.historyAssetId!==state.project?.activeAssetId;$('historyMore').textContent='加载更多记录（已显示 '+history.length+' / '+(state.historyTotal||count)+'）';
+ const j=currentJob(),signature=[j?.id,j?.detailRevision,j?.updatedAt,j?.state,state.selectedJob,state.panelMode,state.agent?.connected,state.models.baseline?.meta.sha256,state.models.candidate?.meta.sha256,state.display,state.focus].join('|');
+ if(signature===jobsRenderSignature){updateTaskClock();return;}jobsRenderSignature=signature;drawLatestJob();
 }
 function taskDetails(job,disclosures){
  const d=el('details');d.dataset.disclosure='execution';d.open=disclosures.get('execution')||false;d.append(el('summary','任务与执行详情'));
  const cmd=job.agentCommand||job.command,command=Array.isArray(cmd)?cmd.join(' '):cmd;
  if(command){d.append(actionButton('复制任务给其他 Agent',()=>copyText(command),'text-button'),el('pre',command));}
+ const outputs=el('details');outputs.dataset.disclosure='outputs';outputs.append(el('summary','本轮输出与执行记录'));let outputLoading=false;outputs.addEventListener('toggle',async()=>{if(!outputs.open||outputLoading||outputs.dataset.loaded)return;outputLoading=true;const ticket=viewState.capture();try{const result=await api('/api/jobs/'+job.id+'/artifacts','GET',undefined,{signal:ticket.signal});if(!viewState.isUnchanged(ticket,job.assetId)||currentJob()?.id!==job.id)return;outputs.dataset.loaded='true';if(result.outputDirectory)outputs.append(el('p',result.outputDirectory));for(const file of result.files||[]){const link=el('a',file.file+' · '+(file.size/1024).toFixed(1)+' KB','download-candidate');link.href='/api/jobs/'+job.id+'/artifacts?file='+encodeURIComponent(file.file);link.download=file.file.split('/').at(-1);outputs.append(link);}if(!result.files?.length)outputs.append(el('p','这次执行尚未留下可下载文件。'));}catch(error){if(viewState.isUnchanged(ticket,job.assetId))outputs.append(el('p',error.message,'error-copy'));}finally{outputLoading=false;}});d.append(outputs);
  d.append(el('p','任务编号：'+job.id));if(job.taskPath||job.taskFile)d.append(el('p','任务文件：'+(job.taskPath||job.taskFile)));
  if(job.candidate)d.append(el('p','候选文件：'+job.candidate.file),el('p','候选 SHA-256：'+job.candidate.sha256));
  const trace=[...(job.events||[]),...(job.progressEvents||[])].sort((a,b)=>(a.at||'').localeCompare(b.at||''));for(const ev of trace.slice(-24))d.append(el('p',(ev.at?new Date(ev.at).toLocaleTimeString()+' · ':'')+(ev.phase?(phaseNames[ev.phase]||ev.phase)+' · ':'')+(typeof ev==='string'?ev:ev.message||ev.detail||ev.state||ev.type||JSON.stringify(ev))));
@@ -423,9 +457,10 @@ function taskDetails(job,disclosures){
 function drawLatestJob(){
  if(!state.initialized){$('composePanel').hidden=true;$('latestJob').hidden=true;return;}
  const job=currentJob(),card=$('latestJob'),show=state.panelMode==='task'&&Boolean(job);$('composePanel').hidden=show;card.hidden=!show;updateWorkflow();if(!show){const candidate=state.composerSource==='candidate';$('composeKicker').textContent=candidate?'基于当前版本':'提出修改';$('composeTitle').textContent=candidate?'还想怎样调整？':'你想改哪里？';$('composeIntro').textContent=candidate?'下一次会在当前版本上修改，最初原版继续保留。':'描述你想要的变化，让 Agent 处理余下的细节。';return;}
- const same=card.dataset.jobId===job.id,disclosures=same?new Map([...card.querySelectorAll('details[data-disclosure]')].map(d=>[d.dataset.disclosure,d.open])):new Map();const reply=same?card.querySelector('#jobReply')?.value||'':'';const transition=!same||card.dataset.state!==job.state;card.dataset.jobId=job.id;card.dataset.state=job.state;card.replaceChildren();
+ if(job.summaryOnly){card.replaceChildren(el('p','正在读取这条任务的详情…'));ensureJobDetail(job).then(full=>{if(full&&currentJob()?.id===full.id){jobsRenderSignature='';drawJobs();}}).catch(error=>{if(currentJob()?.id===job.id)card.replaceChildren(el('p',error.message,'error-copy'),actionButton('重新读取',()=>{jobsRenderSignature='';drawJobs();}));});return;}
+ const same=card.dataset.jobId===job.id,disclosures=same?new Map([...card.querySelectorAll('details[data-disclosure]')].map(d=>[d.dataset.disclosure,d.open])):new Map();const reply=same?card.querySelector('#jobReply')?.value||'':'';const reviewReason=same?card.querySelector('#reviewReason')?.value||'':'',reviewText=same?card.querySelector('#reviewText')?.value||'':'';const transition=!same||card.dataset.state!==job.state;card.dataset.jobId=job.id;card.dataset.state=job.state;card.replaceChildren();
  const pending=['queued','running','needs-input'].includes(job.state),complete=job.state==='complete';
- const titles={queued:job.executor==='local'?'准备本地微调':state.agent?.connected?'任务已排队':'等待连接 Agent',running:job.executor==='local'?'正在生成数值候选':'Agent 正在修改',complete:'修改候选已返回','needs-input':'需要你补充一句',failed:'这次没有完成',cancelled:'任务已停止',stale:'素材版本已变化'};
+ const titles={queued:job.executor==='local'?'准备本地微调':state.agent?.connected?'任务已排队':'等待连接 Agent',running:job.executor==='local'?'正在生成数值候选':'Agent 正在修改',complete:'修改候选已返回','needs-input':'需要你补充一句',failed:'这次没有完成',cancelled:'任务已停止',stale:'素材版本已变化',interrupted:'执行已中断'};
  const symbol=el('div',job.state==='running'?undefined:complete?'✓':['failed','needs-input'].includes(job.state)?'!':'◷','state-symbol '+job.state);symbol.setAttribute('aria-hidden','true');card.append(symbol,el('span',complete?'检查结果':pending?'修改进展':'修改记录','section-kicker'),el('h2',titles[job.state]||statusNames[job.state]),el('p',jobText(job),job.state==='failed'?'error-copy':'task-explanation'));
  if(job.state==='running'){
   const progress=el('div',undefined,'progress-card');progress.append(el('span','当前进度','progress-kicker'),el('h3',job.executor==='local'?'按指定倍率调整摆幅':phaseNames[job.progress?.phase]||'Agent 正在执行'),el('p',job.progress?.message||(job.executor==='local'?'数值工具正在执行，不调用 AI。':'正在执行修改任务，尚未上报具体阶段。')));card.append(progress);
@@ -442,30 +477,44 @@ function drawLatestJob(){
  if(complete){
   if(!viewMatchesJob(job)){card.append(el('p','当前画面是另一版本。先打开这条任务的修改前后，避免看错结果。','task-next'),actionButton('打开这次修改的对照',()=>showCandidate(job,{restoreAppearance:true}),'primary-button'));}
   if(job.summary){card.append(el('span','这次改了什么','result-label'));if(job.summary.length>420){card.append(el('p',job.summary.slice(0,350)+'…','result-summary'));const full=el('details');full.dataset.disclosure='summary';full.open=disclosures.get('summary')||false;full.append(el('summary','展开完整修改说明'),el('p',job.summary));card.append(full);}else card.append(el('p',job.summary,'result-summary'));}else card.append(el('p','候选已经生成。Agent 没有附上额外说明，请以动作与验证记录为准。','result-summary'));
-  if(job.audit){const audit=el('details',undefined,'audit-details');audit.dataset.disclosure='audit';audit.open=disclosures.get('audit')||false;audit.append(el('summary','它检查了什么？'));const data=typeof job.audit==='object'?job.audit:null;const names={changedKeyframes:'修改关键帧',factor:'幅度倍率',bone:'目标部位',clip:'动作',protectedWorldMaxDifference:'保护部位最大差异',sourceUnchanged:'原版保持',limitations:'检查限制',sampling:'采样范围'};if(data)for(const[key,label]of Object.entries(names))if(data[key]!==undefined)audit.append(el('p',label+'：'+(typeof data[key]==='object'?JSON.stringify(data[key]):String(data[key]))));audit.append(el('pre',typeof job.audit==='string'?job.audit:JSON.stringify(job.audit,null,2)));card.append(audit);}
+  const checks=el('section',undefined,'result-checks');checks.append(el('span','检查与限制','result-label'));
+  const data=job.audit&&typeof job.audit==='object'?job.audit:null,names={changedKeyframes:'修改关键帧',factor:'幅度倍率',bone:'目标部位',clip:'动作',protectedWorldMaxDifference:'保护部位最大差异',sourceUnchanged:'原版保持',sampling:'采样范围'};
+  if(data)for(const[key,label]of Object.entries(names))if(data[key]!==undefined)checks.append(el('p',label+'：'+(typeof data[key]==='object'?JSON.stringify(data[key]):String(data[key]))));
+  if(job.validation)checks.append(el('p','文件检查：'+(job.validation.status||'候选已通过资源校验')));
+  const limitations=[data?.limitations,job.validation?.limitations].flatMap(value=>Array.isArray(value)?value:value?[String(value)]:[]);checks.append(el('p',limitations.length?(Array.isArray(limitations)?limitations.join('；'):String(limitations)):'尚未附上具体艺术检查限制，请播放完整动作并检查游戏内表现。','task-next'));
+  checks.append(el('p','技术检查不会自动形成艺术认可；已认可版本仍需单独接入游戏。','task-next'));
+  const raw=el('details');raw.dataset.disclosure='audit';raw.open=disclosures.get('audit')||false;raw.append(el('summary','原始检查 JSON'),el('pre',JSON.stringify({audit:job.audit||null,validation:job.validation||null,contextVerification:job.contextVerification||null},null,2)));checks.append(raw);card.append(checks);
+  const versions=el('div',undefined,'version-provenance');const reviewDecision=job.review||job.reviews?.at(-1);
+  versions.append(el('small','最初原版 · '+(job.inputs.baseline?.sha256?.slice(0,10)||'未知')),el('small','本轮修改前 · '+(jobSourceAsset(job)?.sha256?.slice(0,10)||'未知')),el('small',(reviewDecision?.decision==='accept-candidate'?'已认可候选':'本轮候选')+' · '+(job.candidate?.sha256?.slice(0,10)||'未知')));card.append(versions);
   const actions=el('div',undefined,'result-actions');const next=actionButton(state.archivedJobId?'返回当前素材后继续':'基于这版继续调整',()=>beginCompose({job,source:'candidate'}),'primary-button');next.disabled=Boolean(state.archivedJobId)||!viewMatchesJob(job);actions.append(next);
   if(job.candidate){const download=el('a','下载修改后的 GLB ↓','download-candidate');download.href='/workspace/'+job.candidate.file;download.download=job.candidate.label||'candidate.glb';actions.append(download);}
-  const secondary=el('div',undefined,'result-secondary'),yes=actionButton('满意，保留这版',()=>recordDecision(job,'accept-candidate'),'text-button'),keep=actionButton('保留修改前这版',()=>recordDecision(job,'keep-baseline'),'text-button');yes.disabled=!viewMatchesJob(job,true);keep.disabled=!viewMatchesJob(job);secondary.append(yes,keep);actions.append(secondary);card.append(actions);
-  const review=job.review||job.reviews?.at(-1);if(review)card.append(el('p',review.decision==='accept-candidate'?'已记录保留此候选。下载后可用于后续游戏接入，原文件保持。':review.decision==='keep-baseline'?'已记录保留本轮修改前的版本。候选仍在历史中保留。':'已记录继续修改。','review-note'));
- }else if(['failed','cancelled','stale'].includes(job.state)){
-  const actions=el('div',undefined,'task-action-stack');actions.append(actionButton(job.state==='stale'?'返回当前素材，重新确认':'沿用要求，修改后重试',async()=>{if(state.archivedJobId||job.state==='stale'){state.archivedJobId=null;await refreshModels({preserve:true});}await beginCompose({job,prefill:true});},'primary-button'));card.append(actions);
+  const feedback=el('details',undefined,'review-feedback');feedback.dataset.disclosure='review';feedback.open=disclosures.get('review')||false;feedback.append(el('summary','评审意见（可选）'));
+  const reasonLabel=el('label','未采用或继续修改的原因'),reason=el('select');reason.id='reviewReason';reasonLabel.htmlFor=reason.id;for(const [value,label] of [['','不选择原因'],['direction','修改方向不符合预期'],['too-much','变化幅度过大'],['too-little','变化不明显'],['regression','影响了需要保持的部分'],['quality','动作或模型出现问题'],['other','其他原因']]){const option=el('option',label);option.value=value;reason.append(option);}reason.value=reviewReason;
+  const textLabel=el('label','补充说明'),text=el('textarea');text.id='reviewText';text.rows=2;text.placeholder='可以留空；例如右脚仍然滑动，希望继续修正。';text.value=reviewText;textLabel.htmlFor=text.id;feedback.append(reasonLabel,reason,textLabel,text);actions.append(feedback);
+  const secondary=el('div',undefined,'result-secondary'),yes=actionButton('满意，保留这版',()=>recordDecision(job,'accept-candidate'),'text-button'),keep=actionButton('保留本轮修改前',()=>recordDecision(job,'keep-baseline'),'text-button');yes.disabled=!viewMatchesJob(job,true);keep.disabled=!viewMatchesJob(job);secondary.append(yes,keep);actions.append(secondary);card.append(actions);
+  const accepted=(job.reviews?.at(-1)?.decision==='accept-candidate'?job.reviews.at(-1):null);if(accepted)card.append(actionButton('恢复这条已认可版本',async()=>{const ticket=viewState.beginMutation();if(!ticket)return;const result=await api('/api/jobs/'+job.id+'/restore','POST',{checkpointId:accepted.id,expectedRevision:state.project.revision});if(!viewState.isUnchanged(ticket,job.assetId))return;state.archivedJobId=null;state.project=result.project;if(!await refreshModels({preserve:true})||!viewState.isCurrentMutation(ticket,job.assetId))return;state.studioRevision=null;await pollStudio();toast('已恢复这条已认可版本。');},'secondary-button'));
+  const review=job.review||job.reviews?.at(-1);if(review)card.append(el('p',review.decision==='accept-candidate'?'已记录保留此候选。下载后可用于后续游戏接入，原文件保持。':review.decision==='keep-baseline'?'已记录保留本轮修改前的版本。候选仍在历史中保留。':'已记录继续修改。','review-note'));if(review?.outcome)card.append(el('p',review.outcome,'review-note'));
+ }else if(['failed','cancelled','stale','interrupted'].includes(job.state)){
+  const actions=el('div',undefined,'task-action-stack');if(['failed','interrupted'].includes(job.state))actions.append(actionButton('重新执行这条任务',async()=>{const ticket=viewState.beginMutation();const result=await api('/api/jobs/'+job.id+'/retry','POST',{});if(!viewState.isUnchanged(ticket,job.assetId))return;commitJobResult(result,ticket);state.studioRevision=null;await pollStudio();},'secondary-button'));actions.append(actionButton(job.state==='stale'?'返回当前素材，重新确认':'沿用要求，修改后重试',async()=>{if(state.archivedJobId||job.state==='stale'){state.archivedJobId=null;await refreshModels({preserve:true});}await beginCompose({job,prefill:true});},'primary-button'));card.append(actions);
  }
  const request=el('details');request.dataset.disclosure='request';request.open=disclosures.get('request')||false;request.append(el('summary','我的修改要求'),el('p',job.request,'request-quote'));if(job.preserve)request.append(el('p','需要保持：'+job.preserve));for(const answer of job.clarifications||[])request.append(el('p','补充：'+answer.message));card.append(request);
  if(pending)card.append(actionButton(job.state==='running'?'停止这次修改':'取消这次任务',async()=>{await api('/api/jobs/'+job.id+'/cancel','POST',{});await pollStudio();},'text-button'));
  card.append(frozenProjectDetails(job,disclosures),taskDetails(job,disclosures));updateTaskClock();if(transition)requestAnimationFrame(()=>$('taskPanel').scrollTop=0);
 }
 function updateTaskClock(){const j=currentJob();if(!j||state.panelMode!=='task')return;const started=j.claimedAt||j.startedAt||j.updatedAt,last=j.lastActivityAt||j.activity?.at||j.progress?.at||j.updatedAt;const card=$('latestJob'),a=card.querySelector('[data-clock="elapsed"] b'),b=card.querySelector('[data-clock="last"] b'),c=card.querySelector('[data-clock="stale"]');if(a)a.textContent=elapsedLabel(started);if(b)b.textContent=elapsedLabel(last)+'前';if(c){const seconds=(Date.now()-new Date(last).getTime())/1000;c.hidden=seconds<60;c.textContent=seconds>=60?'暂未收到新进展，上次实际更新在 '+elapsedLabel(last)+'前。任务仍保留，可继续等待或停止。':'';}}
+const pendingDecisions=new Map();
 async function recordDecision(job,decision){
- if(state.loading||state.switching||state.capturing)throw Error('正在准备当前画面，请稍候再记录决定。');
- const ticket=viewState.capture();
+ if(state.loading||state.switching||state.capturing||state.submitting)throw Error('正在准备当前画面，请稍候再记录决定。');
+ const ticket=viewState.beginMutation();if(!ticket)return;
  if(!viewMatchesJob(job,decision==='accept-candidate'))throw Error('当前画面与此任务版本不一致，请先打开该任务的候选对照。');
  const currentHead=state.project?.slots.candidate?.sha256===job.candidate.sha256&&state.project?.slots.baseline?.sha256===job.inputs.baseline?.sha256;
- const result=await api('/api/jobs/'+job.id+'/review','POST',{decision,outcome:decision==='accept-candidate'?'用户在动作台选择保留此候选；游戏接入仍需单独验证。':'用户选择保留本轮修改前的版本，不采用本轮候选。'});
- if(!viewState.isCurrent(ticket)||state.switching)return result;
+ const reason=$('reviewReason'),note=$('reviewText')?.value.trim(),reasonText=decision!=='accept-candidate'&&reason?.value?reason.options[reason.selectedIndex].textContent:'';const outcome=[decision==='accept-candidate'?'用户在动作台选择保留此候选；游戏接入仍需单独验证。':'用户选择保留本轮修改前的版本，不采用本轮候选。',reasonText?'原因：'+reasonText:'',note?'评审意见：'+note:''].filter(Boolean).join('\n');
+ const decisionKey=job.id+'|'+decision+'|'+outcome;let decisionId=pendingDecisions.get(decisionKey);if(!decisionId){decisionId=crypto.randomUUID();pendingDecisions.set(decisionKey,decisionId);}const result=await api('/api/jobs/'+job.id+'/review','POST',{decision,outcome,decisionId});pendingDecisions.delete(decisionKey);
+ if(!viewState.isCurrentMutation(ticket)||state.switching)return result;commitJobResult(result,ticket);
  const restored=decision==='keep-baseline'&&currentHead&&result.restoredSource?.sha256===jobSourceAsset(job)?.sha256;
- if(restored){state.archivedJobId=null;if(!await refreshModels({preserve:true})||!viewState.isCurrent(ticket))return result;state.focus='candidate';state.display='single';$('focusSlot').value='candidate';clearTarget();}
- await pollStudio();if(!viewState.isCurrent(ticket)||state.switching)return result;
- if(restored){await beginCompose({source:'candidate'});if(!viewState.isCurrent(ticket)||state.switching)return result;const parent=state.jobs.find(j=>j.id===job.parentJobId&&j.candidate?.sha256===state.models.candidate?.meta.sha256);if(parent){state.lineageParentJobId=parent.id;scheduleProjectPreview();}toast('已保留本轮修改前的版本，可在这版上继续。被撤下的候选仍在记录中。');}
+ if(restored){state.archivedJobId=null;if(!await refreshModels({preserve:true})||!viewState.isCurrentMutation(ticket))return result;state.focus='candidate';state.display='single';$('focusSlot').value='candidate';clearTarget();}
+ await pollStudio();if(!viewState.isCurrentMutation(ticket)||state.switching)return result;
+ if(restored){await beginCompose({source:'candidate'});if(!viewState.isCurrentMutation(ticket)||state.switching)return result;const parent=state.jobs.find(j=>j.id===job.parentJobId&&j.candidate?.sha256===state.models.candidate?.meta.sha256);if(parent){state.lineageParentJobId=parent.id;scheduleProjectPreview();}toast('已保留本轮修改前的版本，可在这版上继续。被撤下的候选仍在记录中。');}
  else toast(decision==='accept-candidate'?'已记录保留候选，游戏文件保持。':'已记录保留该任务修改前的版本，当前工作区未切换。');
  return result;
 }
@@ -475,12 +524,13 @@ let polling=false,pollErrors=0;
 async function pollStudio(){
  if(polling||state.loading||state.switching||state.capturing||state.submitting)return;polling=true;let ticket=viewState.capture();
  try{
-  const d=await api('/api/studio','GET',undefined,{assetId:ticket.assetId,signal:ticket.signal});
+  const d=await api('/api/studio','GET',undefined,{assetId:ticket.assetId,signal:ticket.signal,compact:true,since:state.studioAssetId===ticket.assetId?state.studioRevision:null});
+  if(d.unchanged){if(viewState.isUnchanged(ticket,d.assetId)){updateTaskClock();pollErrors=0;}return;}
   if(!d.project?.activeAssetId||state.switching||state.loading||state.capturing||state.submitting||!viewState.isUnchanged(ticket,d.project.activeAssetId))return;
   const previous=new Map(state.jobs.map(j=>[j.id,j.state]));
-  state.allJobs=Array.isArray(d.jobs)?d.jobs:[];state.jobs=state.allJobs.filter(j=>(j.assetId||d.project.legacyAssetId||'legacy')===d.project.activeAssetId);state.agent=d.agent||d.capabilities?.agent?.worker||null;drawAgent();if(d.capabilities?.runtime)environmentPanel.update(d.capabilities.runtime);
-  const incoming=d.project?.slots?.candidate,changed=state.ready&&incoming&&incoming.sha256!==state.models.candidate?.meta.sha256;
-  const completed=state.jobs.find(j=>j.state==='complete'&&previous.has(j.id)&&previous.get(j.id)!=='complete'&&j.candidate?.sha256===incoming?.sha256);
+  state.allJobs=Array.isArray(d.jobs)?d.jobs:[];state.jobs=state.allJobs.filter(j=>(j.assetId||d.project.legacyAssetId||'legacy')===d.project.activeAssetId);if(d.version===3){state.jobs=state.jobs.map(mergeJobSummary);state.jobCounts=d.jobCounts||{};state.totalJobs=d.totalJobs;state.jobsRevision=d.jobsRevision;if(!$('historyList').hidden&&state.historyRevision!==d.jobsRevision)loadJobHistory().catch(fail);drawCatalog();}state.agent=d.agent||d.capabilities?.agent?.worker||null;drawAgent();if(d.capabilities?.runtime)environmentPanel.update(d.capabilities.runtime);
+  const incoming=d.project?.slots?.candidate,changed=state.ready&&incoming&&incoming.sha256!==state.models.candidate?.meta.sha256;if(!changed)state.project=d.project;
+  const completed=state.jobs.find(j=>j.state==='complete'&&previous.has(j.id)&&previous.get(j.id)!=='complete'&&j.candidate?.sha256===incoming?.sha256);if(completed)state.pendingCandidate={id:completed.id,assetId:completed.assetId};
   let resume=null;
   if(!state.initialized&&!state.explicitCompose){
    const pending=state.jobs.find(j=>['queued','running','needs-input'].includes(j.state));
@@ -492,12 +542,13 @@ async function pollStudio(){
   if(state.archivedJobId)state.project=d.project;
   else{
    if(changed){if(!await refreshModels({preserve:true})||!viewState.isCurrentMutation(ticket,d.project.activeAssetId)||state.switching||state.submitting)return;ticket=viewState.capture();}
-   const result=completed||resume;
-   if(result){if(!await showCandidate(result)||!viewState.isCurrentMutation(ticket,d.project.activeAssetId)||state.switching||state.submitting)return;ticket=viewState.capture();if(completed)toast('修改候选已返回，正在同镜头比较。');}
+   let result=completed||resume||state.jobs.find(j=>j.id===state.pendingCandidate?.id&&j.assetId===d.project.activeAssetId&&j.state==='complete'&&j.candidate?.sha256===incoming?.sha256);
+   if(result?.summaryOnly){result=await ensureJobDetail(result);if(!result||!viewState.isUnchanged(ticket,d.project.activeAssetId)||state.switching||state.submitting)return;}
+   if(result){if(!await showCandidate(result)||!viewState.isCurrentMutation(ticket,d.project.activeAssetId)||state.switching||state.submitting)return;ticket=viewState.capture();state.pendingCandidate=null;if(completed)toast('修改候选已返回，正在同镜头比较。');}
   }
   if(!viewState.isUnchanged(ticket,d.project.activeAssetId)||state.switching)return;
-  drawJobs();updateDisplay();pollErrors=0;
- }catch(e){if(e.name!=='AbortError'&&viewState.isCurrentMutation(ticket)&&!state.switching&&!state.submitting&&++pollErrors===2)notice('任务状态暂时无法同步：'+e.message+'。查看与已写意见保留。',true);}
+  drawJobs();updateDisplay();if(d.version===3){state.studioRevision=d.revision;state.studioAssetId=d.project.activeAssetId;}pollErrors=0;
+ }catch(e){if(viewState.isCurrentMutation(ticket))state.studioRevision=null;if(e.name!=='AbortError'&&viewState.isCurrentMutation(ticket)&&!state.switching&&!state.submitting&&++pollErrors===2)notice('任务状态暂时无法同步：'+e.message+'。查看与已写意见保留。',true);}
  finally{polling=false;}
 }
 
@@ -514,8 +565,8 @@ async function createJob(request,{local=false,operationTicket=null}={}){
 }
 async function submitRequest({connect=true}={}){
  if(state.submitting||state.switching||state.loading)return;const request=$('request').value.trim();if(!request)return $('request').focus();const ticket=viewState.beginMutation();if(!ticket)return;state.submitting=true;state.submissionOwner=ticket;drawMetadata();
- try{const result=await createJob(request,{operationTicket:ticket});if(!viewState.isUnchanged(ticket,result.assetId))return;$('request').value='';notice('');if(connect&&!state.agent?.connected)try{await connectAgent();}catch(error){if(viewState.isCurrentMutation(ticket))notice('任务已保存，连接没有完成：'+error.message,true);}if(viewState.isCurrentMutation(ticket))toast('修改要求与当前画面已保存，原版保持。');}
- catch(error){if(viewState.isCurrentMutation(ticket))fail(error);}finally{if(state.submissionOwner===ticket){state.submissionOwner=null;state.submitting=false;drawMetadata();drawLatestJob();}}
+ try{const result=await createJob(request,{operationTicket:ticket});if(!viewState.isUnchanged(ticket,result.assetId))return;$('request').value='';persistView();notice('');if(connect&&!state.agent?.connected)try{await connectAgent();}catch(error){if(viewState.isCurrentMutation(ticket))notice('任务已保存，连接没有完成：'+error.message,true);}if(viewState.isCurrentMutation(ticket))toast('修改要求与当前画面已保存，原版保持。');}
+ catch(error){if(viewState.isCurrentMutation(ticket)){persistView();fail(error);}}finally{if(state.submissionOwner===ticket){state.submissionOwner=null;state.submitting=false;drawMetadata();drawLatestJob();}}
 }
 $('requestForm').onsubmit=e=>{e.preventDefault();submitRequest();};$('saveQueued').onclick=()=>submitRequest({connect:false});
 
@@ -575,7 +626,7 @@ function downloadBlob(blob,name){const url=URL.createObjectURL(blob),a=el('a');a
 async function fourViews(){state.playing=false;state.capturing=true;const saved=context(),savedView=state.view;try{const out=document.createElement('canvas');out.width=1600;out.height=1060;const ctx=out.getContext('2d');ctx.fillStyle='#161e2a';ctx.fillRect(0,0,out.width,out.height);for(const [i,name]of['front','side','back','top'].entries()){view(name);render();const x=i%2*800,y=Math.floor(i/2)*530;ctx.fillStyle='#b8cbea';ctx.font='16px -apple-system,sans-serif';ctx.fillText(({front:'正面',side:'侧面',back:'背面',top:'俯视'}[name])+' · '+(activeModel()?.clip||'静态姿态')+' · '+saved.time.toFixed(3)+' s',x+20,y+29);const scale=Math.min(800/canvas.width,480/canvas.height),w=canvas.width*scale,h=canvas.height*scale;ctx.drawImage(canvas,x+(800-w)/2,y+42+(480-h)/2,w,h);}return await new Promise(resolve=>out.toBlob(resolve,'image/png'));}finally{cameraBusy=true;for(const slot of slots){cameras[slot].position.fromArray(saved.cameras[slot].position);controls[slot].target.fromArray(saved.cameras[slot].target);controls[slot].update();}cameraBusy=false;state.view=savedView;state.capturing=false;setViewButtons();render();updateClock();}}
 let snapshotBlob,snapshotURL;
 $('snapshotButton').onclick=async()=>{if(!state.ready||state.loading||state.switching||state.capturing)return;try{snapshotBlob=await fourViews();if(!snapshotBlob)throw Error('浏览器未能生成截图，请重试。');if(snapshotURL)URL.revokeObjectURL(snapshotURL);snapshotURL=URL.createObjectURL(snapshotBlob);$('snapshotImage').src=snapshotURL;$('snapshotDialog').showModal();}catch(e){fail(e);}};$('downloadSnapshot').onclick=()=>snapshotBlob&&downloadBlob(snapshotBlob,'motion-four-views.png');
-$('exportFeedback').onclick=async()=>{try{const data=await api('/api/export');downloadBlob(new Blob([JSON.stringify({...data,studioVersion:2,jobs:state.jobs},null,2)],{type:'application/json'}),'motion-feedback.json');toast('反馈与修改任务已导出。');}catch(e){fail(e);}};
+$('exportFeedback').onclick=async()=>{try{const data=await api('/api/export');downloadBlob(new Blob([JSON.stringify({...data,studioVersion:3},null,2)],{type:'application/json'}),'motion-feedback.json');toast('反馈与修改任务已导出。');}catch(e){fail(e);}};
 function openInfo(){const m=activeModel();if(!m)return;const host=$('sceneInfo');host.replaceChildren();const grid=el('div',undefined,'info-grid');for(const [number,label]of[[m.clips.length,'动作片段'],[m.joints.length,'骨骼 / 节点'],[m.meshes.length,'网格']]){const card=el('div');card.append(el('b',String(number)),el('small',label));grid.append(card);}host.append(grid,el('p','当前文件：'+m.meta.label),el('p','固定版本：'+m.meta.sha256),el('p','默认以修改前的静止最大尺寸归一化到 2 个显示单位，两版共用缩放与偏移；可在视角与显示中检查原始尺度和原点。'),el('p','审阅帧号从零计数，不是源 Blender / FBX 帧号。修改应以秒数和制作源映射定位。'),el('p','本预览不包含游戏中的运行时 IK、衣料、动作混合与特效；游戏接入需另行检查。'));$('contextJSON').textContent=JSON.stringify(context(),null,2);$('infoDialog').showModal();}
 $('assetInfo').onclick=openInfo;$('viewInitialOriginal').onclick=async()=>{try{state.archivedJobId=null;await refreshModels({preserve:true});state.focus='baseline';state.display='single';$('focusSlot').value='baseline';clearTarget();drawLibrary();drawMetadata();updateDisplay();drawJobs();$('infoDialog').close();if($('libraryDialog').open)$('libraryDialog').close();notice('正在查看最初原版。任务中的“修改前”指该轮实际输入的版本。');}catch(error){fail(error);}};
 $('navStudio').onclick=()=>{$('stage').scrollIntoView({block:'nearest',behavior:'smooth'});$('stage').focus({preventScroll:true});};
@@ -594,7 +645,7 @@ function drawLoop(){$('loop').classList.toggle('active',state.loop);$('loop').se
 $('play').onclick=()=>{if(duration())state.playing=!state.playing;renderLoop.wake();updateClock();};$('restart').onclick=()=>{state.time=0;state.playing=duration()>0;render();updateClock();};$('prev').onclick=()=>seek(state.time-1/state.fps);$('next').onclick=()=>seek(state.time+1/state.fps);$('loop').onclick=()=>{state.loop=!state.loop;drawLoop();};$('timeline').oninput=e=>seek(e.target.value);$('speed').onchange=e=>state.speed=Number(e.target.value);$('lockRoot').onchange=render;$('bones').onchange=render;$('scaleMode').onchange=()=>{state.observationTransform=null;normalizePair();view(state.view==='orbit'?'front':state.view);};$('progress').onchange=()=>{const slot=activeSlot(),time=observationTime(state.models,slot,state.time,{display:state.display,focus:state.focus,mode:$('progress').checked?'elapsed':'progress'});const plan={timeSlot:slot,localTime:time,display:state.display,focus:state.focus,settings:{mode:$('progress').checked?'progress':'elapsed'}};state.time=restoredTransportTime(plan,state.models);updateDisplay();render();};$('linkCameras').onchange=()=>{if($('linkCameras').checked){cameraBusy=true;cameras.baseline.position.copy(cameras.candidate.position);controls.baseline.target.copy(controls.candidate.target);cameras.baseline.fov=cameras.candidate.fov;cameras.baseline.updateProjectionMatrix();controls.baseline.update();cameraBusy=false;}render();};
 $('returnCurrent').onclick=async()=>{try{state.archivedJobId=null;await refreshModels({preserve:true});drawLatestJob();notice('已返回当前素材，历史版本保持归档。');}catch(e){fail(e);}};
 $('focusSlot').onchange=()=>{state.focus=$('focusSlot').value;state.time=Math.min(state.time,duration());clearTarget();drawLibrary();updateBoneChoices();drawMetadata();updateDisplay();};document.querySelectorAll('[data-display]').forEach(b=>b.onclick=()=>{if(b.dataset.display!=='single'&&!state.models.candidate)return toast('请先载入候选素材。');state.display=b.dataset.display;state.time=Math.min(state.time,duration());clearTarget();drawLibrary();updateBoneChoices();drawMetadata();updateDisplay();});document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>view(b.dataset.view));$('fitView').onclick=()=>view(state.view==='orbit'?'front':state.view);$('search').oninput=drawLibrary;
-function setLibraryTab(history){$('search').closest('label').hidden=history;$('clipList').hidden=history;$('historyList').hidden=!history;$('clipsTab').classList.toggle('active',!history);$('historyTab').classList.toggle('active',history);}$('clipsTab').onclick=()=>setLibraryTab(false);$('historyTab').onclick=()=>setLibraryTab(true);
+function setLibraryTab(history){if(history)loadJobHistory().catch(fail);$('search').closest('label').hidden=history;$('clipList').hidden=history;$('historyList').hidden=!history;$('historyMore').hidden=!history||!state.historyHasMore;$('clipsTab').classList.toggle('active',!history);$('historyTab').classList.toggle('active',history);}$('historyMore').onclick=()=>loadJobHistory({more:true}).catch(fail);$('clipsTab').onclick=()=>setLibraryTab(false);$('historyTab').onclick=()=>setLibraryTab(true);
 function rangeAroundCurrent(){const d=activeModel()?.duration||0,t=localTime(activeSlot());$('scopeStart').value=String(Math.max(0,t-.15));$('scopeEnd').value=String(Math.min(d,t+.15));updateScopeVisual();}
 $('scopeMode').onchange=()=>{const range=$('scopeMode').value==='range';$('scopeInputs').hidden=!range;$('scopeStart').disabled=!range;$('scopeEnd').disabled=!range;if(range)rangeAroundCurrent();updateScopeVisual();};$('scopeStart').oninput=updateScopeVisual;$('scopeEnd').oninput=updateScopeVisual;$('useCurrentTime').onclick=rangeAroundCurrent;
 $('swingFactor').oninput=()=>$('factorLabel').textContent=Math.round(Number($('swingFactor').value)*100)+'%';document.querySelectorAll('[data-prompt]').forEach(b=>b.onclick=()=>{$('request').value=b.dataset.prompt;$('request').focus();scheduleProjectPreview();});$('retryLoad').onclick=()=>refreshModels({force:true}).catch(e=>fail(e,true));
