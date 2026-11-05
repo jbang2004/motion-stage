@@ -3,7 +3,9 @@ import {mkdir,readFile,writeFile,stat} from 'node:fs/promises';
 import {join} from 'node:path';
 import {ROOT,atomic,inside} from './core.mjs';
 import {resolveExecutable,commandSpec,spawnOwnedProcess} from './platform-runtime.mjs';
-import {listJobs,claimJob,completeJob,failJob,getJob,cancelJob,updateJobProgress,updateJobActivity} from './jobs.mjs';
+import {createExecution} from './execution-runtime.mjs';
+import {listQueuedJobSummaries} from './job-index.mjs';
+import {claimJob,completeJob,failJob,getJob,updateJobProgress,updateJobActivity,interruptJob,reconcileExecutions} from './jobs.mjs';
 
 export async function probeCodex(){
  let executable,launch;
@@ -20,7 +22,7 @@ const schema={type:'object',additionalProperties:false,required:['status','summa
 const visibleText=value=>String(value||'').replace(/\s+/g,' ').trim().slice(0,500);
 
 async function runAgent(work,job,{signal,onState,timeoutMs=600000}={}){
- const dir=await inside(work,`jobs/${job.id}/agent-output`);await mkdir(dir,{recursive:true});
+ const dir=await inside(work,job.outputDirectory||`jobs/${job.id}/agent-output`);await mkdir(dir,{recursive:true});
  const schemaPath=join(dir,'result.schema.json'),resultPath=join(dir,'result.json'),progressPath=join(dir,'progress.json');await atomic(schemaPath,schema);
  const lease=job.lease?.token||job.lease;
  const source=job.inputs?.[job.slot||job.context?.slot||'baseline']||job.asset;
@@ -64,7 +66,7 @@ async function runAgent(work,job,{signal,onState,timeoutMs=600000}={}){
   const pullProgress=async()=>{
    if(readingProgress||finished)return;readingProgress=true;
    try{
-    const file=await inside(work,`jobs/${job.id}/agent-output/progress.json`);if((await stat(file)).size>4096)return;
+    const file=await inside(work,(job.outputDirectory||`jobs/${job.id}/agent-output`)+'/progress.json');if((await stat(file)).size>4096)return;
     const raw=await readFile(file,'utf8');if(raw===lastProgress)return;
     const p=JSON.parse(raw);if(!p||typeof p!=='object')return;
     // The system seed is already skipped; subsequent file changes are explicit agent reports.
@@ -124,18 +126,19 @@ async function runAgent(work,job,{signal,onState,timeoutMs=600000}={}){
 }
 
 export async function startWorker(work,{once=false,signal,pollMs=1000,onState,timeoutMs}={}){
- const probe=await probeCodex();if(!probe.available)throw Error(probe.error);
+ await reconcileExecutions(work);const probe=await probeCodex();if(!probe.available)throw Error(probe.error);
+ const instance=await createExecution(work);
+ try{
  onState?.({state:'connected',provider:'codex'});
  while(!signal?.aborted){
-  const rows=await listJobs(work,{raw:true});
-  const next=rows.findLast(j=>j.state==='queued'&&j.executor!=='local');
-  if(!next){if(once)break;await sleep(pollMs,signal);continue;}
-  let claimed;try{claimed=await claimJob(work,next.id,{owner:'codex-cli'});}catch{if(once)break;continue;}
+  await reconcileExecutions(work);const queued=await listQueuedJobSummaries(work);let next,claimed;
+  for(const candidate of queued){try{claimed=await claimJob(work,candidate.id,{owner:'codex-cli',execution:instance.record});next=candidate;break;}catch{}}
+  if(!claimed){if(once)break;await sleep(pollMs,signal);continue;}
   const lease=claimed.lease?.token||claimed.lease;
   const runAbort=new AbortController(),forward=()=>runAbort.abort();signal?.addEventListener('abort',forward,{once:true});if(signal?.aborted)runAbort.abort();
   // Each state read takes the workspace lock. Keep at most one in flight and await it before
   // returning, so a stopped worker never touches the workspace afterwards.
-  let checking=null;const check=setInterval(()=>{if(checking)return;checking=(async()=>{try{const j=await getJob(work,next.id,{raw:true});if(j.state!=='running')runAbort.abort();}catch{runAbort.abort();}})().finally(()=>{checking=null;});},750);
+  let checking=null;const check=setInterval(()=>{if(checking)return;checking=(async()=>{try{const j=await getJob(work,next.id,{raw:true});if(j.state!=='running'||j.lease!==lease)runAbort.abort();}catch{runAbort.abort();}})().finally(()=>{checking=null;});},750);
   try{
    const result=await runAgent(work,claimed,{signal:runAbort.signal,onState,timeoutMs});
    if(runAbort.signal.aborted)throw Error('任务已停止，候选未载入。');
@@ -145,11 +148,12 @@ export async function startWorker(work,{once=false,signal,pollMs=1000,onState,ti
     await completeJob(work,next.id,{lease,candidatePath:result.candidatePath,summary:result.summary,audit:result.audit});
    }
   }catch(e){
-   try{const current=await getJob(work,next.id,{raw:true});if(current.state==='running'){
-    if(signal?.aborted)await cancelJob(work,next.id);
-    else await failJob(work,next.id,{lease,error:e.message,state:/login|auth|quota|limit|登录|额度/i.test(e.message)?'needs-input':'failed'});
+   try{const current=await getJob(work,next.id,{raw:true});if(current.state==='running'&&current.lease===lease){
+    if(signal?.aborted)await interruptJob(work,next.id,{lease,reason:'执行宿主已断开；现场和产物已保留，可检查后重新执行。'});
+    else await failJob(work,next.id,{lease,error:e.message,state:/login|auth|quota|limit|登录|额度/i.test(e.message)?'needs-input':/超时/.test(e.message)?'interrupted':'failed'});
    }}catch{}
   }finally{clearInterval(check);await checking;signal?.removeEventListener('abort',forward);onState?.({state:signal?.aborted?'disconnected':'connected',provider:'codex',jobId:null,activity:null,startedAt:null});}
   if(once)break;
  }
+ }finally{await instance.close();await reconcileExecutions(work);}
 }

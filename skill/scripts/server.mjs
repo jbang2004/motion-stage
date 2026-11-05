@@ -5,7 +5,7 @@ import {randomBytes} from 'node:crypto';
 import {ROOT,json,inside,atomic,validateNote,importAsset,readMarks,sha,withWorkspaceLock,hasClip,readProject,projectView,modelSlots} from './core.mjs';
 import {catalogPage,startCatalogScan,openCatalogAsset,stopCatalogScan} from './asset-catalog.mjs';
 import {characterPage,openCharacter,associateCharacterMotion,saveCharacterMap} from './character-library.mjs';
-import {listJobs,getJob,createJob,cancelJob,localEditJob,reviewJob,inspectSlot,importBytes,replyJob,updateJobProgress,getJobProjectContext,previewProjectContext} from './jobs.mjs';
+import {listJobs,getJob,createJob,cancelJob,localEditJob,reviewJob,inspectSlot,importBytes,replyJob,updateJobProgress,getJobProjectContext,previewProjectContext,retryJob,restoreJob,interruptJob,jobArtifacts,reconcileExecutions} from './jobs.mjs';
 import {projectStatus,prepareProject,chooseProjectFolder,revealWorkspace} from './project-workspaces.mjs';
 import {diagnoseRuntime} from './runtime-diagnostics.mjs';
 import {appearanceStatus,appearanceFile} from './project-appearance.mjs';
@@ -24,9 +24,9 @@ export async function serve(work,port=5178,options={}){
  let runtime=await diagnose({workspace:work,programs:[]});
  if(!runtime.node.supported)throw Error('需要 Node.js 22 或更高版本。请升级 Node.js 后重新启动工作台。');
  if(runtime.workspace.status!=='ready')throw Error(runtime.workspace.error||'工作区不可读写，请选择本机可写目录。');
- await readProject(work);
+ await readProject(work);await reconcileExecutions(work);
  const token=randomBytes(24).toString('hex');let queue=Promise.resolve();
- let agent={connected:false,active:false,state:'disconnected',provider:'codex',error:null},workerAbort=null,workerGeneration=0;
+ let agent={connected:false,active:false,state:'disconnected',provider:'codex',error:null},workerAbort=null,workerGeneration=0,connecting=null,workerRun=null;
  const capabilityView=runtime=>({codex:runtime.codex,localEdit:runtime.features.localEdit,fbxImport:runtime.features.fbxConversion,mcp:true,automaticAgent:agent.connected,runtime});
  const getCaps=()=>capabilityView(runtime);
  let checking;
@@ -58,6 +58,8 @@ export async function serve(work,port=5178,options={}){
     }));
    }
    if(p==='/api/jobs'&&req.method==='GET')return send(200,url.searchParams.get('page')==='1'?await jobsPage(work,Object.fromEntries(url.searchParams),{index:await studioJobIndex(work)}):{jobs:await listJobs(work)});
+   const artifacts=p.match(/^\/api\/jobs\/([a-f0-9-]{36})\/artifacts$/);
+   if(artifacts&&req.method==='GET'){const result=await jobArtifacts(work,artifacts[1]),file=url.searchParams.get('file');if(!file)return send(200,result);const entry=result.files.find(f=>f.file===file);if(!entry)return send(404,{error:'产物不存在'});if(entry.size>200*1024*1024)throw Error('产物超过 200 MB，请在工作区检查。');const bytes=await readFile(await inside(work,file));res.writeHead(200,{'Content-Type':MIME[extname(file)]||'application/octet-stream','Content-Disposition':'attachment','Content-Length':bytes.length,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});return res.end(bytes);}
    if(/^\/api\/jobs\/[a-f0-9-]{36}$/.test(p)&&req.method==='GET')return send(200,await getJob(work,p.split('/').pop()));
    if(p==='/api/inspect'&&req.method==='GET')return send(200,await inspectSlot(work,url.searchParams.get('slot')||'baseline',url.searchParams.get('assetId')||undefined));
    if(p==='/api/feedback'&&req.method==='GET')return send(200,await json(await inside(work,'feedback.json')));
@@ -81,15 +83,27 @@ export async function serve(work,port=5178,options={}){
      return send(200,{...result,url:'http://127.0.0.1:'+target.address().port+'/'});
     }
     if(p==='/api/jobs'&&req.method==='POST')return send(200,await createJob(work,JSON.parse(data)));
+    const lifecycle=p.match(/^\/api\/jobs\/([a-f0-9-]{36})\/(retry|restore|interrupt)$/);
+    if(lifecycle&&req.method==='POST'){const input=data.length?JSON.parse(data):{};return send(200,await (lifecycle[2]==='retry'?retryJob(work,lifecycle[1]):lifecycle[2]==='restore'?restoreJob(work,lifecycle[1],input):interruptJob(work,lifecycle[1])));}
     const jm=p.match(/^\/api\/jobs\/([a-f0-9-]{36})\/(cancel|local-edit|review|reply|progress)$/);
     if(jm&&req.method==='POST'){const options=data.length?JSON.parse(data):{};return send(200,await (jm[2]==='cancel'?cancelJob(work,jm[1]):jm[2]==='reply'?replyJob(work,jm[1],options):jm[2]==='progress'?updateJobProgress(work,jm[1],options):jm[2]==='review'?reviewJob(work,jm[1],options):localEditJob(work,jm[1],options)));}
     if(p==='/api/agent/connect'&&req.method==='POST'){
-     const options=JSON.parse(data);if(options.provider!=='codex')throw Error('仅支持明确连接本机 Codex；其他 Agent 可通过 MCP 或任务命令领取');
-     if(agent.active)return send(200,agent);const module=await import('./agent-worker.mjs'),probe=await module.probeCodex();if(!probe.available)throw Error(probe.error||'本机未找到 Codex CLI');
-     workerAbort=new AbortController();const generation=++workerGeneration;agent={connected:true,active:true,state:'connected',provider:'codex',error:null};
-     module.startWorker(work,{signal:workerAbort.signal,onState:state=>{if(generation!==workerGeneration)return;agent={...agent,...state,connected:!['failed','disconnected'].includes(state.state),active:state.state!=='disconnected'};}}).then(()=>{if(generation!==workerGeneration)return;agent={...agent,connected:false,active:false,state:'disconnected'};}).catch(e=>{if(generation!==workerGeneration)return;agent={...agent,connected:false,active:false,state:'failed',error:e.message};});return send(200,agent);
+     const input=JSON.parse(data);if(input.provider!=='codex')throw Error('仅支持明确连接本机 Codex；其他 Agent 可通过 MCP 或任务命令领取');
+     if(agent.active)return send(200,agent);
+     if(connecting)return send(200,await connecting);
+     const generation=++workerGeneration;
+     const pending=(async()=>{
+      const module=options.agentWorker||await import('./agent-worker.mjs'),probe=await module.probeCodex();
+      if(generation!==workerGeneration)return agent;
+      if(!probe.available)throw Error(probe.error||'本机未找到 Codex CLI');
+      workerAbort=new AbortController();agent={connected:true,active:true,state:'connected',provider:'codex',error:null};
+      const signal=workerAbort.signal;
+      workerRun=Promise.resolve().then(()=>{if(generation!==workerGeneration)return;return module.startWorker(work,{signal,onState:state=>{if(generation!==workerGeneration)return;agent={...agent,...state,connected:!['failed','disconnected'].includes(state.state),active:state.state!=='disconnected'};}});}).then(()=>{if(generation!==workerGeneration)return;agent={...agent,connected:false,active:false,state:'disconnected'};}).catch(e=>{if(generation!==workerGeneration)return;agent={...agent,connected:false,active:false,state:'failed',error:e.message};});
+      return agent;
+     })();
+     connecting=pending;try{return send(200,await pending);}finally{if(connecting===pending)connecting=null;}
     }
-    if(p==='/api/agent/disconnect'&&req.method==='POST'){workerGeneration++;workerAbort?.abort();if(agent.jobId){try{await cancelJob(work,agent.jobId);}catch{}}agent={...agent,connected:false,active:false,state:'disconnected',jobId:null,activity:null,startedAt:null};return send(200,agent);}
+    if(p==='/api/agent/disconnect'&&req.method==='POST'){workerGeneration++;connecting=null;workerAbort?.abort();if(agent.jobId){try{await interruptJob(work,agent.jobId);}catch{}}agent={...agent,connected:false,active:false,state:'disconnected',jobId:null,activity:null,startedAt:null};return send(200,agent);}
     if(p.startsWith('/api/assets/')&&req.method==='POST'){
      const cfg=await readProject(work),assetId=url.searchParams.get('assetId')||cfg.activeAssetId;
      return send(200,await importBytes(work,p.split('/').pop(),data,url.searchParams.get('name')||'model.glb',{assetId,newModel:url.searchParams.get('newModel')==='true'}));
@@ -147,10 +161,10 @@ export async function serve(work,port=5178,options={}){
    else return send(404,{error:'Not found'});
    const file=await inside(root,name),s=await stat(file);if(!s.isFile())return send(404,{error:'Not found'});
    const bytes=await readFile(file);res.writeHead(200,{'Content-Type':MIME[extname(file)]||'application/octet-stream','Content-Length':bytes.length,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});res.end(req.method==='HEAD'?undefined:bytes);
-  }catch(e){if(!res.headersSent)send(e.code==='ENOENT'?404:400,{error:e.message});else res.end();}
+  }catch(e){if(!res.headersSent)send(e.code==='ENOENT'?404:e.code==='MODEL_JOB_ACTIVE'?409:400,{error:e.message,...(e.code?{code:e.code}:{}),...(e.jobId?{jobId:e.jobId}:{})});else res.end();}
  });
  server.once('close',()=>{if(workspaceServers.get(work)===server)workspaceServers.delete(work);serverCloseCleanup();});
- const close=server.close.bind(server);server.close=callback=>{Promise.all([stopCatalogScan(work),...[...children].filter(c=>c.listening).map(c=>new Promise(r=>c.close(r)))]).catch(()=>{}).finally(()=>close(callback));return server;};
+ const close=server.close.bind(server);server.close=callback=>{workerGeneration++;connecting=null;workerAbort?.abort();Promise.all([workerRun,stopCatalogScan(work),...[...children].filter(c=>c.listening).map(c=>new Promise(r=>c.close(r)))]).catch(()=>{}).finally(()=>close(callback));return server;};
  try{await new Promise((ok,no)=>{server.once('error',no);server.listen(port,'127.0.0.1',ok);});}
  catch(error){throw Object.assign(Error(error.code==='EADDRINUSE'?'本地服务端口已被占用，请关闭旧服务或使用 --port 0 自动选择端口。':'本地服务无法启动，请检查本机网络权限后重试。',{cause:error}),{code:error.code});}
  runtime.server={status:'ready',host:'127.0.0.1',port:server.address().port};workspaceServers.set(work,server);

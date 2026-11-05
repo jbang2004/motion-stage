@@ -11,7 +11,7 @@ import {buildDemo} from '../practice.mjs';
 import {parseGlb,encodeGlb,editGlb} from '../asset-tools.mjs';
 import {ROOT,json,atomic,sha,readProject,modelSlots,importAsset} from '../core.mjs';
 import {startCatalogScan,waitForCatalogScan,readCatalog,catalogPage,openCatalogAsset,stopCatalogScan} from '../asset-catalog.mjs';
-import {createJob,claimJob,completeJob,getJob,reviewJob,getJobProjectContext} from '../jobs.mjs';
+import {createJob,claimJob,cancelJob,completeJob,getJob,reviewJob,getJobProjectContext} from '../jobs.mjs';
 import {serve} from '../server.mjs';
 
 async function fixture(fn){
@@ -117,7 +117,7 @@ fs.writeFileSync(path.join(out,'source-map.json'),JSON.stringify({source:{sha256
   await Promise.all([openProcess(),openProcess()]);let cfg=await readProject(work);assert.equal(cfg.slots.baseline.source.projectRelativePath,'hero.fbx');assert.ok(cfg.slots.baseline.source.dependencies.some(d=>d.projectRelativePath==='shared/skin.png'));
   await openCatalogAsset(work,entry.id,{refreshSource:true});assert.equal((await readFile(countFile,'utf8')).trim().split('\n').length,1,'unchanged external images reuse the verified conversion');
   const independent=await enqueue(work,entry.id);await writeFile(join(root,'unrelated.png'),'unused changed');await scan(work);assert.equal((await catalogPage(work)).entries.find(e=>e.id===entry.id).sourceChanged,false);await claimJob(work,independent.id);await openCatalogAsset(work,entry.id,{refreshSource:true});assert.equal((await readFile(countFile,'utf8')).trim().split('\n').length,1);
-  const job=await enqueue(work,entry.id);await writeFile(image,'second texture');await scan(work);assert.equal((await catalogPage(work)).entries.find(e=>e.id===entry.id).sourceChanged,true);await assert.rejects(claimJob(work,job.id),/上下文/);
+  await cancelJob(work,independent.id);const job=await enqueue(work,entry.id);await writeFile(image,'second texture');await scan(work);assert.equal((await catalogPage(work)).entries.find(e=>e.id===entry.id).sourceChanged,true);await assert.rejects(claimJob(work,job.id),/上下文/);
   await openCatalogAsset(work,entry.id,{refreshSource:true});assert.equal((await readFile(countFile,'utf8')).trim().split('\n').length,2);
   cfg=await readProject(work);assert.equal(cfg.slots.baseline.source.dependencies.find(d=>d.projectRelativePath==='shared/skin.png').sha256,sha(Buffer.from('second texture')));
  }finally{if(prior===undefined)delete process.env.BLENDER_EXECUTABLE;else process.env.BLENDER_EXECUTABLE=prior;}

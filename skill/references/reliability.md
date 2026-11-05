@@ -34,6 +34,16 @@ Windows 深层目录中的原生 Blender 文件读写使用 `asset-tools.mjs` �
 
 后台 Agent 的进程树归本次任务所有。取消、超时和结束会完成有界清理；POSIX 由保留进程组身份的守护进程防止组号复用，Windows 使用进程树终止。清理可能增加约两秒收尾时间，不代表新的修改阶段。
 
+## 排队、中断与认可版本恢复
+
+同一模型只允许一条排队、执行或等待补充的任务。重复提交返回 `MODEL_JOB_ACTIVE` 和已有任务 ID，浏览器保留当前草稿；先处理、补充或取消已有任务，再提交。不同模型仍可正常排队。旧工作区中已经存在的同模型排队任务也不能同时领取执行。
+
+自动 worker 每次连接创建唯一执行实例，记录宿主主机、进程及启动身份；每秒在独立文件更新心跳，不更新业务进度，也不争用工作区锁。宿主退出或执行实例结束而任务未回传时，服务启动和后续任务读取会将任务标为 `interrupted`，撤销旧租约。宿主仍存活而心跳暂停时只显示无法响应，允许人工检查并中断，不因长时间没有业务进展而断言失败。手动 CLI/MCP 领取不绑定领取命令的短期进程，不会因为命令正常退出被误判中断。
+
+每次执行写入独立的 `jobs/ID/agent-output/ATTEMPT_ID/`，失败、中断及补充后继续均保留先前产物。CLI `artifacts --workspace PATH --job ID` 或 MCP `motion_job_artifacts` 列出产物；CLI `interrupt`、`retry`、`cancel` 及同名 MCP 工具可中断、明确重新执行或取消。重新执行仍核验冻结的模型与项目资料；过期要求必须基于当前版本重新提交，不会自动重放。HTTP 提供 `GET /api/jobs/ID/artifacts`（加 `?file=相对路径` 读取列出的文件）及 `POST /api/jobs/ID/interrupt|retry|cancel`。
+
+已认可检查点可通过 CLI `restore --workspace PATH --job ID --expected-revision N [--checkpoint ID]`、MCP `motion_restore_checkpoint` 或 `POST /api/jobs/ID/restore` 恢复为当前候选。请求中的 `expectedRevision` 是项目视图的 `revision`，`checkpointId` 是认可决定的 ID；缺省选择该任务最近的认可检查点。恢复拒绝同模型尚未结束的任务、变化的项目版本，以及后来已有否决或修改决定的候选。恢复将模型 head 和任务恢复记录一起事务提交，只改工作区预览，不安装正式游戏项目。
+
 ## 草稿与源更新
 
 模型切换、载入和截图期间暂停自动保存。草稿与成功载入的模型身份绑定，并先保留会话内快照；浏览器存储满额或被禁用时仍能在本页面内回退，但页面关闭后无法保证持久化。旧请求和旧加载结果不能覆盖新选择。

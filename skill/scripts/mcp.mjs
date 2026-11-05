@@ -7,7 +7,7 @@ import {diagnoseRuntime} from './runtime-diagnostics.mjs';
 import {catalogPage,startCatalogScan,openCatalogAsset} from './asset-catalog.mjs';
 import {characterPage,openCharacter,saveCharacterMap,associateCharacterMotion} from './character-library.mjs';
 import {appearanceStatus,installAppearance} from './project-appearance.mjs';
-import {listJobs,getJob,claimJob,completeJob,failJob,cancelJob,inspectSlot,updateJobProgress,replyJob,getJobProjectContext,previewProjectContext} from './jobs.mjs';
+import {listJobs,getJob,claimJob,completeJob,failJob,cancelJob,inspectSlot,updateJobProgress,replyJob,getJobProjectContext,previewProjectContext,retryJob,restoreJob,interruptJob,jobArtifacts} from './jobs.mjs';
 const str={type:'string'},id={type:'string',description:'Job ID returned by motion_list_jobs'},lease={type:'string',description:'Lease returned by motion_claim_job'};
 const tool=(name,description,properties={},required=[])=>({name,description,inputSchema:{type:'object',properties,required,additionalProperties:false}});
 export const tools=[
@@ -30,6 +30,10 @@ export const tools=[
  tool('motion_reply_job','Record a user clarification for a needs-input task and queue it again on the same frozen source versions.',{id,message:str},['id','message']),
  tool('motion_complete_job','Return a genuinely modified self-contained GLB candidate. Requires current source versions and matching execution lease; does not install into game or approve art.',{id,lease,candidatePath:{type:'string',description:'Absolute path to generated candidate GLB'},summary:str,audit:{type:'object'}},['id','lease','candidatePath','summary']),
  tool('motion_fail_job','Report an actual error or a concrete clarification question. Keeps source assets intact.',{id,lease,error:str,state:{type:'string',enum:['failed','needs-input']}},['id','lease','error']),
+ tool('motion_interrupt_job','Explicitly interrupt a running task and fence the old lease. Preserves all artifacts; also supports manually claimed tasks.',{id},['id']),
+ tool('motion_retry_job','Explicitly retry an interrupted or failed task on its unchanged frozen input. Does not replay stale requests.',{id},['id']),
+ tool('motion_job_artifacts','List preserved output files from all attempts. Paths are relative to the workspace.',{id},['id']),
+ tool('motion_restore_checkpoint','Restore a user-accepted checkpoint as this model’s current candidate. Requires the current project revision and no active task for this model. Never writes production project files.',{id,checkpointId:str,expectedRevision:{type:'integer',minimum:0}},['id','expectedRevision']),
  tool('motion_cancel_job','Cancel an unfinished task at user request. Does not undo an already completed edit.',{id},['id'])
 ];
 export async function callTool(work,name,args={}){
@@ -52,6 +56,10 @@ export async function callTool(work,name,args={}){
  if(name==='motion_reply_job')return replyJob(work,args.id,args);
  if(name==='motion_complete_job')return completeJob(work,args.id,args);
  if(name==='motion_fail_job')return failJob(work,args.id,args);
+ if(name==='motion_interrupt_job')return interruptJob(work,args.id);
+ if(name==='motion_retry_job')return retryJob(work,args.id);
+ if(name==='motion_job_artifacts')return jobArtifacts(work,args.id);
+ if(name==='motion_restore_checkpoint')return restoreJob(work,args.id,args);
  if(name==='motion_cancel_job')return cancelJob(work,args.id);
  throw Error('Unknown tool '+name);
 }

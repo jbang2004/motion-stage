@@ -5,7 +5,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {atomic,json,importAsset} from '../core.mjs';
 import {buildDemo} from '../practice.mjs';
-import {createJob,getJob,cancelJob} from '../jobs.mjs';
+import {createJob,getJob,cancelJob,retryJob,replyJob} from '../jobs.mjs';
 import {startWorker} from '../agent-worker.mjs';
 
 // A fake executable tests process/lease/result plumbing. It does not claim AI quality.
@@ -76,13 +76,13 @@ async function assertDescendantsStopped(rows){
 }
 
 test('worker executes agent tasks, skips local jobs, and installs a distinct candidate',async()=>fixture('success',async(w,enqueue,p)=>{
- const local=await enqueue('local'),job=await enqueue();await startWorker(w,{once:true});
- const done=await getJob(w,job.id);assert.equal(done.state,'complete');assert.equal((await getJob(w,local.id)).state,'queued');assert.notEqual(done.candidate.sha256,p.slots.baseline.sha256);assert.equal((await json(join(w,'project.json'))).slots.baseline.sha256,p.slots.baseline.sha256);assert.equal(done.artisticDecision,null);assert.equal(done.audit.fixtureCheck,true);assert.match(await readFile(join(w,'jobs',job.id,'agent-output','events.jsonl'),'utf8'),/turn.completed/);
+ const local=await enqueue('local');await importAsset(w,'baseline',await buildDemo(false),'second model',{newModel:true});const cfg=await json(join(w,'project.json'));const job=await createJob(w,{request:'Reduce left arm swing',assetId:cfg.activeAssetId,slot:'baseline',context:{assetId:cfg.activeAssetId,asset:cfg.slots.baseline,clip:'Run',time:.25}});await startWorker(w,{once:true});
+ const done=await getJob(w,job.id);assert.equal(done.state,'complete');assert.equal((await getJob(w,local.id)).state,'queued');assert.notEqual(done.candidate.sha256,p.slots.baseline.sha256);assert.equal((await json(join(w,'project.json'))).slots.baseline.sha256,p.slots.baseline.sha256);assert.equal(done.artisticDecision,null);assert.equal(done.audit.fixtureCheck,true);assert.match(await readFile(join(w,done.outputDirectory,'events.jsonl'),'utf8'),/turn.completed/);
 }));
 
 test('worker surfaces missing input and execution failure without replacing candidate',async()=>{
  for(const mode of ['needs-input','failure'])await fixture(mode,async(w,enqueue,p)=>{
-  const job=await enqueue();await startWorker(w,{once:true});const done=await getJob(w,job.id);assert.equal(done.state,mode==='needs-input'?'needs-input':'failed');assert.equal((await json(join(w,'project.json'))).slots.candidate.sha256,p.slots.candidate.sha256);assert.ok(done.error);assert.ok(await readFile(join(w,'jobs',job.id,'agent-output','stderr.txt')));
+  const job=await enqueue();await startWorker(w,{once:true});const done=await getJob(w,job.id);assert.equal(done.state,mode==='needs-input'?'needs-input':'failed');assert.equal((await json(join(w,'project.json'))).slots.candidate.sha256,p.slots.candidate.sha256);assert.ok(done.error);assert.ok(await readFile(join(w,done.outputDirectory,'stderr.txt')));
  });
 });
 
@@ -113,7 +113,7 @@ for(const terminal of ['cancel','timeout'])test(`worker ${terminal} cleans resis
  const job=await enqueue(),running=startWorker(work,{once:true,timeoutMs:terminal==='timeout'?4000:10000});
  const descendants=await descendantsReady(work);
  if(terminal==='cancel')await cancelJob(work,job.id);
- await running;assert.equal((await getJob(work,job.id)).state,terminal==='cancel'?'cancelled':'failed');
+ await running;assert.equal((await getJob(work,job.id)).state,terminal==='cancel'?'cancelled':'interrupted');
  if(terminal==='timeout')assert.match((await getJob(work,job.id)).error,/超时/);
  assert.equal((await json(join(work,'project.json'))).slots.candidate.sha256,p.slots.candidate.sha256);
  await assertDescendantsStopped(descendants);
@@ -124,4 +124,26 @@ test('successful worker cleans owned background descendants before installing it
  const descendants=await descendantsReady(work);await running;
  assert.equal((await getJob(work,job.id)).state,'complete','cleanup grace must not turn a completed CLI into a timeout');
  await assertDescendantsStopped(descendants);
+}));
+
+
+async function waitForJob(work,id,state){const end=Date.now()+9000;while(Date.now()<end){const row=await getJob(work,id);if(row.state===state)return row;await delay(30);}throw Error('Task did not enter '+state);}
+test('one connected worker gives retries and clarification continuations separate preserved output directories',async()=>fixture('failure',async(work,enqueue)=>{
+ const job=await enqueue(),controller=new AbortController(),worker=startWorker(work,{signal:controller.signal,pollMs:30});
+ try{
+  const first=await waitForJob(work,job.id,'failed');process.env.MOTION_TEST_MODE='needs-input';await retryJob(work,job.id);
+  const second=await waitForJob(work,job.id,'needs-input');process.env.MOTION_TEST_MODE='success';await replyJob(work,job.id,{message:'明确角色自身左臂'});
+  const third=await waitForJob(work,job.id,'complete');
+  assert.equal(new Set([first.outputDirectory,second.outputDirectory,third.outputDirectory]).size,3);
+  assert.equal(first.execution.id,second.execution.id);assert.equal(second.execution.id,third.execution.id);
+  assert.match(await readFile(join(work,first.outputDirectory,'stderr.txt'),'utf8'),/test execution failure/);
+  assert.ok(await readFile(join(work,second.outputDirectory,'result.json')));assert.equal(third.attempts.length,2);
+ }finally{controller.abort();await worker;}
+}));
+
+test('two automatic workers can drain different models without duplicate execution or replacing the wrong model',async()=>fixture('success',async(work,enqueue)=>{
+ const first=await enqueue();await importAsset(work,'baseline',await buildDemo(false),'second',{newModel:true});const cfg=await json(join(work,'project.json'));
+ const second=await createJob(work,{assetId:cfg.activeAssetId,request:'Reduce swing',slot:'baseline',context:{assetId:cfg.activeAssetId,asset:cfg.slots.baseline,clip:'Run',time:.25}});
+ const a=new AbortController(),b=new AbortController(),workers=[startWorker(work,{signal:a.signal,pollMs:30}),startWorker(work,{signal:b.signal,pollMs:30})];
+ try{const [one,two]=await Promise.all([waitForJob(work,first.id,'complete'),waitForJob(work,second.id,'complete')]);assert.notEqual(one.execution.id,two.execution.id);assert.equal(one.events.filter(e=>e.state==='running').length,1);assert.equal(two.events.filter(e=>e.state==='running').length,1);const p=await json(join(work,'project.json'));assert.equal(p.models[first.assetId].slots.candidate.sha256,one.candidate.sha256);assert.equal(p.models[second.assetId].slots.candidate.sha256,two.candidate.sha256);}finally{a.abort();b.abort();await Promise.all(workers);}
 }));

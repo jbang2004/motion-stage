@@ -10,7 +10,7 @@ import {readProject,modelSlots,importAsset,sha} from '../core.mjs';
 import {startCatalogScan,waitForCatalogScan,stopCatalogScan,openCatalogAsset,catalogPage} from '../asset-catalog.mjs';
 import {characterPage,openCharacter,saveCharacterMap,associateCharacterMotion} from '../character-library.mjs';
 import {characterProfileDigest} from '../source-dependencies.mjs';
-import {createJob,claimJob,getJob} from '../jobs.mjs';
+import {createJob,claimJob,cancelJob,getJob} from '../jobs.mjs';
 import {serve} from '../server.mjs';
 const bytes=await readFile(new URL('../../assets/demo/baseline.glb',import.meta.url));
 const pose={fps:60,clips:{Pose:{duration:1,tracks:[['LeftShoulder.quaternion','quaternion',4,[0,0,0,1]]]}}};
@@ -47,7 +47,7 @@ test('consumed motion changes invalidate frozen tasks; unrelated profile changes
  const m=map();await saveCharacterMap(work,m);const role=(await characterPage(work)).entries[0];await openCharacter(work,role.id);const job=await enqueue(work,role.id);
  m.characters.push({id:'other',model:'models/old.glb',name:'Other'});m.characters[0].variants=[];m.characters[0].animations[0].prefix='new__';await saveCharacterMap(work,m);await assert.rejects(claimJob(work,job.id),/过期/,'changing this role binding invalidates its input');assert.equal((await getJob(work,job.id)).state,'stale');
  await openCharacter(work,role.id,{refreshSource:true});const clean=await enqueue(work,role.id);m.characters[1].name='Other renamed';await saveCharacterMap(work,m);assert.ok((await claimJob(work,clean.id)).lease);
- const changed=await enqueue(work,role.id);await writeFile(join(root,'motions/director.json'),JSON.stringify({...pose,fps:30}));await assert.rejects(claimJob(work,changed.id),/过期/);assert.equal((await getJob(work,changed.id)).state,'stale');
+ await cancelJob(work,clean.id);const changed=await enqueue(work,role.id);await writeFile(join(root,'motions/director.json'),JSON.stringify({...pose,fps:30}));await assert.rejects(claimJob(work,changed.id),/过期/);assert.equal((await getJob(work,changed.id)).state,'stale');
 }));
 
 test('changed registry evidence is visible and skips unconfirmed external motions until re-reviewed',()=>fixture(async({root,work})=>{
