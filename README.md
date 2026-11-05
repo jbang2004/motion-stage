@@ -11,7 +11,7 @@ Agent 回传候选后，原版和候选并排放在同一时刻、同一镜头�
 > to your agent (CLI or stdio MCP), then compare the returned candidate side by side.
 > The UI is in Chinese. MIT licensed. Skill / package id: `motion-stage`.
 
-当前版本 3.0.1。界面只有中文。
+当前版本 3.1.0。界面只有中文。
 
 ## 适合谁
 
@@ -48,6 +48,14 @@ node scripts/start.mjs
 不连接任何 AI 也能体验一轮：页面里的“先试一次本地微调”是一个确定性的摆幅缩放工具，
 用来熟悉流程；它不是 AI 修改，页面也不会把它说成 AI 修改。
 
+## 连续修改与审阅
+
+- 同一模型同时保留一条排队、执行中或等待补充的任务；其他模型可以排队。重复提交时保留草稿，先完成、补充或取消已有任务。
+- 对照恢复该轮实际输入的时间、镜头、播放速度、根运动锁定和对齐方式。两版共用输入的尺度与原点，避免把候选尺寸变化自动缩放掉；可切换原始尺度检查。
+- 执行中断后保留每次执行的独立输出目录。检查已有产物后可明确重试；源版本变化时需重新提交，不会自动重放旧意见。
+- 评审可补充未采用的原因。已认可检查点可显式恢复为当前候选，正式游戏文件仍需单独接入。
+- 历史分页加载，后台轮询只同步摘要和变化。暂停且没有动态外观时停止连续绘制。
+
 ## 导入自己的角色
 
 - **自包含 GLB**（带或不带动画）：直接导入，支持 Meshopt、Draco、KTX2 压缩。
@@ -77,7 +85,7 @@ node scripts/motion-feedback.mjs progress --workspace "$WORKSPACE" --job "$ID" -
 node scripts/motion-feedback.mjs complete --workspace "$WORKSPACE" --job "$ID" --lease "$LEASE" --candidate candidate.glb --summary "改了什么、查了什么"
 ```
 
-**2. stdio MCP。** 提供 20 个工具（列任务、读任务、领取、报告进度、回传、检查模型等）：
+**2. stdio MCP。** 提供任务、执行恢复、检查点恢复和资产检查工具：
 
 ```sh
 node scripts/mcp.mjs --workspace "$WORKSPACE"
@@ -119,7 +127,7 @@ Agent 的使用说明在 [skill/SKILL.md](skill/SKILL.md) 和
 - **数值检查不等于好看。** 采样检查只证明检查范围内的数据没被破坏，不证明动作自然、没有穿插；
   采不采用永远由你决定，动作台不会替你“自动认可”。
 - **平台验证有限。** 完整的三系统（macOS / Windows / Linux）× Node 22 / 24 / 26 矩阵最后一次在
-  2.4.2 版本上跑通；之后的版本（含 3.0.x）主要在 macOS 上用单元测试验证。`.github/workflows/portable-release.yml`
+  2.4.2 版本上跑通；本次 3.1.0 在 macOS 上进行回归验证，新的完整跨平台结果需由 CI 确认。`.github/workflows/portable-release.yml`
   是现成的 CI，仓库公开后每次提交都会重跑。
 - **只有中文界面**，目前由一个人维护。
 - 程序只监听 `127.0.0.1`，模型和历史都留在本机。但连接在线 Agent 后，你的要求、选区和截图会进入
