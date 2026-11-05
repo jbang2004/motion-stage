@@ -13,6 +13,7 @@ import {createAppearanceController,disposeAppearance,withRendererState,renderApp
 import {createEnvironmentPanel} from './environment-view.mjs';
 import {observationDuration,observationTime,planObservationRestore,restoredTransportTime,observationFrame,observationFrameOptions} from './observation-state.mjs';
 import {createDemandLoop} from './render-loop.mjs';
+import {limitationText} from './result-copy.mjs';
 
 decorateIcons();
 
@@ -481,7 +482,7 @@ function drawLatestJob(){
   const data=job.audit&&typeof job.audit==='object'?job.audit:null,names={changedKeyframes:'修改关键帧',factor:'幅度倍率',bone:'目标部位',clip:'动作',protectedWorldMaxDifference:'保护部位最大差异',sourceUnchanged:'原版保持',sampling:'采样范围'};
   if(data)for(const[key,label]of Object.entries(names))if(data[key]!==undefined)checks.append(el('p',label+'：'+(typeof data[key]==='object'?JSON.stringify(data[key]):String(data[key]))));
   if(job.validation)checks.append(el('p','文件检查：'+(job.validation.status||'候选已通过资源校验')));
-  const limitations=[data?.limitations,job.validation?.limitations].flatMap(value=>Array.isArray(value)?value:value?[String(value)]:[]);checks.append(el('p',limitations.length?(Array.isArray(limitations)?limitations.join('；'):String(limitations)):'尚未附上具体艺术检查限制，请播放完整动作并检查游戏内表现。','task-next'));
+  const limitations=[...(Array.isArray(data?.limitations)?data.limitations:data?.limitations?[String(data.limitations)]:[]).map(value=>limitationText(value,data?.kind)),...(Array.isArray(job.validation?.limitations)?job.validation.limitations:job.validation?.limitations?[String(job.validation.limitations)]:[])];checks.append(el('p',limitations.length?(Array.isArray(limitations)?limitations.join('；'):String(limitations)):'尚未附上具体艺术检查限制，请播放完整动作并检查游戏内表现。','task-next'));
   checks.append(el('p','技术检查不会自动形成艺术认可；已认可版本仍需单独接入游戏。','task-next'));
   const raw=el('details');raw.dataset.disclosure='audit';raw.open=disclosures.get('audit')||false;raw.append(el('summary','原始检查 JSON'),el('pre',JSON.stringify({audit:job.audit||null,validation:job.validation||null,contextVerification:job.contextVerification||null},null,2)));checks.append(raw);card.append(checks);
   const versions=el('div',undefined,'version-provenance');const reviewDecision=job.review||job.reviews?.at(-1);
