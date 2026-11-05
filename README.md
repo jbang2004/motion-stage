@@ -11,7 +11,7 @@ Agent 回传候选后，原版和候选并排放在同一时刻、同一镜头�
 > to your agent (CLI or stdio MCP), then compare the returned candidate side by side.
 > The UI is in Chinese. MIT licensed. Skill / package id: `motion-stage`.
 
-当前版本 3.0.0。界面只有中文。
+当前版本 3.0.1。界面只有中文。
 
 ## 适合谁
 
@@ -119,7 +119,7 @@ Agent 的使用说明在 [skill/SKILL.md](skill/SKILL.md) 和
 - **数值检查不等于好看。** 采样检查只证明检查范围内的数据没被破坏，不证明动作自然、没有穿插；
   采不采用永远由你决定，动作台不会替你“自动认可”。
 - **平台验证有限。** 完整的三系统（macOS / Windows / Linux）× Node 22 / 24 / 26 矩阵最后一次在
-  2.4.2 版本上跑通；之后的版本（含 3.0.0）主要在 macOS 上用单元测试验证。`.github/workflows/portable-release.yml`
+  2.4.2 版本上跑通；之后的版本（含 3.0.x）主要在 macOS 上用单元测试验证。`.github/workflows/portable-release.yml`
   是现成的 CI，仓库公开后每次提交都会重跑。
 - **只有中文界面**，目前由一个人维护。
 - 程序只监听 `127.0.0.1`，模型和历史都留在本机。但连接在线 Agent 后，你的要求、选区和截图会进入

@@ -133,7 +133,9 @@ export async function startWorker(work,{once=false,signal,pollMs=1000,onState,ti
   let claimed;try{claimed=await claimJob(work,next.id,{owner:'codex-cli'});}catch{if(once)break;continue;}
   const lease=claimed.lease?.token||claimed.lease;
   const runAbort=new AbortController(),forward=()=>runAbort.abort();signal?.addEventListener('abort',forward,{once:true});if(signal?.aborted)runAbort.abort();
-  const check=setInterval(async()=>{try{const j=await getJob(work,next.id,{raw:true});if(j.state!=='running')runAbort.abort();}catch{runAbort.abort();}},750);
+  // Each state read takes the workspace lock. Keep at most one in flight and await it before
+  // returning, so a stopped worker never touches the workspace afterwards.
+  let checking=null;const check=setInterval(()=>{if(checking)return;checking=(async()=>{try{const j=await getJob(work,next.id,{raw:true});if(j.state!=='running')runAbort.abort();}catch{runAbort.abort();}})().finally(()=>{checking=null;});},750);
   try{
    const result=await runAgent(work,claimed,{signal:runAbort.signal,onState,timeoutMs});
    if(runAbort.signal.aborted)throw Error('任务已停止，候选未载入。');
@@ -147,7 +149,7 @@ export async function startWorker(work,{once=false,signal,pollMs=1000,onState,ti
     if(signal?.aborted)await cancelJob(work,next.id);
     else await failJob(work,next.id,{lease,error:e.message,state:/login|auth|quota|limit|登录|额度/i.test(e.message)?'needs-input':'failed'});
    }}catch{}
-  }finally{clearInterval(check);signal?.removeEventListener('abort',forward);onState?.({state:signal?.aborted?'disconnected':'connected',provider:'codex',jobId:null,activity:null,startedAt:null});}
+  }finally{clearInterval(check);await checking;signal?.removeEventListener('abort',forward);onState?.({state:signal?.aborted?'disconnected':'connected',provider:'codex',jobId:null,activity:null,startedAt:null});}
   if(once)break;
  }
 }

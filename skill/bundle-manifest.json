@@ -1,7 +1,7 @@
 {
   "name": "motion-stage",
-  "version": "3.0.0",
-  "createdAt": "2026-11-05T04:16:11.499226+00:00",
+  "version": "3.0.1",
+  "createdAt": "2026-11-05T05:11:20.879455+00:00",
   "runtime": "Node.js >=22 / Canvas2D curves; WebGL2 spatial previews",
   "externalRuntimeDependencies": {
     "base": [],
@@ -34,7 +34,7 @@
     {
       "path": "README.md",
       "bytes": 3592,
-      "sha256": "1dc5387e961a150ea2456069bdb59c62d8e79d5815701b5c410868ae7ad3dcfb"
+      "sha256": "14d6af852d172eb5029f839b4808d2b392a322b52226d96ec0b9f564aa62fdde"
     },
     {
       "path": "SKILL.md",
@@ -309,7 +309,7 @@
     {
       "path": "package.json",
       "bytes": 367,
-      "sha256": "74cb3f305d7af41be351bd53bb39a441ea4f60199eb34828a12f283ac13a3c81"
+      "sha256": "92ce9f5f13febc55f530ba70695635ecccdb23b1ef6f814448a7a6f5ed2640df"
     },
     {
       "path": "references/agent-case.md",
@@ -358,8 +358,8 @@
     },
     {
       "path": "scripts/agent-worker.mjs",
-      "bytes": 16826,
-      "sha256": "5a6d4c1bf69d9908ca140d628b05242df72446e30ebe0190ad782dddd2d6876f"
+      "bytes": 17098,
+      "sha256": "7d24c40cc972a1a52bab74708fc41d94e86ebbe41fbb2ec2171a2ff00aa63a8b"
     },
     {
       "path": "scripts/asset-catalog.mjs",
@@ -628,8 +628,8 @@
     },
     {
       "path": "scripts/test/worker.test.mjs",
-      "bytes": 10710,
-      "sha256": "7c5c1bd0398695cd8cf9888b14976c381c3463cd74f43780f4891c33c8ab076c"
+      "bytes": 10907,
+      "sha256": "a255ccf9b109cc73af9b514b0536aa54ca9cbc7252310742829b6dabc5980b20"
     },
     {
       "path": "scripts/test/workflow.test.mjs",

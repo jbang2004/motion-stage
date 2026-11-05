@@ -9,6 +9,8 @@ import {createJob,getJob,cancelJob} from '../jobs.mjs';
 import {startWorker} from '../agent-worker.mjs';
 
 // A fake executable tests process/lease/result plumbing. It does not claim AI quality.
+// The fake writes candidate bytes instead of copying: Windows CopyFile keeps the source mtime,
+// and the worker correctly rejects a candidate older than the execution as stale.
 async function fixture(mode,run){
  const w=await mkdtemp(join(tmpdir(),'motion-worker-'));const previous={CODEX_EXECUTABLE:process.env.CODEX_EXECUTABLE,MOTION_TEST_MODE:process.env.MOTION_TEST_MODE,MOTION_TEST_FIXTURE:process.env.MOTION_TEST_FIXTURE};
  try{
@@ -25,7 +27,7 @@ let prompt='';process.stdin.on('data',b=>prompt+=b);process.stdin.on('end',()=>{
  if(mode.includes('descendant'))require('node:child_process').spawn(process.execPath,['-e',${JSON.stringify(descendant)}],{stdio:'ignore'}).unref();
  if(mode==='wait'||mode==='wait-descendant'){console.log(JSON.stringify({type:'test.waiting'}));setInterval(()=>{},1000);return;}
  if(mode==='failure'){console.error('test execution failure');process.exit(2);}
- const finish=()=>{const needs=mode==='needs-input';if(!needs){fs.copyFileSync(process.env.MOTION_TEST_FIXTURE,'candidate.glb');fs.writeFileSync('audit.json',JSON.stringify({fixtureCheck:true}));}
+ const finish=()=>{const needs=mode==='needs-input';if(!needs){fs.writeFileSync('candidate.glb',fs.readFileSync(process.env.MOTION_TEST_FIXTURE));fs.writeFileSync('audit.json',JSON.stringify({fixtureCheck:true}));}
   if(mode==='optional-failure'){
    console.log(JSON.stringify({type:'item.completed',item:{type:'command_execution',exit_code:1,aggregated_output:'Optional renderer crashed'}}));
    console.log(JSON.stringify({type:'item.completed',item:{type:'mcp_tool_call',error:{message:'Optional player denied'}}}));
