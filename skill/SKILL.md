@@ -37,6 +37,14 @@ Use CLI `doctor`, MCP `motion_diagnostics`, or `/api/doctor` when an environment
 
 Startup checks Node and an owned temporary write/rename/read/cleanup in the workspace, then actually binds the loopback server. Optional programs are checked when importing FBX or connecting Codex, not during normal startup/polling. **环境检查** shows cached startup results and the real browser renderer status; **重新检查** explicitly refreshes the workspace and optional program versions. Missing optional tools leave GLB viewing and local edits available.
 
+## Shared motion asset workflow
+
+The Asset Studio (资产中心) separates model versions, immutable public motion packs, reviewed name mappings and adopted character actions. Read [separated-motion.md](references/separated-motion.md) before registering, previewing or preparing a shared action. Prefer this workflow for trying a reusable motion on a character; the earlier character-map composite flow remains available for existing project declarations.
+
+Use `motion_asset_library` / CLI `motion-library` to inspect identities. `motion_register_pack` extracts reference nodes and animation curves without meshes, skins or materials. `motion_rig_options` exposes the two node sets; `motion_save_rig_mapping` accepts only an explicit name mapping that passes reference-pose and hierarchy checks. `motion_preview_binding` changes no model heads. Only an explicit user adoption should call `motion_adopt_action`; pin its preview recipe and source version. `motion_prepare_action` materializes an independent candidate only when the user wants to edit that action. It archives previous heads and refuses an active task on the same model. Then create/claim the normal editing task on the resulting candidate. Preserve `source.motionBinding` provenance. Do not publish a character-specific edit into a public pack unless the user explicitly requests that scope.
+
+Trial playback is transient and cannot be submitted as a canonical editing task. Preparing or exporting always revalidates immutable inputs. Name mapping is not arbitrary retargeting; changed rest poses, incompatible roots, missing bones and mesh-specific morph tracks require their appropriate authoring workflow.
+
 ## Link project context and preserve continuity
 
 The project selector is a one-time association; recent projects resume on later launches. Current loose-file records can be copied into the project's owned workspace, while switching two linked projects never mixes their records. Use [project-workspace.md](references/project-workspace.md) for the workspace layout, provenance, migration and CLI details.

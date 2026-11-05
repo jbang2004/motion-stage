@@ -1,4 +1,4 @@
-# 动作台 MotionStage 3.1.0
+# 动作台 MotionStage 3.2.0
 
 3D 模型与动画工作台 · 3D model & animation studio
 

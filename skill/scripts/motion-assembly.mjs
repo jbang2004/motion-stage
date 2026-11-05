@@ -28,7 +28,7 @@ function graph(doc){
 }
 function equalMatrix(a,b){return a.elements.every((value,i)=>Number.isFinite(value)&&Math.abs(value-b.elements[i])<=1e-5*Math.max(1,Math.abs(value),Math.abs(b.elements[i])));}
 
-async function gltfClips(base,bytes,options){
+export async function gltfClips(base,bytes,options={}){
  const source=parseGlb(bytes),from=graph(source.doc),to=graph(base),mapped=new Map();
  const decoded=new Map();let expanded=0;
  const selected=(source.doc.animations||[]).filter((a,i)=>!options.clips||options.clips.includes(a.name||'animation_'+i));
@@ -124,4 +124,14 @@ export async function assembleCharacter(input,sources=[]){
  const changed=parts.length>1;
  if(changed){requireValue(doc.buffers?.[0]&&!doc.buffers[0].uri,'预览合成需要嵌入 BIN 的主模型');doc.buffers[0].byteLength=length;}
  return {bytes:changed?encodeGlb(doc,Buffer.concat(parts),extra):Buffer.from(input),sources:reports,clips:Object.fromEntries(origins)};
+}
+
+/** A portable animation source: only reference nodes and selected curves, no geometry. */
+export async function extractMotionPack(bytes,{clips}={}){
+ const {doc}=parseGlb(bytes);
+ const nodes=(doc.nodes||[]).map(n=>Object.fromEntries(Object.entries(n).filter(([k])=>['name','children','translation','rotation','scale','matrix'].includes(k))));
+ const skeleton={asset:{version:'2.0',generator:'MotionStage shared motion pack'},nodes,scene:0,scenes:[{nodes:nodes.map((_,i)=>i).filter(i=>!nodes.some(n=>n.children?.includes(i)))}],buffers:[{byteLength:0}]};
+ const result=await assembleCharacter(encodeGlb(skeleton,Buffer.alloc(0)),[{file:'motion-source',format:'glb',bytes,clips}]);
+ if(result.sources[0]?.status!=='ready')throw Error(result.sources[0]?.error||'没有可提取的骨架动作');
+ return result.bytes;
 }

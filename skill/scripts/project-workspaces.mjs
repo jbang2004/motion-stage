@@ -75,7 +75,7 @@ export async function prepareProject(work,path,{adoptCurrent=true,settingsPath}=
     const jobs=await import('./jobs.mjs');if((await jobs.listJobs(from)).some(j=>['running','queued'].includes(j.state)))throw Error('当前工作区仍有待执行或运行中的任务。请完成或停止后再关联；原工作区保持可用。');
     const filter=async source=>{if((await lstat(source)).isSymbolicLink())throw Error('工作区含符号链接，未自动迁移：'+relative(from,source));return true;};
     for(const name of ['assets','sources','conversions','incoming','jobs','snapshots','checkpoints','decisions'])if(await exists(join(from,name)))await cp(join(from,name),join(stage,name),{recursive:true,errorOnExist:true,force:false,filter});
-    for(const name of ['feedback.json','marks.json','task.md','practice-report.json','catalog.json'])if(await exists(join(from,name)))await cp(join(from,name),join(stage,name),{errorOnExist:true,force:false,filter});
+    for(const name of ['feedback.json','marks.json','task.md','practice-report.json','catalog.json','motion-library.json'])if(await exists(join(from,name)))await cp(join(from,name),join(stage,name),{errorOnExist:true,force:false,filter});
     const cfg=normalizeProject(await json(join(from,'project.json'))),cfgTime=(await stat(join(from,'project.json'))).mtimeMs;
     // Older studios recorded 'return to original' without moving the active head.
     // Honor only an explicit later legacy decision, preserving its exact selected SHA.

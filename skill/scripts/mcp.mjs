@@ -1,3 +1,4 @@
+import {motionLibrary,registerMotionPack,saveMotionMapping,previewMotion,adoptMotion,materializeMotion,motionRigOptions} from './motion-library.mjs';
 import {createInterface} from 'node:readline';
 import {readFile,realpath} from 'node:fs/promises';
 import {resolve} from 'node:path';
@@ -10,7 +11,15 @@ import {appearanceStatus,installAppearance} from './project-appearance.mjs';
 import {listJobs,getJob,claimJob,completeJob,failJob,cancelJob,inspectSlot,updateJobProgress,replyJob,getJobProjectContext,previewProjectContext,retryJob,restoreJob,interruptJob,jobArtifacts} from './jobs.mjs';
 const str={type:'string'},id={type:'string',description:'Job ID returned by motion_list_jobs'},lease={type:'string',description:'Lease returned by motion_claim_job'};
 const tool=(name,description,properties={},required=[])=>({name,description,inputSchema:{type:'object',properties,required,additionalProperties:false}});
+const motionInput={assetId:str,slot:{type:'string',enum:['baseline','candidate']},expectedModelSha:str,packId:str,versionId:str,clip:str,mappingId:str,previewId:str,expectedRevision:{type:'integer',minimum:0},name:str};
 export const tools=[
+ tool('motion_asset_library','Read model versions, immutable public motion packs, verified mappings and adopted character action versions.'),
+ tool('motion_register_pack','Extract reference skeleton and curves into an immutable shared motion version; excludes model geometry.',{...motionInput,sourceId:str},['expectedRevision']),
+ tool('motion_rig_options','Read source animation bones and target model nodes for an explicit reviewed mapping.',motionInput,['assetId','packId','versionId','clip']),
+ tool('motion_preview_binding','Check and resolve a pinned public animation on a model without changing heads or copying geometry.',motionInput,['assetId','packId','versionId','clip']),
+ tool('motion_save_rig_mapping','Validate and save an immutable exact-rest bone name mapping. Does not perform arbitrary retargeting.',{...motionInput,nodeMap:{type:'object',additionalProperties:{type:'string'}}},['assetId','packId','versionId','expectedRevision']),
+ tool('motion_adopt_action','Record explicit user adoption of a successfully previewed recipe as a character action version. Pins all source versions.',motionInput,['assetId','packId','versionId','clip','previewId','expectedRevision']),
+ tool('motion_prepare_action','Explicitly materialize a previewed action into a candidate GLB for a subsequent user-requested editing task; public source remains fixed.',motionInput,['assetId','packId','versionId','clip','previewId']),
  tool('motion_diagnostics','Check runtime and optional Blender/Codex executable availability without logging in or changing settings. Browser graphics require a real browser check.'),
  tool('motion_project_appearance','Inspect the optional reviewed project appearance adapter for a character. Neutral inspection works without an adapter.',{assetId:str}),
  tool('motion_install_appearance','Install an explicitly requested, reviewed appearance bundle from an absolute manifest path. Does not execute project code during registration.',{manifestPath:str},['manifestPath']),
@@ -37,6 +46,7 @@ export const tools=[
  tool('motion_cancel_job','Cancel an unfinished task at user request. Does not undo an already completed edit.',{id},['id'])
 ];
 export async function callTool(work,name,args={}){
+ const libraryTool={motion_asset_library:motionLibrary,motion_register_pack:registerMotionPack,motion_preview_binding:previewMotion,motion_rig_options:motionRigOptions,motion_save_rig_mapping:saveMotionMapping,motion_adopt_action:adoptMotion,motion_prepare_action:materializeMotion}[name];if(libraryTool)return libraryTool(work,args);
  if(name==='motion_diagnostics')return diagnoseRuntime({workspace:work});
  if(name==='motion_project_appearance')return appearanceStatus(work,args.assetId);
  if(name==='motion_install_appearance')return installAppearance(work,args.manifestPath);
