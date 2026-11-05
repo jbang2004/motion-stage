@@ -87,7 +87,7 @@ async function openLinkedProject(path){
 }
 
 const modelCatalog=createModelCatalog({
- api,
+ api,defaultView:'files',
  getView:()=>({
   activeAssetId:state.project?.activeAssetId,
   jobs:state.allJobs,
@@ -118,7 +118,7 @@ const motionWorkspace=createMotionWorkspace({api,
  },
  onExitPreview:async()=>{clearMotionTrial();notice('已结束试播，角色恢复原有动作。');},
  onPrepare:async result=>{if(state.project?.activeAssetId!==result.project.activeAssetId||state.project.revision>result.project.revision)return;clearMotionTrial(false);state.project=result.project;state.selectedJob=null;state.archivedJobId=null;state.panelMode='compose';state.studioRevision=null;await refreshModels({preserve:false});state.focus='candidate';state.display='single';selectMotion(result.recipe.clip);await beginCompose({source:'candidate'});notice('已准备独立动作工作版本。修改会生成角色专属候选，公共动作源保持固定。');},
- onOpenModel:async id=>{if(id!==state.project?.activeAssetId)await openCatalogModel(id,{stored:true});},
+ onOpenModel:async (id,{character=false}={})=>{if(id!==state.project?.activeAssetId)await openCatalogModel(id,{stored:!character,character});},
  onImport:()=>$('openAssets').click(),onCatalog:()=>$('openModelCatalog').click(),onError:fail
 });
 function clearMotionTrial(redraw=true){

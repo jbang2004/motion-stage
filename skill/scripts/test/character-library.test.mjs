@@ -8,7 +8,7 @@ import {linkProject} from '../project-context.mjs';
 import {parseGlb,encodeGlb,editGlb} from '../asset-tools.mjs';
 import {readProject,modelSlots,importAsset,sha} from '../core.mjs';
 import {startCatalogScan,waitForCatalogScan,stopCatalogScan,openCatalogAsset,catalogPage} from '../asset-catalog.mjs';
-import {characterPage,openCharacter,saveCharacterMap,associateCharacterMotion} from '../character-library.mjs';
+import {characterPage,openCharacter,saveCharacterMap,associateCharacterMotion,projectCharacterProfiles} from '../character-library.mjs';
 import {characterProfileDigest} from '../source-dependencies.mjs';
 import {createJob,claimJob,cancelJob,getJob} from '../jobs.mjs';
 import {serve} from '../server.mjs';
@@ -77,4 +77,11 @@ test('mapping corruption is disclosed while owned snapshots remain accessible an
 
 test('renaming a profile changes display metadata without resetting a candidate or making its task stale',()=>fixture(async({work})=>{
  const m=map();await saveCharacterMap(work,m);const role=(await characterPage(work)).entries[0];await openCharacter(work,role.id);const head=(await readProject(work)).models[role.id].headRevision,job=await enqueue(work,role.id);m.characters[0].name='Renamed';m.characters[0].variants=[];await saveCharacterMap(work,m);await openCharacter(work,role.id,{refreshSource:true});const cfg=await readProject(work);assert.equal(cfg.models[role.id].headRevision,head);assert.equal(cfg.models[role.id].name,'Renamed');assert.ok((await claimJob(work,job.id)).lease);
+}));
+
+
+test('the primary picker lists declared characters without opening geometry or treating every resource as a character',()=>fixture(async({work})=>{
+ await saveCharacterMap(work,map());const rows=await projectCharacterProfiles(work);assert.equal(rows.length,1);assert.equal(rows[0].name,'角色甲');assert.equal(rows[0].projectCharacter,true);assert.equal(rows[0].opened,false);assert.deepEqual(rows[0].versions,[]);assert.equal(rows[0].embeddedCount,2);
+ const {motionLibrary}=await import('../motion-library.mjs'),library=await motionLibrary(work);assert.deepEqual(library.projectCharacterIds,[rows[0].id]);assert.equal(library.models.find(m=>m.id===rows[0].id).name,'角色甲');
+ const page=await characterPage(work,{preferMapped:true});assert.equal(page.total,1);assert.equal(page.entries.every(e=>e.confirmed),true);assert.ok(page.sourceTotal>1);
 }));

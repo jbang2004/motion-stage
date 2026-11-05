@@ -71,16 +71,17 @@ async function fileInfo(root,file,format){
  }catch(error){result={...result,status:'unavailable',error:error.message};}
  cache.set(key,result);while(cache.size>256)cache.delete(cache.keys().next().value);return result;
 }
-async function library(work){
+async function library(work,{onlyId=null,includeCandidates=true}={}){
  const [link,catalog,cfg,map]=await Promise.all([getProjectLink(work),readCatalog(work),readProject(work),mapping(work).catch(error=>({version:1,characters:[],error:error.message}))]);
  const profiles=[],covered=new Set(),mapped=map.characters;
  for(const c of mapped){covered.add(c.model);c.variants.forEach(f=>covered.add(f));c.animations.forEach(a=>covered.add(a.file));profiles.push({...c,mapped:true});}
- if(link?.exists&&catalog.projectId===link.id)for(const e of catalog.entries){
+ if(includeCandidates&&link?.exists&&catalog.projectId===link.id)for(const e of catalog.entries){
   if(covered.has(e.relativePath)||e.status!=='available'||e.format!=='glb')continue;
   if(e.metadata?.meshCount&&(e.metadata.skinCount||e.metadata.clips?.length))profiles.push({id:'file:'+e.relativePath,name:basename(e.name,extname(e.name)),model:e.relativePath,variants:[],animations:[],evidence:[],mapped:false});
  }
  const rows=[];
  if(link?.exists)for(const profile of profiles){
+  if(onlyId&&assetId(link.id,profile.id)!==onlyId)continue;
   const id=assetId(link.id,profile.id),model=await fileInfo(link.root,profile.model,extname(profile.model).toLowerCase()==='.glb'?'glb':'unsupported');
   const sources=await Promise.all(profile.animations.map(a=>fileInfo(link.root,a.file,a.format)));
   const evidence=[];
@@ -98,8 +99,9 @@ async function library(work){
  return {rows,link,catalog,cfg,map};
 }
 export async function characterPage(work,{query='',offset=0,limit=100,preferMapped=false}={}){
- const data=await library(work),q=String(query).trim().toLowerCase();
+ const data=await library(work,{includeCandidates:!preferMapped}),q=String(query).trim().toLowerCase();
  if(!data.rows.length||preferMapped&&!data.rows.some(r=>r.confirmed)){const page=await catalogPage(work,{query,offset,limit});return {...page,kind:'files',scan:{...page.scan,warnings:[...(page.scan.warnings||[]),...(data.map.error?['角色映射无法读取：'+data.map.error]:[])]}};}
+ if(preferMapped&&data.rows.some(r=>r.confirmed))data.rows=data.rows.filter(r=>r.confirmed);
  data.rows.sort((a,b)=>Number(Boolean(b.confirmed))-Number(Boolean(a.confirmed))||a.name.localeCompare(b.name));
  const matches=data.rows.filter(r=>(r.name+' '+r.relativePath+' '+(r.metadata?.clips||[]).map(c=>c.name).join(' ')).toLowerCase().includes(q));
  offset=Math.max(0,Math.floor(Number(offset)||0));limit=Math.max(1,Math.min(200,Math.floor(Number(limit)||100)));
@@ -112,7 +114,7 @@ export async function openCharacter(work,id,{refreshSource=false}={}){
 async function prepareCharacter(work,id,refreshSource){
  const initial=await readProject(work),old=initial.models[id];
  if(old?.origin==='character'&&modelSlots(initial,id).baseline&&!refreshSource)return activateModel(work,id);
- const data=await library(work),row=data.rows.find(r=>r.id===id);requireValue(row?.profile&&data.link?.exists,'角色关联不存在；已有预览可继续打开');
+ const data=await library(work,{onlyId:id}),row=data.rows.find(r=>r.id===id);requireValue(row?.profile&&data.link?.exists,'角色关联不存在；已有预览可继续打开');
  const profile=row.profile,root=data.link.root;let base,baseSource;
  if(extname(profile.model).toLowerCase()==='.fbx'){
   const entry=data.catalog.entries.find(e=>e.relativePath===profile.model);requireValue(entry,'请先刷新目录，再打开 FBX 角色');
@@ -135,7 +137,7 @@ async function prepareCharacter(work,id,refreshSource){
  const identity=s=>characterProfileDigest({sha256:s?.sha256,previewSha256:s?.previewSha256,profile:s?.assembly?.profileSha256,dependencies:[...consumedDependencies(s),...(s?.assembly?.dependencies||[])]});
  await withWorkspaceLock(work,async()=>{
   const current=await readProject(work);requireValue(current.models[id]?.headRevision===old?.headRevision,'准备期间角色版本已变化，请重新打开');
-  const latest=await library(work),fresh=latest.rows.find(r=>r.id===id);requireValue(fresh?.signature===row.signature,'准备期间角色来源或关联已变化，请刷新重试');
+  const latest=await library(work,{onlyId:id}),fresh=latest.rows.find(r=>r.id===id);requireValue(fresh?.signature===row.signature,'准备期间角色来源或关联已变化，请刷新重试');
   const heads=modelSlots(current,id);
   if(heads.baseline?.source?.assembly?.signature===row.signature)return;
   if(heads.baseline&&identity(heads.baseline.source)===identity(source)){
@@ -150,7 +152,7 @@ async function prepareCharacter(work,id,refreshSource){
 }
 
 export async function associateCharacterMotion(work,id,{assetId:sourceId}={}){
- const data=await library(work),row=data.rows.find(r=>r.id===id),entry=data.catalog.entries.find(e=>e.id===sourceId);
+ const data=await library(work,{onlyId:id}),row=data.rows.find(r=>r.id===id),entry=data.catalog.entries.find(e=>e.id===sourceId);
  requireValue(row?.profile&&entry,'请选择角色及项目中的动作来源');requireValue(entry.format==='glb','此来源需要先转换为 GLB 或通过项目解析器声明');
  const profile=row.profile;requireValue(entry.relativePath!==profile.model,'主模型自带动作已关联');
  requireValue(extname(profile.model).toLowerCase()==='.glb','请先将主模型导出为 GLB，再关联外部动作');
@@ -161,4 +163,15 @@ export async function associateCharacterMotion(work,id,{assetId:sourceId}={}){
  requireValue(!c.animations.some(a=>a.file===source.file),'此动作来源已经关联');c.animations.push(source);
  if(!map.characters.some(p=>p.id===c.id))map.characters.push(c);
  await saveCharacterMap(work,map,{expectedDigest});return {associated:true,requiresRefresh:true,clips:check.sources[0].clips.length,message:'已保存关联。请载入角色源文件新版本以更新预览，已有版本和候选会保留。'};
+}
+
+// The main character picker uses explicit project declarations, never every GLB
+// that happens to contain a mesh. No geometry or all-candidate stat walk here.
+export async function projectCharacterProfiles(work){
+ const [link,map,cfg,catalog]=await Promise.all([getProjectLink(work),mapping(work),readProject(work),readCatalog(work)]);
+ if(!link?.exists)return [];
+ const files=new Map(catalog.projectId===link.id?catalog.entries.map(e=>[e.relativePath,e]):[]);
+ return map.characters.map(c=>{const id=assetId(link.id,c.id),heads=modelSlots(cfg,id),entry=files.get(c.model),a=heads.baseline||entry?.metadata;
+  return {id,name:cfg.models[id]?.name||c.name,origin:'character',projectCharacter:true,opened:Boolean(heads.baseline),relativePath:c.model,capabilities:a?.capabilities,embeddedCount:a?.clips?.length||0,headRevision:cfg.models[id]?.headRevision||0,versions:[...Object.entries(heads).map(([slot,asset])=>({slot,asset})),...(cfg.models[id]?.revisions||[]).slice().reverse().flatMap((r,i)=>Object.entries(r.slots||{}).map(([slot,asset])=>({slot,asset,archived:true,at:r.at,index:i})))],actions:[]};
+ });
 }

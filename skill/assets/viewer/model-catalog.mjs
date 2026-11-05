@@ -231,8 +231,8 @@ export function createModelCatalog({
     const host = $('modelList');
     const view = getView();
     host.replaceChildren();
-    $('modelCount').textContent = data.total;
-    $('sidebarModelCount').textContent = data.total;
+    $('modelCount').textContent = (data.sourceTotal??data.total)+' 文件';
+    $('sidebarModelCount').textContent = (data.sourceTotal??data.total)+' 文件';
     const scan = data.scan || {};
     const scanning = scan.state === 'scanning';
     $('refreshCatalog').disabled = scanning;
@@ -240,8 +240,8 @@ export function createModelCatalog({
     const roles = data.kind === 'characters';
     $('catalogCharacters')?.setAttribute('aria-pressed',String(roles));$('catalogFiles')?.setAttribute('aria-pressed',String(!roles));
     const title = data.linked ? roles ? '已关联 ' + data.confirmedTotal + ' 个角色 · ' +
-      (data.total - data.confirmedTotal) + ' 个待确认候选 · ' + data.sourceTotal + ' 个模型资源文件' :
-      '发现 ' + data.total + ' 个模型 / 动作与制作源' : '关联项目文件夹后，自动发现其中的模型';
+      (data.total - data.confirmedTotal) + ' 个待确认候选 · ' + data.sourceTotal + ' 个项目资源文件' :
+      '项目文件共 ' + data.total + ' 项，包含模型、动作、制作源及构建副本；这不是角色数量' : '关联项目文件夹后，自动发现其中的模型';
     message(title + (scanLabel ? ' · ' + scanLabel : '') +
       (scan.warnings?.length ? ' · ' + scan.warnings.join('；') : ''),
       ['failed', 'partial', 'interrupted'].includes(scan.state));

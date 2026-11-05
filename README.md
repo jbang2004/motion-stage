@@ -11,7 +11,7 @@ Agent 回传候选后，原版和候选并排放在同一时刻、同一镜头�
 > to your agent (CLI or stdio MCP), then compare the returned candidate side by side.
 > The UI is in Chinese. MIT licensed. Skill / package id: `motion-stage`.
 
-当前版本 3.2.0。界面只有中文。
+当前版本 3.2.1。界面只有中文。
 
 ## 适合谁
 
@@ -50,7 +50,7 @@ node scripts/start.mjs
 
 ## 资产中心与公共动作
 
-打开顶栏“资产中心”，按角色与模型、公共动作库、角色动作、骨架映射和版本档案管理资源。
+打开顶栏“角色与动作”，优先选择项目中已确认的角色，直接播放已有动作。“项目文件”是辅助清单，包含动作包、制作源、旧模型及构建副本，其文件总数不代表角色数量。公共动作库用于可选的跨来源试播。
 
 1. 导入角色或打开项目中的模型；GLB / FBX 沿用原有导入与转换流程。
 2. 从包含动画的原版或候选提取公共动作库，只保存曲线与参考骨架。

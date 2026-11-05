@@ -1,3 +1,4 @@
+import {projectCharacterProfiles} from './character-library.mjs';
 import {readFile,stat} from 'node:fs/promises';
 import {randomUUID} from 'node:crypto';
 import {readProject,modelSlots,inside,sha,atomic,withWorkspaceLock,readWorkspaceJSON,glbInfo,importAsset,projectView} from './core.mjs';
@@ -21,10 +22,11 @@ async function save(work,lib){lib.revision++;await atomic(await inside(work,FILE
 function checkRevision(lib,revision){requireValue(Number.isSafeInteger(revision)&&revision===lib.revision,'动作库已被其他操作更新，请刷新后重试');}
 export async function motionLibrary(work){return withWorkspaceLock(work,async()=>{
  const [lib,cfg]=await Promise.all([readLibrary(work),readProject(work)]);
- const models=Object.values(cfg.models).map(m=>{const heads=modelSlots(cfg,m.id),a=heads.baseline;return {id:m.id,name:m.name,origin:m.origin,headRevision:m.headRevision,active:m.id===cfg.activeAssetId,capabilities:a?.capabilities,versions:[...Object.entries(heads).map(([slot,asset])=>({slot,asset})),...(m.revisions||[]).slice().reverse().flatMap((r,i)=>Object.entries(r.slots||{}).map(([slot,asset])=>({slot,asset,archived:true,at:r.at,index:i})))],actions:lib.characters[m.id]||[]};});
+ let models=Object.values(cfg.models).map(m=>{const heads=modelSlots(cfg,m.id),a=heads.baseline;return {id:m.id,name:m.name,origin:m.origin,headRevision:m.headRevision,active:m.id===cfg.activeAssetId,capabilities:a?.capabilities,versions:[...Object.entries(heads).map(([slot,asset])=>({slot,asset})),...(m.revisions||[]).slice().reverse().flatMap((r,i)=>Object.entries(r.slots||{}).map(([slot,asset])=>({slot,asset,archived:true,at:r.at,index:i})))],actions:lib.characters[m.id]||[]};});
+ const projectCharacters=await projectCharacterProfiles(work);const declared=new Set(projectCharacters.map(m=>m.id));models=[...projectCharacters.map(m=>({...m,actions:lib.characters[m.id]||[]})),...models.filter(m=>!declared.has(m.id))];
  const catalog=await readCatalog(work).catch(()=>({entries:[]}));
  const sources=(catalog.entries||[]).filter(e=>e.status==='available'&&e.format==='glb'&&e.metadata?.clips?.length).map(e=>({id:e.id,name:e.name,relativePath:e.relativePath,clips:e.metadata.clips}));
- return {...lib,models,sources,activeAssetId:cfg.activeAssetId};
+ return {...lib,models,sources,projectCharacterIds:[...declared],projectFileCount:catalog.entries.length,activeAssetId:cfg.activeAssetId};
 });}
 export async function registerMotionPack(work,input={}){return withWorkspaceLock(work,async()=>{
  const lib=await readLibrary(work);checkRevision(lib,input.expectedRevision);

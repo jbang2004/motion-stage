@@ -25,8 +25,8 @@
     </button>
     <span id="workspaceTitle" class="workspace-name" hidden>动作修改工作台</span>
     <nav class="header-actions" aria-label="工作台工具">
-      <button id="openMotionWorkspace" class="quiet" data-icon="layers">资产中心</button>
-      <button id="openModelCatalog" class="quiet" data-icon="folder">模型目录 <span id="modelCount">—</span></button>
+      <button id="openMotionWorkspace" class="quiet" data-icon="layers">角色与动作</button>
+      <button id="openModelCatalog" class="quiet" data-icon="folder">项目文件 <span id="modelCount">—</span></button>
       <button id="openHistory" class="quiet" data-icon="history">修改记录 <span id="headerJobCount">—</span></button>
       <button id="openEnvironment" class="quiet" data-icon="shield">环境检查</button>
       <button id="helpButton" class="icon-button" aria-label="使用帮助" title="使用帮助" data-icon="help"></button>
@@ -39,8 +39,8 @@
       <div class="sidebar-section-label">工作空间</div>
       <nav class="workspace-nav" aria-label="工作空间导航">
         <button id="navStudio" class="sidebar-item active" aria-current="page" data-icon="studio"><span>动作工作室</span></button>
-        <button id="navMotionWorkspace" class="sidebar-item" data-icon="layers"><span>资产中心</span><span class="mw-nav-new">NEW</span></button>
-        <button id="navCatalog" class="sidebar-item" data-icon="folder"><span>模型目录</span><span id="sidebarModelCount" class="nav-count">—</span></button>
+        <button id="navMotionWorkspace" class="sidebar-item" data-icon="layers"><span>角色与动作</span><span class="mw-nav-new">NEW</span></button>
+        <button id="navCatalog" class="sidebar-item" data-icon="folder"><span>项目文件</span><span id="sidebarModelCount" class="nav-count">—</span></button>
         <button id="navLibrary" class="sidebar-item" data-icon="layers"><span>素材与动作</span><span id="sidebarClipCount" class="nav-count">—</span></button>
         <button id="navHistory" class="sidebar-item" data-icon="history"><span>修改记录</span><span id="sidebarJobCount" class="nav-count">—</span></button>
       </nav>
@@ -146,8 +146,8 @@
 <span>↑</span>
 </button>
 <dialog id="motionWorkspace" class="motion-workspace" aria-labelledby="motionWorkspaceTitle">
- <header class="mw-top"><a class="mw-wordmark">M<span>↗</span></a><div><span class="mw-overline">MOTIONSTAGE / ASSET STUDIO</span><h2 id="motionWorkspaceTitle">资产中心</h2></div><span class="mw-local">● 本地资产 · 独立版本</span><button id="closeMotionWorkspace" class="mw-close" aria-label="关闭资产中心">×</button></header>
- <div class="mw-hero"><div><span class="mw-overline">ONE CHARACTER. EVERY POSSIBILITY.</span><h1>角色有自己的形态。<br><em>动作拥有更多可能。</em></h1><p>模型独立保存，公共动作自由试播。将每次确认，留成清晰的版本。</p><div class="mw-hero-actions"><button id="motionNewPack" class="mw-button mw-primary">＋ 建立公共动作库</button><button id="motionWorkspaceImport" class="mw-button mw-light">导入素材 ↗</button></div></div><div class="mw-hero-orbit" aria-hidden="true"><span class="mw-orbit-ring"></span><span class="mw-orbit-core">M</span><i class="mw-orbit-label one">CHARACTER</i><i class="mw-orbit-label two">MOTION</i><i class="mw-orbit-label three">MAPPING</i></div><div class="mw-stats"><div><b id="mwModelCount">—</b><span>角色模型</span></div><div><b id="mwPackCount">—</b><span>公共动作库</span></div><div><b id="mwActionCount">—</b><span>收录动作版本</span></div></div></div>
+ <header class="mw-top"><a class="mw-wordmark">M<span>↗</span></a><div><span class="mw-overline">MOTIONSTAGE / ASSET STUDIO</span><h2 id="motionWorkspaceTitle">角色与动作</h2></div><span class="mw-local">● 本地资产 · 独立版本</span><button id="closeMotionWorkspace" class="mw-close" aria-label="关闭资产中心">×</button></header>
+ <div class="mw-hero"><div><span class="mw-overline">从角色开始，按动作工作。</span><h1>先选角色，<br><em>直接预览已有动作。</em></h1><p>想查看、修改角色现有动作，直接打开角色。需要其他动作时，再使用公共动作库。</p><div class="mw-hero-actions"><button id="motionNewPack" class="mw-button mw-primary">＋ 添加公共动作（可选）</button><button id="motionWorkspaceImport" class="mw-button mw-light">导入素材 ↗</button></div></div><div class="mw-hero-orbit" aria-hidden="true"><span class="mw-orbit-ring"></span><span class="mw-orbit-core">M</span><i class="mw-orbit-label one">CHARACTER</i><i class="mw-orbit-label two">MOTION</i><i class="mw-orbit-label three">MAPPING</i></div><div class="mw-stats"><div><b id="mwModelCount">—</b><span id="motionModelStatLabel">项目角色</span></div><div><b id="mwPackCount">—</b><span>公共动作库</span></div><div><b id="mwActionCount">—</b><span>收录动作版本</span></div></div></div>
  <div class="mw-toolbar"><div id="motionTabs" role="tablist" aria-label="资产分类"></div><div class="mw-search"><select id="motionKind" aria-label="资源类型"><option value="all">全部资源类型</option><option value="characters">角色模型</option><option value="objects">静态模型</option><option value="skeletons">骨架与节点</option><option value="curves">独立曲线</option></select><input id="motionSearch" type="search" aria-label="搜索资产" placeholder="搜索名称或版本…"><button id="motionRefresh" class="mw-close" aria-label="刷新资产中心">↻</button></div></div>
  <div class="mw-content"><section class="mw-collection"><div class="mw-collection-heading"><div><h2 id="motionCollectionTitle">角色与模型</h2><p id="motionCollectionSubtitle"></p></div><span class="mw-collection-mark">YOUR COLLECTION</span></div><p id="motionWorkspaceMessage" class="mw-message" role="status"></p><div id="motionAssetGrid" class="mw-grid"></div></section><aside id="motionInspector" class="mw-inspector" aria-label="资产详情与操作"></aside></div>
 </dialog>
@@ -194,8 +194,8 @@
 <p class="project-save-note">“满意，保留这版”会记录你的选择。正式替换游戏文件前，仍需完成游戏内检查。</p>
 </dialog>
 <dialog id="modelCatalogDialog" class="model-catalog-dialog">
-  <div class="dialog-heading"><div><span class="section-kicker">项目素材</span><h2>项目资源库</h2></div><button data-close class="icon-button" aria-label="关闭模型目录">×</button></div>
-  <p class="panel-intro">模型、骨架与动作可以独立查看，每项资源单独保留版本与修改记录。角色视图汇总已确认的模型和配套动作。</p>
+  <div class="dialog-heading"><div><span class="section-kicker">项目素材</span><h2>项目文件</h2></div><button data-close class="icon-button" aria-label="关闭模型目录">×</button></div>
+  <p class="panel-intro">这是项目文件清单，包含动作包、制作源、历史文件和构建副本。日常查看角色，请使用“角色与动作”。</p>
   <div class="catalog-views" aria-label="资源视图"><button id="catalogCharacters" class="secondary-button" aria-pressed="true">角色</button><button id="catalogFiles" class="secondary-button" aria-pressed="false">全部资源</button></div>
   <div class="catalog-toolbar"><label class="searchbox"><span data-icon="search"></span><input id="modelSearch" type="search" aria-label="搜索模型名称或路径" placeholder="搜索模型名称或路径"></label><button id="refreshCatalog" class="secondary-button">刷新目录</button><button id="catalogChooseFolder" class="secondary-button">选择目录</button></div>
   <p id="catalogStatus" class="catalog-status" role="status" aria-live="polite">正在读取模型目录…</p>

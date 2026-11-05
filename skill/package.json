@@ -1,6 +1,6 @@
 {
   "name": "motion-stage",
-  "version": "3.2.0",
+  "version": "3.2.1",
   "private": true,
   "type": "module",
   "description": "Independent model, skeleton and curve inspection with explicit motion composition and preserved task history",
