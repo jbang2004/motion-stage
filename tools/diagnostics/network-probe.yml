@@ -1,0 +1,43 @@
+name: Archived browser resource lifecycle comparison
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Extract exact tested release
+        id: extract
+        run: python tools/ci/verify-release.py --extract-only --release release-input/release.json --archive release-input/motion-stage.zip --output ci-results
+      - run: npm install --prefix .ci-browser --no-audit --no-fund playwright@1.64.1
+      - if: runner.os == 'Linux'
+        run: node .ci-browser/node_modules/playwright/cli.js install --with-deps chromium
+      - if: runner.os == 'Windows'
+        run: node .ci-browser/node_modules/playwright/cli.js install chromium
+      - name: Native fetch and FileLoader without trace
+        continue-on-error: true
+        run: node tools/diagnostics/browser-network-probe.mjs --package "${{ steps.extract.outputs.skill-root }}" --playwright-root .ci-browser --output ci-results/no-trace --rounds 20
+      - name: Native fetch and FileLoader with trace
+        continue-on-error: true
+        run: node tools/diagnostics/browser-network-probe.mjs --package "${{ steps.extract.outputs.skill-root }}" --playwright-root .ci-browser --output ci-results/with-trace --rounds 20 --trace
+      - name: Report strict probe result
+        run: node -e "const fs=require('node:fs');let failed=false;for(const mode of ['no-trace','with-trace']){const r=JSON.parse(fs.readFileSync('ci-results/'+mode+'/browser-network-probe-result.json','utf8'));console.log(mode,r.verdict);failed ||= r.verdict!=='PASS';}process.exitCode=Number(failed)"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: network-probe-${{ matrix.os }}
+          path: ci-results
+          retention-days: 7

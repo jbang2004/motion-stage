@@ -1,0 +1,14 @@
+{
+  "name": "motion-stage",
+  "version": "3.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Independent model, skeleton and curve inspection with explicit motion composition and preserved task history",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node scripts/start.mjs",
+    "test": "node --test scripts/test/*.test.mjs"
+  }
+}

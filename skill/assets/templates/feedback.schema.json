@@ -1,0 +1,266 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Game motion feedback v1",
+  "type": "object",
+  "required": [
+    "version",
+    "notes"
+  ],
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "slot",
+          "asset",
+          "clip",
+          "time",
+          "frame",
+          "fps",
+          "view",
+          "observed",
+          "expected",
+          "acceptance",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[-a-zA-Z0-9_]{1,80}$"
+          },
+          "clip": {
+            "type": "string"
+          },
+          "observed": {
+            "type": "string"
+          },
+          "expected": {
+            "type": "string"
+          },
+          "acceptance": {
+            "type": "string"
+          },
+          "preserve": {
+            "type": "string"
+          },
+          "reference": {
+            "type": "string"
+          },
+          "hypothesis": {
+            "type": "string"
+          },
+          "outcome": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "snapshot": {
+            "type": "string"
+          },
+          "slot": {
+            "enum": [
+              "baseline",
+              "candidate"
+            ]
+          },
+          "asset": {
+            "type": "object",
+            "required": [
+              "sha256",
+              "file"
+            ],
+            "properties": {
+              "sha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "file": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              }
+            }
+          },
+          "time": {
+            "type": "number",
+            "minimum": 0
+          },
+          "frame": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "fps": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 240
+          },
+          "view": {
+            "enum": [
+              "front",
+              "side",
+              "back",
+              "top",
+              "orbit"
+            ]
+          },
+          "camera": {
+            "type": "object",
+            "properties": {
+              "position": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 3,
+                "maxItems": 3
+              },
+              "target": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 3,
+                "maxItems": 3
+              }
+            }
+          },
+          "status": {
+            "enum": [
+              "open",
+              "resolved"
+            ]
+          },
+          "decision": {
+            "enum": [
+              null,
+              "revise",
+              "keep-baseline",
+              "accept-candidate"
+            ]
+          },
+          "reviewedAssets": {
+            "type": "object"
+          },
+          "comparison": {
+            "type": "object",
+            "required": [
+              "mode",
+              "normalized",
+              "time",
+              "slots"
+            ],
+            "properties": {
+              "mode": {
+                "enum": [
+                  "elapsed",
+                  "progress"
+                ]
+              },
+              "normalized": {
+                "type": "boolean"
+              },
+              "time": {
+                "type": "number",
+                "minimum": 0
+              },
+              "slots": {
+                "type": "object"
+              }
+            }
+          },
+          "reviews": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "const": "resolved"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "decision",
+                "outcome"
+              ],
+              "properties": {
+                "decision": {
+                  "enum": [
+                    "keep-baseline",
+                    "accept-candidate"
+                  ]
+                },
+                "outcome": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "marks": {
+      "type": "array",
+      "description": "自动保存的动作标记；导出和 CLI report 包含，工作区原文件为 marks.json。",
+      "items": {
+        "type": "object",
+        "required": [
+          "displayMode",
+          "asset",
+          "clip",
+          "verdict",
+          "choice",
+          "note",
+          "context"
+        ],
+        "properties": {
+          "displayMode": {
+            "enum": [
+              "all",
+              "comparison"
+            ]
+          },
+          "verdict": {
+            "enum": [
+              "",
+              "fix",
+              "review",
+              "want"
+            ]
+          },
+          "choice": {
+            "enum": [
+              "",
+              "candidate",
+              "original"
+            ]
+          },
+          "note": {
+            "type": "string"
+          },
+          "context": {
+            "type": "object"
+          }
+        }
+      }
+    }
+  },
+  "description": "时间为秒；frame=round(time*fps)，fps 是审阅步进单位。资产身份与截图存在性由 CLI validate 另外核对。"
+}

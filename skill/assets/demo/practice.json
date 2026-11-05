@@ -1,0 +1,17 @@
+{
+  "kind": "original-teaching-exercise",
+  "source": "scripts/practice.mjs",
+  "baseline": "0a1d552d2a7f453c07f7512bb35796bac96394319030f6018527e0ba068b19d5",
+  "candidate": "272a54be564ad756c2e623c7292e66507d150937e2034135c99b565f5924d52d",
+  "changed": "Run: LeftShoulder rotation; no other channels changed",
+  "notHistoricalGameAsset": true,
+  "automaticArtisticApproval": false,
+  "checks": {
+    "sampleCount": 121,
+    "cycleSeconds": 1,
+    "otherLimbCurvesUnchanged": true,
+    "leftWristMinDistanceFromMidlineBefore": 0.08976382896944368,
+    "leftWristMinDistanceFromMidlineAfter": 0.4980871190164188,
+    "scope": "Joint location only; not continuous mesh collision proof or artistic approval"
+  }
+}

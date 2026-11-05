@@ -1,0 +1,439 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="theme-color" content="#e5e8ef">
+  <title>动作台 MotionStage · 3D 模型与动画工作台</title>
+  <link rel="icon" href="/viewer/app-icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/viewer/style.css">
+  <script type="importmap">{"imports":{"three":"/vendor/three/build/three.module.js","three/addons/":"/vendor/three/examples/jsm/"}}</script>
+</head>
+<body>
+<a class="skip-link" href="#stage">跳至三维预览</a>
+<div class="atelier-window">
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="动作台首页">
+      <span class="brand-mark" data-icon="atelier"></span>
+      <span class="brand-copy"><b>动作台</b><small>MOTIONSTAGE · 3D 模型与动画工作台</small></span>
+    </a>
+    <span class="header-divider"></span>
+    <button id="projectButton" class="project-button" title="关联游戏项目">
+      <span data-icon="folder"></span><span id="projectButtonLabel">关联项目</span><span class="project-link-dot"></span><span data-icon="chevron"></span>
+    </button>
+    <span id="workspaceTitle" class="workspace-name" hidden>动作修改工作台</span>
+    <nav class="header-actions" aria-label="工作台工具">
+      <button id="openModelCatalog" class="quiet" data-icon="folder">模型目录 <span id="modelCount">—</span></button>
+      <button id="openHistory" class="quiet" data-icon="history">修改记录 <span id="headerJobCount">—</span></button>
+      <button id="openEnvironment" class="quiet" data-icon="shield">环境检查</button>
+      <button id="helpButton" class="icon-button" aria-label="使用帮助" title="使用帮助" data-icon="help"></button>
+      <span class="header-divider"></span>
+      <button id="openAssets" class="import-button" data-icon="plus">导入素材</button>
+    </nav>
+  </header>
+  <div class="app-shell">
+    <aside class="workspace-sidebar" aria-label="素材导航">
+      <div class="sidebar-section-label">工作空间</div>
+      <nav class="workspace-nav" aria-label="工作空间导航">
+        <button id="navStudio" class="sidebar-item active" aria-current="page" data-icon="studio"><span>动作工作室</span></button>
+        <button id="navCatalog" class="sidebar-item" data-icon="folder"><span>模型目录</span><span id="sidebarModelCount" class="nav-count">—</span></button>
+        <button id="navLibrary" class="sidebar-item" data-icon="layers"><span>素材与动作</span><span id="sidebarClipCount" class="nav-count">—</span></button>
+        <button id="navHistory" class="sidebar-item" data-icon="history"><span>修改记录</span><span id="sidebarJobCount" class="nav-count">—</span></button>
+      </nav>
+      <div class="sidebar-divider"></div>
+      <div class="sidebar-section-label sidebar-label-row"><span>当前素材</span><button id="sidebarAssetInfo" class="icon-button" aria-label="查看当前素材信息" title="素材信息" data-icon="more"></button></div>
+      <div class="sidebar-asset">
+        <span class="asset-glyph" data-icon="cube"></span>
+        <div><b id="sidebarAssetName">正在读取角色</b><small id="sidebarAssetMeta">本地素材</small></div>
+      </div>
+      <div class="sidebar-section-label motion-list-label">动作片段</div>
+      <div id="sidebarClipList" class="sidebar-clips" role="group" aria-label="当前资源动作"></div>
+      <button id="sidebarImport" class="sidebar-add" data-icon="plus">导入新素材</button>
+      <div class="sidebar-bottom">
+        <div class="preservation-note"><span data-icon="shield"></span><div><b>原版始终保留</b><small>每一次尝试，都可以回看。</small></div></div>
+        <button id="sidebarHelp" class="sidebar-guide" data-icon="help"><span>使用帮助</span><span data-icon="external"></span></button>
+      </div>
+    </aside>
+    <main class="stage-column">
+      <div class="workflow-header">
+        <div class="workflow" aria-label="修改流程">
+          <span id="flowObserve"><i>1</i>观察动作</span><span class="flow-line"></span>
+          <span id="flowProcess"><i>2</i>交给 Agent</span><span class="flow-line"></span>
+          <span id="flowCompare"><i>3</i>检查结果</span>
+        </div>
+        <span class="workspace-local"><span class="live-dot"></span>本地工作区</span>
+      </div>
+      <div class="stage-heading">
+        <div class="asset-heading"><span id="stageEyebrow" class="eyebrow">当前素材</span><h1 id="clipTitle">正在载入角色…</h1><span id="roleName" class="asset-subtitle">本地工作空间</span></div>
+        <div class="stage-heading-actions"><select id="motionSelect" aria-label="选择动作"><option>读取动作…</option></select><button id="openLibrary" class="icon-button" aria-label="素材详情与动作库" title="素材详情与动作库" data-icon="more"></button></div>
+      </div>
+      <div id="exampleBanner" class="example-banner" hidden><span>原创练习角色，试着收小一点左臂摆幅。</span><button id="importMine" class="text-button">导入我的角色 ↗</button></div>
+      <div class="preview-header">
+        <div id="versionModes" class="version-modes" role="group" aria-label="查看版本"><button data-version="baseline" class="active">修改前</button><button data-version="candidate">修改后</button><button data-version="compare">并排对照</button></div>
+        <div id="singleVersion" class="single-version">正在观察原版</div>
+        <div class="preview-options"><button id="returnCurrent" class="text-button" hidden>↩ 返回当前素材</button><button id="openSettings" class="text-button" data-icon="sliders">视角与显示</button></div>
+      </div>
+      <div id="stage" class="stage" aria-label="模型三维预览" tabindex="-1">
+        <div class="stage-vignette"></div>
+        <canvas id="canvas" aria-label="三维模型预览，点击身体定位，拖动旋转，滚轮缩放"></canvas>
+        <div id="surface-candidate" class="interaction-surface" data-slot="candidate"></div><div id="surface-baseline" class="interaction-surface" data-slot="baseline"></div>
+        <div class="stage-corner top-left"><span class="live-dot"></span><span id="stageStatus">载入角色</span></div>
+        <div class="viewport-actions"><button id="quickSnapshot" class="viewport-icon" aria-label="保存当前姿态四视图" title="保存四视图" data-icon="camera"></button><button id="quickFit" class="viewport-icon" aria-label="恢复预览构图" title="恢复构图" data-icon="fit"></button></div>
+        <div id="candidateLabel" class="view-label candidate-label"><i></i><span>修改后<small id="candidateFile">—</small></span></div>
+        <div id="baselineLabel" class="view-label baseline-label"><i></i><span>修改前<small id="baselineFile">—</small></span></div>
+        <div id="stageDivider"></div>
+        <div class="stage-corner bottom-left"><span id="stageHint">拖动旋转 · 滚轮缩放 · 点击选部位</span></div>
+        <div class="viewport-views" role="group" aria-label="快速切换视角"><button data-view="front" class="active">正面</button><button data-view="side">侧面</button><button data-view="back">背面</button><button data-view="top">俯视</button></div>
+        <div class="stage-corner bottom-right"><span data-icon="cube"></span><span id="viewName">正面</span></div>
+        <div id="selectionFloat" class="selection-float" hidden></div>
+        <div id="stageLoading" class="stage-loading"><div class="loader-ring"></div><b>正在打开角色</b><span>素材与动作保留在本机</span></div>
+        <div id="stageError" class="stage-error" role="alert" hidden><span id="stageErrorTitle">无法打开这个素材</span><p id="errorMessage"></p><button id="retryLoad">重新载入</button></div>
+      </div>
+      <section class="transport" aria-label="动画播放控制">
+        <div class="timeline-ruler" aria-hidden="true"><span>0.00</span><span id="tickQuarter">—</span><span id="tickMid">—</span><span id="tickThreeQuarter">—</span><span id="tickEnd">—</span></div>
+        <div class="timeline-wrap"><input id="timeline" type="range" min="0" max="1" step=".0001" value="0" aria-label="时间轴"><div id="scopeVisual" class="scope-visual" hidden></div></div>
+        <div class="transport-row">
+          <div class="play-controls"><button id="prev" class="icon-button" title="上一帧 ←" aria-label="上一帧" data-icon="previous"></button><button id="play" class="play-button" disabled aria-label="播放" data-icon="play"></button><button id="next" class="icon-button" title="下一帧 →" aria-label="下一帧" data-icon="next"></button></div>
+          <output id="clock">0.000 <span>/ 0.000 s</span></output>
+          <select id="speed" aria-label="播放速度"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="1.5">1.5×</option></select>
+          <button id="openScope" class="text-button" data-icon="range">选一段修改</button>
+        </div>
+      </section>
+      <div class="stage-footnote"><span><span class="live-dot"></span>本地三维预览</span><span class="desktop-shortcuts"><kbd>空格</kbd> 播放 / 暂停 <span class="key-separator">·</span> <kbd>←</kbd><kbd>→</kbd> 逐帧</span><span class="touch-hint">拖动旋转 · 双指缩放 · 轻点选部位</span></div>
+      <div id="notice" class="inline-notice" hidden role="status"></div>
+    </main>
+    <aside id="taskPanel" class="task-panel" aria-label="修改任务">
+      <div class="inspector-heading"><span data-icon="sliders"></span><b>调整工作台</b><span class="inspector-tag">INSPECTOR</span></div>
+      <div class="task-scroll">
+        <section id="taskRestoring" class="task-restoring"><div class="state-symbol running" aria-hidden="true"></div><h2>正在恢复工作台…</h2><p>读取角色与任务状态，稍候即可继续。</p></section>
+        <section id="composePanel" class="compose-panel" hidden>
+          <span class="section-kicker" id="composeKicker">提出修改</span>
+          <h2 id="composeTitle">你想改哪里？</h2>
+          <p id="composeIntro" class="panel-intro">描述你想要的变化，<br>让 Agent 处理余下的细节。</p>
+          <form id="requestForm">
+            <div class="request-label-line"><label for="request">修改要求</label><span data-icon="sparkles"></span></div>
+            <textarea id="request" rows="4" placeholder="比如，左手摆得太大，收一点。脚步和另一只手保持原样。" required></textarea>
+            <div class="prompt-suggestions"><button type="button" data-prompt="这段动作的左臂摆动收小一些，其他部位和节奏保持。" data-icon="motion">收一点摆臂</button><button type="button" data-prompt="请检查这段动作脚底是否滑动，先解释原因，再给修改候选。" data-icon="target">检查脚底滑动</button></div>
+            <div class="context-chips" id="contextCard"><button type="button" id="openTarget" class="context-chip"><span class="context-chip-icon" data-icon="target"></span><span class="context-chip-copy"><small>修改部位</small><b id="targetText">整个角色</b></span><span data-icon="chevron"></span></button><button type="button" id="scopeChip" class="context-chip"><span class="context-chip-icon" data-icon="range"></span><span class="context-chip-copy"><small>时间范围</small><b id="scopeText">整个动作</b></span><span data-icon="chevron"></span></button></div>
+            <p class="context-auto"><span data-icon="camera">已带上当前画面</span><span id="contextTime">0.000s</span><span id="contextClip" hidden>动作</span></p>
+            <details id="projectContextDetails" class="project-context-details"><summary id="projectContextSummary">关联项目，自动找到相关素材与要求</summary><div id="projectContextBody"><p>关联一次，自动找到相关代码、制作源与历史要求。</p><button type="button" id="linkProjectInline" class="text-button">关联游戏项目 →</button></div></details>
+            <details class="preserve-details"><summary>还有哪些必须保持？<span>可选</span></summary><textarea id="preserve" rows="2" placeholder="例如：右臂、腿部、根运动和总时长保持不变。"></textarea></details>
+            <button id="submitRequest" class="primary-button" type="submit" disabled><span>连接 Codex 并开始修改</span><span data-icon="arrow"></span></button>
+            <small id="submitHint" class="submit-hint">使用本机 Codex 账户，原版与修改要求自动保留。</small>
+            <button id="saveQueued" type="button" disabled class="text-button save-queued">只保存任务，稍后处理</button>
+          </form>
+          <details id="localTools" class="local-tools"><summary>先试一次本地微调 <span>无需 AI</span></summary><p>选择身体部位，直接调整旋转摆幅，快速比较效果。</p><button id="localTarget" class="text-button">选择修改部位 ↗</button><label class="field-label" for="swingFactor">摆动幅度 <output id="factorLabel">70%</output></label><input id="swingFactor" type="range" min="0.2" max="1.5" step=".05" value=".7" aria-label="摆动幅度倍率"><button id="localEdit" class="secondary-button" disabled>生成本地微调候选</button><small>数值工具，不调用 AI。其他骨骼与时长保留。</small></details>
+        </section>
+        <section id="latestJob" class="task-state" hidden aria-live="polite"></section>
+      </div>
+      <footer id="taskFooter" class="task-footer" hidden><button id="agentConnect" class="agent-status" title="连接本机 Codex"><span class="status-dot" id="agentDot"></span><span id="agentLabel">本机 Codex 未连接</span></button><button id="footerHelp" class="text-button" aria-label="打开使用指南" data-icon="help"></button></footer>
+    </aside>
+  </div>
+</div>
+<button id="mobileTaskAction" class="mobile-task-action" disabled>
+<span id="mobileTaskIcon">✎</span>
+<span>
+<b id="mobileTaskTitle">正在恢复工作台…</b>
+<small id="mobileTaskDetail">读取角色与任务状态</small>
+</span>
+<span>↑</span>
+</button>
+<dialog id="projectDialog" class="project-dialog">
+<div class="dialog-heading">
+<h2 id="projectDialogTitle">关联游戏项目</h2>
+<button data-close class="icon-button" aria-label="关闭项目关联">×</button>
+</div>
+<p id="projectDialogIntro" class="dialog-intro">只需关联一次。当前素材与记录会复制到项目的 .motion-studio，原文件保持。以后在这里保存候选、观察现场与验收记录。</p>
+<div id="projectCurrent" class="project-current" hidden>
+</div>
+<div id="projectPending" class="project-pending" hidden>
+</div>
+<section id="projectSuggestion" class="project-suggestion" hidden>
+<small>识别到可能的项目</small>
+<b id="projectSuggestedName">
+</b>
+<span id="projectSuggestedPath">
+</span>
+<button id="useSuggestedProject" class="primary-button">关联这个项目 →</button>
+</section>
+<button id="pickProjectFolder" class="secondary-button">选择项目文件夹…</button>
+<details id="projectPathFallback" class="project-path-fallback">
+<summary>或粘贴文件夹路径</summary>
+<form id="projectPathForm">
+<label class="sr-only" for="projectPath">项目文件夹路径</label>
+<input id="projectPath" placeholder="例如 /Users/me/MyGame" autocomplete="off" spellcheck="false" required>
+<button id="openProjectPath" class="secondary-button" type="submit">关联并打开</button>
+</form>
+</details>
+<div id="projectSelection" class="project-selection" hidden>
+<span>已选择文件夹</span>
+<b id="projectSelectedPath">
+</b>
+<button id="confirmProjectFolder" class="primary-button">关联并打开 →</button>
+</div>
+<section id="recentProjects" class="recent-projects" hidden>
+<h3>最近的项目</h3>
+<div id="recentProjectList">
+</div>
+</section>
+<p id="projectLinkStatus" class="project-link-status" role="status" hidden>
+</p>
+<p class="project-save-note">“满意，保留这版”会记录你的选择。正式替换游戏文件前，仍需完成游戏内检查。</p>
+</dialog>
+<dialog id="modelCatalogDialog" class="model-catalog-dialog">
+  <div class="dialog-heading"><div><span class="section-kicker">项目素材</span><h2>项目资源库</h2></div><button data-close class="icon-button" aria-label="关闭模型目录">×</button></div>
+  <p class="panel-intro">模型、骨架与动作可以独立查看，每项资源单独保留版本与修改记录。角色视图汇总已确认的模型和配套动作。</p>
+  <div class="catalog-views" aria-label="资源视图"><button id="catalogCharacters" class="secondary-button" aria-pressed="true">角色</button><button id="catalogFiles" class="secondary-button" aria-pressed="false">全部资源</button></div>
+  <div class="catalog-toolbar"><label class="searchbox"><span data-icon="search"></span><input id="modelSearch" type="search" aria-label="搜索模型名称或路径" placeholder="搜索模型名称或路径"></label><button id="refreshCatalog" class="secondary-button">刷新目录</button><button id="catalogChooseFolder" class="secondary-button">选择目录</button></div>
+  <p id="catalogStatus" class="catalog-status" role="status" aria-live="polite">正在读取模型目录…</p>
+  <div id="modelList" class="model-list" aria-label="目录中的模型"></div>
+  <button id="catalogMore" class="secondary-button" hidden>加载更多模型</button>
+</dialog>
+<dialog id="libraryDialog" class="library-dialog">
+<div class="dialog-heading">
+<h2>素材与修改记录</h2>
+<button data-close class="icon-button" aria-label="关闭记录">×</button>
+</div>
+<div class="library-summary">
+<span id="assetKind" class="pill">素材</span>
+<b id="assetLabel">本地素材</b>
+<p id="assetDescription">
+</p>
+<small id="assetStats">
+</small>
+<button id="assetInfo" class="text-button">素材信息 ↗</button>
+</div>
+<div class="library-tabs">
+<button id="clipsTab" class="active">动作 <span id="clipCount">0</span>
+</button>
+<button id="historyTab">修改记录 <span id="jobCount">0</span>
+</button>
+</div>
+<label class="searchbox">
+<span data-icon="search">
+</span>
+<input id="search" aria-label="搜索动作" placeholder="搜索动作名称">
+</label>
+<div id="clipList" class="clip-list" role="listbox" aria-label="动作列表">
+</div>
+<div id="historyList" class="history-list" hidden>
+</div>
+<button id="exportFeedback" class="text-button">导出完整反馈记录 ↓</button>
+</dialog>
+<dialog id="targetDialog" class="compact-dialog">
+<div class="dialog-heading">
+<h2>选择修改部位</h2>
+<button data-close class="icon-button" aria-label="关闭部位选择">×</button>
+</div>
+<p>直接在角色身上点一下，也可以在这里选择。不指定部位时，Agent 会根据你的描述判断。</p>
+<select id="boneSelect" aria-label="选择修改部位">
+<option value="">整个角色 / 自动判断部位</option>
+</select>
+<label class="advanced-target-toggle">
+<input id="showAllBones" type="checkbox">显示全部骨骼（高级）</label>
+<p id="targetHint" class="hint">点击位置用于定位参考，关联部位可以在这里确认。</p>
+<button id="clearSelection" class="text-button" hidden>清除部位选择</button>
+<button data-close class="primary-button">完成选择</button>
+</dialog>
+<dialog id="scopeDialog" class="compact-dialog">
+<div class="dialog-heading">
+<h2>修改哪一段？</h2>
+<button data-close class="icon-button" aria-label="关闭时间选择">×</button>
+</div>
+<p>默认检查整个动作。只想调整某个瞬间时，选择一段时间。</p>
+<label class="field-label" for="scopeMode">时间范围</label>
+<select id="scopeMode" aria-label="修改时间范围">
+<option value="whole">整个动作</option>
+<option value="range">选一段时间</option>
+</select>
+<div id="scopeInputs" class="scope-inputs" hidden>
+<label>开始（秒）<input id="scopeStart" type="number" min="0" step="any" disabled value="0" aria-label="范围开始秒数">
+</label>
+<label>结束（秒）<input id="scopeEnd" type="number" min="0" step="any" disabled value="1" aria-label="范围结束秒数">
+</label>
+<button type="button" id="useCurrentTime" class="text-button">取当前时刻附近</button>
+</div>
+<button id="applyScope" class="primary-button">确认范围</button>
+</dialog>
+<dialog id="settingsDialog" class="settings-dialog">
+<div class="dialog-heading">
+<h2>视角与显示</h2>
+<button data-close class="icon-button" aria-label="关闭预览设置">×</button>
+</div>
+<label class="field-label">观察视角</label>
+<div class="camera-views" role="group" aria-label="镜头">
+<button data-view="front" class="active">正面</button>
+<button data-view="side">侧面</button>
+<button data-view="back">背面</button>
+<button data-view="top">俯视</button>
+<button id="fitView">恢复构图</button>
+</div>
+<div class="setting-rows">
+<label for="appearanceMode"><span>角色外观<small>中性检查用于观察动作，项目外观使用已配置的项目着色器</small></span><select id="appearanceMode" aria-describedby="appearanceStatus"><option value="neutral">中性检查</option><option value="project" disabled>项目外观</option></select></label>
+<p id="appearanceStatus" class="panel-intro" role="status">中性检查 · 正在读取项目外观配置</p>
+<label>
+<span>原地看动作<small>锁定角色水平位移，方便检查姿态</small>
+</span>
+<input id="lockRoot" type="checkbox" checked>
+</label>
+<label>
+<span>显示骨架</span>
+<input id="bones" type="checkbox">
+</label>
+<label>
+<span>循环播放</span>
+<button id="loop" class="active" aria-pressed="true">已开启</button>
+</label>
+<div id="compareControls" hidden>
+<label>
+<span>对照镜头联动</span>
+<input type="checkbox" id="linkCameras" checked>
+</label>
+<label>
+<span>按动作进度对齐<small>默认按同一秒数比较，保留真实节奏</small>
+</span>
+<input type="checkbox" id="progress">
+</label>
+<div class="display-modes" role="group" aria-label="比较方式">
+<button data-display="single">单独</button>
+<button data-display="split">并排</button>
+<button data-display="overlay">骨架叠影</button>
+</div>
+<p id="comparisonMeaning">
+</p>
+</div>
+</div>
+<div class="settings-bottom">
+<button id="restart" class="secondary-button">从头播放</button>
+<button id="snapshotButton" class="secondary-button">保存四视图</button>
+</div>
+<p id="frameInfo" class="hint">第 0 帧 · 30 fps 审阅</p>
+<span id="coordinateHint" hidden>
+</span>
+<select id="focusSlot" aria-label="查看版本" hidden>
+<option value="baseline">原版</option>
+<option value="candidate">候选</option>
+</select>
+<span id="currentHash" hidden>
+</span>
+</dialog>
+<dialog id="importDialog" class="import-dialog">
+<div class="dialog-heading">
+<div>
+<h2>导入你的角色</h2>
+</div>
+<button data-close class="icon-button" aria-label="关闭导入">×</button>
+</div>
+<p class="dialog-intro">拖入已下载的 GLB 或带角色的动画 FBX。复制到工作区，原文件保留。</p>
+<div class="import-grid">
+<label class="dropzone" id="dropBaseline">
+<span class="drop-icon" data-icon="cube">
+</span>
+<b>原版素材</b>
+<span>点击或拖入文件</span>
+<small>GLB / FBX · 角色与动作</small>
+<input id="fileBaseline" type="file" accept=".glb,.fbx,.json">
+<strong id="baselineImportName">
+</strong>
+</label>
+<label class="dropzone" id="dropCandidate">
+<span class="drop-icon" data-icon="layers">
+</span>
+<b>已有修改候选</b>
+<span>可选，之后也能再添加</span>
+<small>用于同镜头比较修改前后</small>
+<input id="fileCandidate" type="file" accept=".glb,.fbx,.json">
+<strong id="candidateImportName">
+</strong>
+</label>
+</div>
+<div id="importProgress" class="import-progress" hidden>
+</div>
+<button id="importDone" class="primary-button" hidden>开始查看角色 →</button>
+<div class="import-note">
+<b>从 Tripo / Mixamo 开始</b>
+<p>在 Mixamo 中针对同一个角色下载 <em>With Skin</em>，通常最省步骤。FBX 转换需要本机 Blender。无骨架模型或不同骨架的动作，交给 Agent 先检查适配。</p>
+</div>
+</dialog>
+<dialog id="infoDialog">
+<div class="dialog-heading">
+<h2>素材与观察现场</h2>
+<button data-close class="icon-button" aria-label="关闭素材信息">×</button>
+</div>
+<div id="sceneInfo">
+</div>
+<button id="viewInitialOriginal" class="secondary-button">查看最初原版</button>
+<details>
+<summary>完整上下文 JSON</summary>
+<pre id="contextJSON">
+</pre>
+</details>
+</dialog>
+<dialog id="environmentDialog">
+<div class="dialog-heading"><h2>环境检查</h2><button id="closeEnvironment" class="icon-button" aria-label="关闭环境检查">×</button></div>
+<p>启动只检查基础能力。Blender 和 Codex 在使用对应功能时检查，也可手动重新检查。</p>
+<div id="environmentResults" aria-live="polite"></div>
+<div class="dialog-actions"><button id="recheckEnvironment" class="secondary-button">重新检查</button><button id="reloadEnvironment" class="secondary-button" hidden>刷新页面重试三维预览</button></div>
+</dialog>
+<dialog id="helpDialog" class="help-dialog">
+<div class="dialog-heading">
+<div>
+<h2>三步完成一次动作修改</h2>
+</div>
+<button data-close class="icon-button" aria-label="关闭帮助">×</button>
+</div>
+<div class="help-tabs">
+<button data-help="guide" class="active">三步上手</button>
+<button data-help="case">真实修改案例</button>
+<button data-help="connect">连接 Agent</button>
+</div>
+<article id="helpGuide">
+<div class="guide-step">
+<b>01</b>
+<div>
+<h3>找到那个瞬间</h3>
+<p>选择动作、放慢播放，按空格暂停。你可以点一下身体定位部位，也可以直接用语言描述。</p>
+</div>
+</div>
+<div class="guide-step">
+<b>02</b>
+<div>
+<h3>说出你想要的变化</h3>
+<p>一句自然的话就可以。默认修改整个动作；只想修改一小段时，再展开时间范围。</p>
+</div>
+</div>
+<div class="guide-step">
+<b>03</b>
+<div>
+<h3>用同一个镜头看结果</h3>
+<p>Agent 完成后，候选会回到动作台。并排检查、逐帧比较，保留原版或继续提出意见。</p>
+</div>
+</div>
+<div class="help-footnote">初始角色是原创教学人偶。可以用“先试一次本地微调”完成第一轮，无需连接 AI。三维预览不包含游戏中的自定义衣料、IK 和战斗逻辑。</div>
+</article>
+<article id="helpCase" hidden>
+<div id="caseContent">
+</div>
+</article>
+<article id="helpConnect" hidden>
+<h3>复用你正在使用的 Agent</h3>
+<p>Skill 负责上下文、工具和检查，审美与诊断交给 Agent。页面提交任务并不会默认唤醒当前聊天。</p>
+<p>使用任务面板的“连接 Codex 并开始修改”，可通过已有 CLI 授权处理本地任务。也可以把任务命令复制到当前 Agent 对话，或连接 Skill 自带 MCP 工具。</p>
+<p>任务未被领取时会明确显示“等待 Agent”；执行失败会保留原因。页面不会把本地数值调整伪装成 AI 修改。</p>
+</article>
+</dialog>
+<dialog id="snapshotDialog">
+<div class="dialog-heading">
+<h2>当前时刻 · 四视图</h2>
+<button data-close class="icon-button" aria-label="关闭四视图">×</button>
+</div>
+<img id="snapshotImage" alt="当前姿态的正面、侧面、背面和俯视图">
+<button id="downloadSnapshot" class="secondary-button">下载四视图</button>
+</dialog>
+<div id="toast" role="status" hidden>
+</div>
+<script type="module" src="/viewer/app.js">
+</script>
+</body>
+</html>

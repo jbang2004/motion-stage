@@ -1,0 +1,29 @@
+name: Prepare verified Skill release
+description: Set up native tools and extract a verified source-built or frozen release.
+inputs:
+  node-version:
+    description: Node version for this job
+    default: '24'
+  artifact-mode:
+    description: source builds this checkout; frozen uses release-input without rebuilding
+    default: source
+  run-tests:
+    description: Run the packaged Node test suite after extraction
+    default: 'false'
+outputs:
+  skill-root:
+    description: Absolute path to the verified extracted Skill
+    value: ${{ steps.prepare.outputs.skill-root }}
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v6
+      with:
+        node-version: ${{ inputs.node-version }}
+    - uses: actions/setup-python@v6
+      with:
+        python-version: '3.12'
+    - name: Prepare and verify release
+      id: prepare
+      shell: bash
+      run: python tools/ci/prepare-release.py --mode "${{ inputs.artifact-mode }}" --tests "${{ inputs.run-tests }}" --output ci-results

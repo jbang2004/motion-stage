@@ -1,0 +1,4 @@
+interface:
+  display_name: "动作台 MotionStage"
+  short_description: "独立预览模型、骨架与动画，用自然语言提出修改，保留制作源、候选版本与任务记录"
+  default_prompt: "使用 $motion-stage 关联当前游戏项目，带上模型制作源、历史要求与已验收版本，定位动作问题、生成候选并比较结果。"

@@ -1,0 +1,161 @@
+name: Portable release verification
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      checks:
+        description: Verification scope
+        type: choice
+        options: [all, native, blender, browser, build]
+        default: all
+      artifact_mode:
+        description: Build this checkout or verify the exact release-input ZIP
+        type: choice
+        options: [source, frozen]
+        default: source
+      stress:
+        description: Repeat Windows multi-process contention twenty times per Node version
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    if: github.event_name != 'workflow_dispatch' || inputs.checks == 'all' || inputs.checks == 'native'
+    name: ${{ matrix.os }} / Node ${{ matrix.node }} / packaged tests
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: ['22.0.0', '24', '26']
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/prepare-release
+        id: release
+        with:
+          node-version: ${{ matrix.node }}
+          artifact-mode: ${{ inputs.artifact_mode || 'source' }}
+          run-tests: 'true'
+      - name: Check importer ownership and inactive Take collection
+        run: python "${{ steps.release.outputs.skill-root }}/scripts/test/blender-capabilities.py"
+      - name: Exercise native Windows shims, junctions and process-tree termination
+        if: runner.os == 'Windows'
+        run: node tools/ci/windows-native-smoke.mjs --package "${{ steps.release.outputs.skill-root }}" --output ci-results/windows-native
+      - name: Repeat native Windows multi-process contention
+        if: runner.os == 'Windows' && inputs.stress
+        run: node tools/ci/lock-stress.mjs --package "${{ steps.release.outputs.skill-root }}" --repetitions 20 --output ci-results/lock-stress
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-${{ matrix.os }}-node${{ matrix.node }}
+          path: ci-results
+          retention-days: 7
+
+  build:
+    if: github.event_name == 'workflow_dispatch' && (inputs.checks == 'all' || inputs.checks == 'build')
+    name: ${{ matrix.os }} / source packaging
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/prepare-release
+        with:
+          artifact-mode: source
+      - name: Verify explicit source and frozen preparation behavior
+        run: python tools/ci/test-prepare-release.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: build-${{ matrix.os }}
+          path: ci-results
+          retention-days: 7
+
+  blender:
+    if: github.event_name == 'workflow_dispatch' && (inputs.checks == 'all' || inputs.checks == 'blender')
+    name: ${{ matrix.os }} / Blender ${{ matrix.blender }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        blender: ['4.2.0', '5.2.3']
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/prepare-release
+        id: release
+        with:
+          artifact-mode: ${{ inputs.artifact_mode }}
+      - name: Install Linux Blender runtime libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libgl1 libegl1 libxrender1 libxxf86vm1 libxi6 libxfixes3 libxkbcommon0 libsm6
+      - name: Check official download selection
+        run: python tools/ci/test-download-blender.py
+      - name: Fetch checksummed official Blender
+        run: python tools/ci/download-blender.py --version ${{ matrix.blender }} --destination "${{ runner.temp }}/motion-blender-${{ matrix.blender }}" --github-env
+      - name: Run real conversion, CLI and catalog paths
+        run: node tools/ci/blender-integration.mjs --skill-root "${{ steps.release.outputs.skill-root }}" --node-major 24 --output ci-results/blender
+      - name: Fetch real GLB interoperability fixtures
+        run: python tools/ci/real-assets/prepare.py --cache ci-results/real-assets-cache --output ci-results/real-assets-samples
+      - name: Check real FBX takes, morphs and native snapshots
+        run: node tools/ci/real-assets/native-check.mjs --skill-root "${{ steps.release.outputs.skill-root }}" --samples ci-results/real-assets-samples --output ci-results/real-native
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: blender-${{ matrix.os }}-${{ matrix.blender }}
+          path: |
+            ci-results
+            ${{ runner.temp }}/motion-blender-${{ matrix.blender }}/*-download.json
+          retention-days: 7
+
+  browser:
+    if: github.event_name == 'workflow_dispatch' && (inputs.checks == 'all' || inputs.checks == 'browser')
+    name: ${{ matrix.os }} / Chromium UI and software WebGL2
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            browser_args: ''
+          - os: windows-latest
+            browser_args: '--browser-channel chromium --swiftshader-threads 1'
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/prepare-release
+        id: release
+        with:
+          artifact-mode: ${{ inputs.artifact_mode }}
+      - name: Prepare isolated browser dependencies
+        run: npm install --prefix .ci-browser --no-audit --no-fund playwright@1.64.1
+      - name: Check strict network classification and bounded diagnostics
+        run: node --test tools/ci/browser-smoke.network.test.mjs tools/ci/browser-smoke.lifecycle.test.mjs
+      - name: Install Chromium and Linux runtime libraries
+        if: runner.os == 'Linux'
+        run: node .ci-browser/node_modules/playwright/cli.js install --with-deps chromium
+      - name: Install Chromium on Windows
+        if: runner.os == 'Windows'
+        run: node .ci-browser/node_modules/playwright/cli.js install chromium
+      - name: Fetch hash-pinned public real assets
+        run: python tools/ci/real-assets/prepare.py --cache ci-results/real-assets-cache --output ci-results/real-assets-samples
+      - name: Check real asset intake, indexed edits and recovery
+        run: node tools/ci/real-assets/check.mjs --skill-root "${{ steps.release.outputs.skill-root }}" --samples ci-results/real-assets-samples --output ci-results/real-assets-backend
+      - name: Run real UI with unchanged strict readiness and error checks
+        run: node tools/ci/browser-smoke.mjs --package "${{ steps.release.outputs.skill-root }}" --playwright-root .ci-browser --output ci-results/browser --software-webgl ${{ matrix.browser_args }} --real-samples ci-results/real-assets-samples
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-${{ matrix.os }}
+          path: ci-results
+          retention-days: 7

@@ -1,0 +1,207 @@
+{
+  "version": 1,
+  "kind": "authentic-project-case",
+  "caseDate": "2026-10-28",
+  "scope": "善逸霹雳一闪改编被否决、恢复原动作主体、另作尾段候选",
+  "userFeedback": {
+    "text": "狯岳的改动还可以，善逸和猗窝座就不行了还是原来的好，请修改",
+    "timestampUtc": "2026-10-28T15:21:41.781Z",
+    "timestampShanghai": "2026-10-28 23:21:41 +08:00",
+    "source": "作者本机的 Codex 会话记录（未公开）",
+    "sourceRecordSha256": "676bff1da9346145dd7875a17f001c0002fd2b70faa3c35e568d03cd1adf2c68",
+    "recordType": "response_item / user",
+    "redaction": "仅保留本次用户请求原话；原会话文件名、会话编号、浏览器环境块和其他聊天均未公开。sourceRecordSha256 是原记录整行的指纹，只能由作者对照私有记录核对，无法从中还原内容。"
+  },
+  "firstAttempt": {
+    "id": "flash",
+    "title": "霹雳一闪 · 拔刀与制动",
+    "category": "代表招式",
+    "kind": "定制路径草稿",
+    "changes": [
+      "保留现有低马步的下肢基线",
+      "左手扶鞘，右手先沿鞘轴抽出再横切",
+      "接低位落地与短收刀，观察整个完成态"
+    ],
+    "limits": "刀鞘与双手为新约束草稿；左手扶鞘接触、指节和服装仍需精修。未接入穿越位移、命中或雷电。",
+    "clip": "Study_zenitsu_flash_after",
+    "duration": 1.42,
+    "before": {
+      "clip": "Study_zenitsu_flash_before",
+      "duration": 1.23,
+      "sha256": "1dcd4a0cc989b399ac9c6fed8c03cbdfce9f4634a1910dc4d237973b9922a165",
+      "audit": {
+        "frames": 75,
+        "bones": 88,
+        "clothSamples": 90,
+        "clothPoseDistanceMax": 0
+      },
+      "sources": [
+        "ArpgCharge",
+        "ArpgHeavy1"
+      ]
+    },
+    "after": {
+      "clip": "Study_zenitsu_flash_after",
+      "duration": 1.42,
+      "sha256": "6f3207cdfaec36f04e8eca16cf6cc6227024cb77350be5be3fbe2e6370633ed1",
+      "audit": {
+        "frames": 87,
+        "bones": 88,
+        "morphChannels": 254,
+        "rightMax": 0.004500569145936388,
+        "leftMax": 0.042806081201321476,
+        "clothMax": 1.2591021711042534,
+        "footBoneMin": 0.10840419968066395
+      },
+      "sources": [
+        "ArpgCharge",
+        "ArpgHeavy1",
+        "ArpgHeavy2",
+        "ArpgSheathe"
+      ]
+    }
+  },
+  "revisedCandidate": {
+    "id": "flash-r2",
+    "previousStudyId": "flash",
+    "title": "霹雳一闪 · 保留原招",
+    "category": "代表招式",
+    "kind": "原动作 · 尾段微调",
+    "alignedPlayback": true,
+    "revision": 2,
+    "changes": [
+      "恢复原低马步、上挑刀路和原有手位",
+      "蓄势与出刀前 0.90 秒完全沿用原曲线",
+      "只收紧挥刀结束后的回架尾段约 0.09 秒"
+    ],
+    "limits": "已撤回上一轮拔刀、强制扶鞘及收刀拼接。当前仅调整原动作尾段时间；尚未改变正式游戏。",
+    "presentation": "original-polish",
+    "clip": "Study_zenitsu_flash-r2_after",
+    "duration": 1.14,
+    "before": {
+      "clip": "Study_zenitsu_flash_before",
+      "duration": 1.23,
+      "sha256": "1dcd4a0cc989b399ac9c6fed8c03cbdfce9f4634a1910dc4d237973b9922a165",
+      "audit": {
+        "frames": 75,
+        "bones": 88,
+        "clothSamples": 90,
+        "clothPoseDistanceMax": 0
+      },
+      "sources": [
+        "ArpgCharge",
+        "ArpgHeavy1"
+      ]
+    },
+    "after": {
+      "clip": "Study_zenitsu_flash-r2_after",
+      "duration": 1.14,
+      "sha256": "5008750571bf3c45133a224b34ee0f755e841535dcea46ed32749364d0929d85",
+      "audit": {
+        "timingOnly": true,
+        "poseValuesPreserved": true,
+        "originalDuration": 1.23,
+        "duration": 1.14,
+        "tailFrom": 0.9,
+        "tailRate": 1.3750000000000007,
+        "prefixCurveErrorMax": 2.384185791015625e-07,
+        "frames": 76
+      },
+      "sources": [
+        "ArpgCharge",
+        "ArpgHeavy1"
+      ]
+    }
+  },
+  "decision": {
+    "rejectedFirstAttempt": true,
+    "keptAcceptedProduction": true,
+    "followupArtisticApproval": false,
+    "followupInstalled": false,
+    "explanation": "本轮已执行的决定是撤回被否决的大幅改编、保留正式资产。第二轮尾段修整仅为私有候选。"
+  },
+  "verificationExcerpt": {
+    "pass": true,
+    "errors": [],
+    "row": {
+      "role": "zenitsu",
+      "id": "flash-r2",
+      "left": "Study_zenitsu_flash-r2_after",
+      "right": "Study_zenitsu_flash_before",
+      "samples": 69,
+      "prefixPoseErrorMax": 0,
+      "holdChecked": true
+    },
+    "protectedFiles": [
+      {
+        "role": "zenitsu",
+        "unchanged": true,
+        "sha256": "11843d79ab428b7cc851d0317b1c5fb5af7c026c1a0c5c29b32b31639065abf5"
+      },
+      {
+        "role": "akaza",
+        "unchanged": true,
+        "sha256": "06c06f2aff2c4fcea27bd63e578c81ed41594f2979107372ef73637a760efe7d"
+      },
+      {
+        "role": "kaigaku",
+        "unchanged": true,
+        "sha256": "2d3661a83c2f483ff25558c126ea4e8dcd773ed1cd863c5e765f65a9f34256b5"
+      }
+    ],
+    "preservedKaigaku": [
+      {
+        "path": ".character-pipeline/motion-studies-20261028/kaigaku-swarm-before.json",
+        "unchanged": true
+      },
+      {
+        "path": ".character-pipeline/motion-studies-20261028/kaigaku-swarm-after.json",
+        "unchanged": true
+      },
+      {
+        "path": ".character-pipeline/motion-studies-20261028/kaigaku-drive-cut-before.json",
+        "unchanged": true
+      },
+      {
+        "path": ".character-pipeline/motion-studies-20261028/kaigaku-drive-cut-after.json",
+        "unchanged": true
+      },
+      {
+        "path": ".character-pipeline/motion-studies-20261028/kaigaku-rise-cut-before.json",
+        "unchanged": true
+      },
+      {
+        "path": ".character-pipeline/motion-studies-20261028/kaigaku-rise-cut-after.json",
+        "unchanged": true
+      }
+    ]
+  },
+  "imagesWithheld": {
+    "count": 3,
+    "reason": "当时的三张审阅截图（第一轮草稿对照、撤回后对照、第二轮侧面检查）展示的是同人游戏的角色模型，不随 MIT 仓库分发。案例只保留文字记录。"
+  },
+  "sourceFilesNote": "以下路径相对于作者的私有游戏仓库，文件不随本仓库分发；SHA-256 仅供作者核对。",
+  "sourceFiles": [
+    {
+      "path": ".character-pipeline/motion-studies-20261028/feedback-r2.json",
+      "sha256": "c05afb5ffdac0d6cd4dd07a72c00b5d794224545a7882637db67f12de079d89c"
+    },
+    {
+      "path": ".character-pipeline/motion-studies-20261028/manifest.json",
+      "sha256": "80bdd6b099311979e4fbd10e8e71f4b8441f9ec91467b3c7a01ca7f603ca48cc"
+    },
+    {
+      "path": ".character-pipeline/motion-studies-20261028/verification.json",
+      "sha256": "10b5b73e7c16087b2bd8b9e54d9aa44ad4bc91bb7b332611fed56e43ee60638c"
+    },
+    {
+      "path": ".character-pipeline/motion-studies-20261028/revisions/rejected-v1/manifest.json",
+      "sha256": "3ea50a529432a3b05c868361fad27565b683cfe674a7c9b9dc33ec1ee3013ed0"
+    },
+    {
+      "path": "tools/motionstage/build-studies.mjs",
+      "sha256": "4a1dac3d3b3b6d9808ba0e132f05a1231471b30da6496571860e43e1794a9c49"
+    }
+  ],
+  "distribution": "仅包含文字摘录、测量数值与来源指纹；不含截图、角色模型、购买动作包的原始曲线或原始聊天。"
+}

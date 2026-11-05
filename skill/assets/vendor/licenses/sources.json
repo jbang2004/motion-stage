@@ -1,0 +1,22 @@
+[
+  {
+    "file": "draco-LICENSE",
+    "url": "https://raw.githubusercontent.com/google/draco/main/LICENSE",
+    "sha256": "d3709b0fb4b8a94bbb1d02b8a2e484f258b0d9c5c5a01f940391f3fe662cd1a4"
+  },
+  {
+    "file": "basis-universal-LICENSE",
+    "url": "https://raw.githubusercontent.com/BinomialLLC/basis_universal/master/LICENSE",
+    "sha256": "065fcf48d6af21c0b75e23be5ed5753aee75c892e1c2cf178fa6736305614a5c"
+  },
+  {
+    "file": "ktx-parse-LICENSE",
+    "url": "https://raw.githubusercontent.com/donmccurdy/ktx-parse/main/LICENSE",
+    "sha256": "79847431f9ecef9cf399085cb863452e71a6dab99738f4f0c1ea06c6484b5692"
+  },
+  {
+    "file": "zstddec-LICENSE",
+    "url": "https://raw.githubusercontent.com/donmccurdy/zstddec/main/LICENSE",
+    "sha256": "8d078b49fc02bd63c1beaf4ddc629a8b48e4ba6a435415408c8209e2a5c3aacf"
+  }
+]
