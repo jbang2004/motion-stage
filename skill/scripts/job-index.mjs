@@ -11,7 +11,7 @@ function validEntry(id,entry){const j=entry?.summary;return ID.test(id)&&typeof 
 const asset=a=>a?{file:a.file,sha256:a.sha256,label:a.label}:null;
 export function summarizeJob(j){
  const review=j.review||j.reviews?.at(-1);
- return {id:j.id,assetId:j.assetId||'legacy',state:j.state,executor:j.executor,executionManaged:Boolean(j.execution?.id),request:String(j.request||'').slice(0,300),clip:j.clip||j.context?.clip||'',slot:j.slot,createdAt:j.createdAt,updatedAt:j.updatedAt,claimedAt:j.claimedAt,lastActivityAt:j.lastActivityAt,progress:j.progress,activity:j.activity,artisticDecision:j.artisticDecision,parentJobId:j.parentJobId,candidate:asset(j.candidate),inputs:{baseline:asset(j.inputs?.baseline),candidate:asset(j.inputs?.candidate)},review:review?{decision:review.decision,at:review.at}:null,detailRevision:digest(j),summaryOnly:true};
+ return {id:j.id,assetId:j.assetId||'legacy',state:j.state,executor:j.executor,executionHealth:j.executionHealth,executionManaged:Boolean(j.execution?.id),request:String(j.request||'').slice(0,300),clip:j.clip||j.context?.clip||'',slot:j.slot,createdAt:j.createdAt,updatedAt:j.updatedAt,claimedAt:j.claimedAt,lastActivityAt:j.lastActivityAt,progress:j.progress,activity:j.activity,artisticDecision:j.artisticDecision,parentJobId:j.parentJobId,candidate:asset(j.candidate),inputs:{baseline:asset(j.inputs?.baseline),candidate:asset(j.inputs?.candidate)},review:review?{decision:review.decision,at:review.at}:null,detailRevision:digest(j),summaryOnly:true};
 }
 
 // job.json remains authoritative. Checking every fingerprint makes this cache
@@ -20,7 +20,7 @@ export function summarizeJob(j){
 export async function readJobIndex(work){return withWorkspaceLock(work,async()=>{
  const file=await inside(work,'job-index.json');let previous;
  try{previous=JSON.parse(await readFile(file,'utf8'));}catch(e){if(e.code!=='ENOENT'&&!(e instanceof SyntaxError))throw e;}
- if(previous?.version!==2||!previous.entries||typeof previous.entries!=='object'||Array.isArray(previous.entries)||previous.integrity!==digest(previous.entries)||!Object.entries(previous.entries).every(([id,entry])=>validEntry(id,entry)))previous={entries:{}};
+ if(previous?.version!==3||!previous.entries||typeof previous.entries!=='object'||Array.isArray(previous.entries)||previous.integrity!==digest(previous.entries)||!Object.entries(previous.entries).every(([id,entry])=>validEntry(id,entry)))previous={entries:{}};
  const dir=await inside(work,'jobs');let names=[];
  try{names=(await readdir(dir,{withFileTypes:true})).filter(x=>x.isDirectory()&&ID.test(x.name)).map(x=>x.name).sort();}catch(e){if(e.code!=='ENOENT')throw e;}
  const entries={};let changed=names.length!==Object.keys(previous.entries).length;
@@ -39,7 +39,7 @@ export async function readJobIndex(work){return withWorkspaceLock(work,async()=>
  }));
  const rows=Object.values(entries).map(e=>e.summary).sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||'')||b.id.localeCompare(a.id));
  const revision=digest(rows.map(j=>[j.id,j.detailRevision]));
- if(changed||previous.revision!==revision)await atomic(file,{version:2,revision,entries,integrity:digest(entries)});
+ if(changed||previous.revision!==revision)await atomic(file,{version:3,revision,entries,integrity:digest(entries)});
  const counts={};for(const j of rows){const c=counts[j.assetId]??={total:0,active:0,queued:0,running:0,needsInput:0};c.total++;if(activeJobStates.has(j.state))c.active++;if(j.state==='queued')c.queued++;if(j.state==='running')c.running++;if(j.state==='needs-input')c.needsInput++;}
  return {revision,rows,counts,total:rows.length};
 });}

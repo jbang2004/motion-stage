@@ -13,14 +13,14 @@ import {serve} from '../server.mjs';
 async function fixture(count=12){
  const work=await mkdtemp(resolve(tmpdir(),'motion-index-')),jobs=[];
  for(let i=0;i<count;i++){
-  const id=randomUUID(),j={id,assetId:i%2?'A':'B',state:i===0?'running':i===1?'queued':'complete',executor:'agent',execution:i===0?{id:randomUUID(),pid:123}:undefined,request:'要求 '+i,createdAt:new Date(1700000000000+i).toISOString(),updatedAt:new Date(1700000000000+i).toISOString(),slot:'baseline',inputs:{baseline:{file:'assets/source.glb',sha256:'source'}},candidate:{file:'assets/candidate.glb',sha256:'candidate'},context:{privateLarge:'x'.repeat(8000)},events:[{message:'x'.repeat(4000)}],lease:'secret',audit:{large:'x'.repeat(2000)}};
+  const id=randomUUID(),j={id,assetId:i%2?'A':'B',state:i===0?'running':i===1?'queued':'complete',executor:'agent',execution:i===0?{id:randomUUID(),pid:123}:undefined,executionHealth:i===0?{status:'alive'}:undefined,request:'要求 '+i,createdAt:new Date(1700000000000+i).toISOString(),updatedAt:new Date(1700000000000+i).toISOString(),slot:'baseline',inputs:{baseline:{file:'assets/source.glb',sha256:'source'}},candidate:{file:'assets/candidate.glb',sha256:'candidate'},context:{privateLarge:'x'.repeat(8000)},events:[{message:'x'.repeat(4000)}],lease:'secret',audit:{large:'x'.repeat(2000)}};
   await mkdir(resolve(work,'jobs',id),{recursive:true});await writeFile(resolve(work,'jobs',id,'job.json'),JSON.stringify(j));jobs.push(j);
  }
  return {work,jobs};
 }
 test('recoverable index keeps compact summaries, cross-model counts and deterministic bounded pages',async()=>{
  const {work,jobs}=await fixture();try{
-  const first=await readJobIndex(work);assert.equal(first.total,12);assert.equal(first.counts.A.total,6);assert.equal(first.counts.B.active,1);assert.equal(first.rows.find(j=>j.id===jobs[0].id).executionManaged,true);
+  const first=await readJobIndex(work);assert.equal(first.total,12);assert.equal(first.counts.A.total,6);assert.equal(first.counts.B.active,1);assert.equal(first.rows.find(j=>j.id===jobs[0].id).executionManaged,true);assert.equal(first.rows.find(j=>j.id===jobs[0].id).executionHealth.status,'alive');
   assert.ok(JSON.stringify(first).length<14000);assert.equal(first.rows.some(j=>'lease' in j||'context' in j||'events' in j||'audit' in j),false);
   const page=await jobsPage(work,{assetId:'A',limit:2});assert.equal(page.total,6);assert.equal(page.jobs.length,2);assert.equal(page.hasMore,true);assert.equal(page.jobs[0].id,jobs[11].id);
   const next=await jobsPage(work,{assetId:'A',limit:2,offset:2});assert.equal(next.jobs[0].id,jobs[7].id);assert.equal((await listQueuedJobSummaries(work))[0].id,jobs[1].id);

@@ -499,7 +499,7 @@ function drawLatestJob(){
  }
  const request=el('details');request.dataset.disclosure='request';request.open=disclosures.get('request')||false;request.append(el('summary','我的修改要求'),el('p',job.request,'request-quote'));if(job.preserve)request.append(el('p','需要保持：'+job.preserve));for(const answer of job.clarifications||[])request.append(el('p','补充：'+answer.message));card.append(request);
  if(job.state==='running'){
-  if(job.executionHealth==='unresponsive')card.append(el('p','执行器仍在运行，但已长时间没有心跳。可以中断本轮，再从保留的输入重试。','error-copy'));
+  if((job.executionHealth?.status||job.executionHealth)==='unresponsive')card.append(el('p','执行器仍在运行，但已长时间没有心跳。可以中断本轮，再从保留的输入重试。','error-copy'));
   card.append(actionButton('中断执行，保留本轮',async()=>{const ticket=viewState.beginMutation();if(!ticket)return;const result=await api('/api/jobs/'+job.id+'/interrupt','POST',{});if(!viewState.isUnchanged(ticket,job.assetId))return;commitJobResult(result,ticket);state.studioRevision=null;await pollStudio();},'text-button'));
  }
  if(pending)card.append(actionButton('取消这次任务',async()=>{await api('/api/jobs/'+job.id+'/cancel','POST',{});await pollStudio();},'text-button'));
