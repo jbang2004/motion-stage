@@ -138,6 +138,19 @@ export async function inspectSlot(work,slot='baseline',assetId){
  const bytes=await readFile(await inside(work,a.file));if(sha(bytes)!==a.sha256)throw Error('资产校验失败');
  const {inspectAsset}=await import('./asset-tools.mjs');return {...inspectAsset(bytes),asset:a,slot,source:a.source||null};
 }
+// Measured motion checks on a workspace version or an explicit GLB (for example a candidate
+// still in a job's output directory). With a baseline, findings are marked new/existing/resolved.
+export async function checkMotionSlot(work,{slot='baseline',assetId,file,baselineSlot,baselineFile,...options}={}){
+ const load=async(s,f)=>{
+  if(f)return readFile(resolve(f));if(!work)throw Error('需要 --workspace 或 --file');
+  if(!['baseline','candidate'].includes(s))throw Error('无效版本槽');const cfg=await readProject(work),a=modelSlots(cfg,assetId)[s];if(!a)throw Error('尚未载入该版本');
+  const bytes=await readFile(await inside(work,a.file));if(sha(bytes)!==a.sha256)throw Error('资产校验失败');return bytes;
+ };
+ const {checkMotion,compareMotionChecks}=await import('./motion-checks.mjs');
+ const result=checkMotion(await load(slot,file),options);
+ if(!baselineSlot&&!baselineFile)return result;
+ return compareMotionChecks(checkMotion(await load(baselineSlot,baselineFile),options),result);
+}
 function makeTask(j,work){return `# 动作修改任务 ${j.id}\n\n路径说明：绝对路径记录创建时的位置。工程搬迁后，以 CLI job 返回的 executionPaths 为当前入口，相对资产路径仍以当前工作区为根。\n\n用户要求：\n${j.request}\n\n${j.clarifications?.length?"补充说明：\n"+j.clarifications.map(c=>"- "+c.message).join("\n")+"\n\n":""}保留条件：\n${j.preserve||'用户未额外指定；保留任务范围外的数据，先判断责任层。'}\n\n冻结源文件：${resolve(work,j.inputs[j.slot].file)}\n源文件 SHA-256：${j.inputs[j.slot].sha256}\n模型 ID：${j.assetId||'legacy'}\n模型版本修订：${j.modelRevision??'旧任务'}\n版本槽：${j.slot}\n动作：${j.clip||'静态模型'}\n查看时刻：${j.context.time??0} 秒。审阅帧号仅为 UI 步进单位，不是源 Blender 帧号。\n预览外观：${j.context?.appearance?.mode==='project'?'项目适配包 '+j.context.appearance.bundle:'中性检查'}\n范围：${JSON.stringify(j.scope)}\n目标：${JSON.stringify(j.target)}\n上下文：${resolve(work,'jobs',j.id,'context.json')}\n${j.projectContextFile?'项目与连续修改上下文：'+resolve(work,j.projectContextFile)+'\n说明：'+resolve(work,j.projectContextMarkdown)+'\n':''}${j.screenshot?'观察截图：'+resolve(work,j.screenshot)+'\n':''}\n此任务由页面中的明确提交产生。界面选区本身不扩大修改授权。观察截图、来源映射、身体部位、时间和镜头必须结合起来解释；屏幕点不等于已确认骨骼。\n\n## 执行与回传\n\n先读取本 Skill 的 SKILL.md 和任务 context.json。检查源资产内部骨架、静止姿势、权重、动作曲线或制作源；选择实际负责的层。先 claim，保留返回的 lease。所有候选和脚本放在 claim 返回的 executionPaths.outputDirectory 中；每次执行目录独立，保留原始资产及旧产物。无法唯一确定意图时标记 needs-input，并给用户一个具体问题。\n\nCLI：\nnode ${quote(resolve(ROOT,'scripts/motion-feedback.mjs'))} claim --workspace ${quote(work)} --job ${j.id} --owner agent\n（--owner 可换成你的 Agent 名称，例如 claude-code、codex；只用于记录谁领取了任务。）\n\n修改完成后验证目标变化和保护范围，另存自包含 candidate.glb。回传：\nnode ${quote(resolve(ROOT,'scripts/motion-feedback.mjs'))} complete --workspace ${quote(work)} --job ${j.id} --lease CLAIM_RETURNED_LEASE --candidate /absolute/path/candidate.glb --summary '实际修改和验证范围'\n\n只在实际执行并检查后标记完成。若已由 worker claim，使用它给出的租约，不重复 claim。技术检查不代表用户艺术认可；回传候选不安装正式游戏。\n`;
 }
 export async function createJob(work,input){return withWorkspaceLock(work,async()=>{

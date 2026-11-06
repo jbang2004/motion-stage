@@ -44,6 +44,18 @@ Preserve the immutable input. Author an isolated candidate and reproducible scri
 
 Verify the requested change and relevant preserved data with the smallest useful checks. For a curve edit, inspect the captured pose, relevant extrema and scope/loop boundaries, using the same seconds and transforms as the task. Increase sampling only when the repair's risk requires it. Do not routinely sweep thousands of poses. Keep the short audit honest about what was sampled; it is not a proof of continuous collision freedom or user artistic acceptance.
 
+### Measured motion checks
+
+`motion-check` (MCP `motion_check_motion`) samples one clip with the viewer's glTF interpolation and reports three defect families: rotation flips (a sampled turn above 90° per step, near-180° key segments with an undefined direction, quaternion sign flips that only matter for CUBICSPLINE or component-wise importers), planted-foot slip (contacts detected by height near the clip's lowest foot position, or given explicitly), and limb extension (a knee/elbow bend change above 20° in one step while nearly straight, or a chain longer than its rest length). In-place locomotion is recognized: a stance foot moving backward at a constant speed is reported as `treadmill`, not slip, and differing speeds between steps are flagged.
+
+Run it on the job input and on your candidate in one call when the edit touches legs, arms or rotation curves:
+
+```sh
+node "$SKILL_DIR/scripts/motion-feedback.mjs" motion-check --workspace "$WORKSPACE" --asset-id "$ASSET" --baseline-slot baseline --file "$CANDIDATE_GLB" --clip "$CLIP"
+```
+
+Findings are marked `new`, `existing` or `resolved`. Report `new` warnings and either fix them or explain why they are intended; pre-existing ones are context, not the edit's fault. Foot nodes are guessed from names (`footSelection: "name-hint"`) unless `--feet` names the ankle nodes; a guess is a hint, not anatomical identity. Pass contact windows, extra arm chains or a floor height with `--options PARAMS.json` (`{"contacts":{"LeftFoot":[[0,0.3]]},"chains":[["LeftArm","LeftForeArm","LeftHand"]]}`). The checks measure joint positions only: they cannot prove mesh collision freedom, natural motion or runtime IK behavior, and they never gate completion.
+
 `completeJob` is the shared completion gate for workers, CLI, MCP and local edits. It enforces the lease, immutable input/model revision, project/source drift, a distinct candidate and retained clip names. `candidate-validation.mjs` checks the complete GLB container, embedded buffer/accessor ranges, readable finite float data, node transforms and animation targets/counts/time ordering. It records these program checks separately as `job.validation`; an agent's optional audit cannot override them. Compressed payloads are not decoded and sparse/ compressed animation ordering is not expanded by this lightweight check; its recorded limitations identify the remaining viewer checks. The validator does not interpret free-text preservation requirements or decide artistic quality. Check task-specific protected properties during authoring.
 
 Reuse the existing studio for playback and candidate comparison. A routine GLB edit should not launch a browser or external player, build another renderer, or generate a video solely to validate the edit. Use Blender for necessary native editing/baking/conversion. A fresh import is useful when that export path can lose constraints, shift time or otherwise change the requested result; it is not a universal extra step for direct GLB data edits.

@@ -9,7 +9,7 @@ import {diagnoseRuntime} from './runtime-diagnostics.mjs';
 import {catalogPage,startCatalogScan,openCatalogAsset} from './asset-catalog.mjs';
 import {characterPage,openCharacter,saveCharacterMap,associateCharacterMotion} from './character-library.mjs';
 import {appearanceStatus,installAppearance} from './project-appearance.mjs';
-import {listJobs,getJob,claimJob,completeJob,failJob,cancelJob,inspectSlot,updateJobProgress,replyJob,getJobProjectContext,previewProjectContext,retryJob,restoreJob,interruptJob,jobArtifacts} from './jobs.mjs';
+import {listJobs,getJob,claimJob,completeJob,failJob,cancelJob,inspectSlot,checkMotionSlot,updateJobProgress,replyJob,getJobProjectContext,previewProjectContext,retryJob,restoreJob,interruptJob,jobArtifacts} from './jobs.mjs';
 const str={type:'string'},id={type:'string',description:'Job ID returned by motion_list_jobs'},lease={type:'string',description:'Lease returned by motion_claim_job'};
 const tool=(name,description,properties={},required=[])=>({name,description,inputSchema:{type:'object',properties,required,additionalProperties:false}});
 const motionInput={assetId:str,slot:{type:'string',enum:['baseline','candidate']},expectedModelSha:str,packId:str,versionId:str,clip:str,mappingId:str,previewId:str,expectedRevision:{type:'integer',minimum:0},name:str};
@@ -36,6 +36,7 @@ export const tools=[
  tool('motion_list_jobs','List durable user-submitted animation review tasks and their states.'),
  tool('motion_get_job','Read the exact task, version identities, time, target, camera and screenshot. Read before editing.',{id},['id']),
  tool('motion_inspect_asset','Inspect a loaded character skeleton, meshes and clips. Pass the task assetId to inspect its model independently of the current view.',{assetId:str,slot:{type:'string',enum:['baseline','candidate']}}),
+ tool('motion_check_motion','Measure rotation flips, planted-foot slip and knee/elbow pop or stretch on one clip. Use it on the job input and on your candidate (candidatePath plus baselineSlot or baselinePath) to see which findings the edit introduced. Evidence only: not a completion gate and not artistic approval.',{assetId:str,slot:{type:'string',enum:['baseline','candidate']},candidatePath:{type:'string',description:'Absolute path to a GLB to check instead of a workspace slot'},baselineSlot:{type:'string',enum:['baseline','candidate']},baselinePath:{type:'string',description:'Absolute path to the GLB to compare against'},clip:str,fps:{type:'number'},feet:{type:'array',items:str,description:'Ankle node names or indices; guessed from names when omitted'},chains:{type:'array',items:{type:'array',items:str},description:'Extra limb chains, e.g. [["LeftArm","LeftForeArm","LeftHand"]]'},contacts:{type:'object',description:'Per-foot contact windows in seconds, e.g. {"LeftFoot":[[0,0.3]]}'},checks:{type:'array',items:{type:'string',enum:['rotationFlips','footSlip','limbExtension']}}},['clip']),
  tool('motion_claim_job','Claim a queued task and return its lease. Only claim a user-submitted task you will actually execute.',{id,owner:str},['id']),
  tool('motion_project_context','Read the frozen project evidence, prior user requirements and accepted checkpoints for a job, or preview current task context.',{id,assetId:str,request:str,slot:{type:'string',enum:['baseline','candidate']},clip:str,parentJobId:str}),
  tool('motion_report_progress','Report the actual current stage and a concise user-facing message. Do not invent percentages or expose reasoning.',{id,lease,phase:{type:'string',enum:['reading','editing','checking','exporting']},message:str},['id','lease','phase','message']),
@@ -64,6 +65,7 @@ export async function callTool(work,name,args={}){
  if(name==='motion_list_jobs')return {jobs:await listJobs(work)};
  if(name==='motion_get_job')return getJob(work,args.id);
  if(name==='motion_inspect_asset')return inspectSlot(work,args.slot||'baseline',args.assetId);
+ if(name==='motion_check_motion'){const {candidatePath,baselinePath,...rest}=args;return checkMotionSlot(work,{...rest,file:candidatePath,baselineFile:baselinePath});}
  if(name==='motion_claim_job')return claimJob(work,args.id,{owner:args.owner||'mcp-agent'});
  if(name==='motion_project_context')return args.id?getJobProjectContext(work,args.id):previewProjectContext(work,args);
  if(name==='motion_report_progress')return updateJobProgress(work,args.id,{...args,source:'agent'});

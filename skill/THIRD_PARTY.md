@@ -13,6 +13,14 @@ the viewer are included. Original source headers are preserved.
 - zstddec: MIT, Don McCurdy; its embedded Zstandard code also carries the
   upstream BSD notice, retained in `assets/vendor/licenses/zstddec-LICENSE`.
 
+## Adapted check definitions
+
+`scripts/motion-checks.mjs` reimplements, in JavaScript for glTF, the definitions of
+`rotation_flips`, `foot_slip` and `limb_extension` from scenario-labs/skills
+(`skills/dcc/blender/scenario-blender-animation/scripts/bx_anim.py`), MIT License,
+Copyright (c) 2026 Scenario Inc. No Python code is bundled. Contact detection, in-place
+(treadmill) classification and baseline comparison are MotionStage additions.
+
 Additional upstream license texts are in `assets/vendor/licenses/`.
 No game models, purchased motion packs, online fonts, telemetry or cloud API
 clients are required by this package.
