@@ -1,12 +1,16 @@
-# 动作台 MotionStage 3.3.0
+<img src="assets/viewer/app-icon.svg" width="88" alt="动作台 MotionStage">
 
-3D 模型与动画工作台 · 3D model & animation studio
+# 动作台 MotionStage 4.0.0
 
-从观察、提出修改，到查看 Agent 的真实进展，再把候选放回同一时刻与镜头下比较。每一步只显示当前需要的操作。
+3D 角色动作工作台 · 3D character animation studio
 
-3.0 改名为「动作台 MotionStage」：Skill、包和安装目录标识改为 motion-stage，双击启动器改为 `Open MotionStage`，默认练习工作区改为用户目录下的 motion-stage-workspace（已有的 motion-feedback-workspace 继续使用）。数据格式不变，旧工作区和项目里的 `.motion-studio/` 直接沿用。
+打开游戏项目，就能看到每个角色能做的全部动作；一句话提出修改，由 Agent 真实执行，候选与原版放在同一时刻、同一镜头下对照。
 
-2.8 完善宽扁模型构图、重名骨架节点定位和 KHR Meshopt 读取，修复 FBX 非活动 Take 丢失及原生动作保存。按资源能力支持独立模型、骨架/节点动作和采样曲线预览；保留可选项目外观与中性检查模式。角色资源库按项目声明关联模型内、分离 GLB 与采样动作包。外部动作保留来源并检查兼容性，失败来源不会阻塞可用角色；文件列表仍可检查未归属资源。
+- **动作库**：角色能播放的每个动作都是一张缩略图卡片，直接渲染在这个角色身上。项目里骨架兼容的动作会被自动找出来（参考姿势与层级一致，完全相同的曲线已去重），点一下就能播放。
+- **一句话提修改，Agent 真实执行**：暂停、点一下身体部位、写一句话即可。任务交给当前聊天里的 Agent（CLI / MCP）或本机已登录的 Codex。进度显示真实阶段和最近活动，不编造百分比。
+- **候选对照，原版始终保留**：候选回到提交时的时刻与镜头，可单独、并排或叠影比较。保留、继续调整还是退回原版，由你决定；正式游戏文件不会被改动。
+
+## 快速开始
 
 ```sh
 node scripts/start.mjs
@@ -14,23 +18,58 @@ node scripts/start.mjs
 node scripts/start.mjs --project "/absolute/path/game"
 ```
 
-需要 Node.js 22+；三维预览需要 WebGL2 浏览器，纯曲线可用 Canvas2D。macOS 可双击 `Open MotionStage.command`，Windows 可双击 `Open MotionStage.cmd`。内置原创练习角色，首次体验无需自己的模型、npm 安装或 API Key。
+macOS 可双击 `Open MotionStage.command`，Windows 可双击 `Open MotionStage.cmd`。内置原创练习角色，第一次体验不需要自己的模型、npm 安装或 API Key。保持终端运行，Ctrl+C 停止。
 
-- **关联项目一次**：选择工程后在项目内 `.motion-studio/` 保存素材、任务、上下文修订、决定与验收检查点；下次恢复最近项目。
-- **按任务带上下文**：自动查找相关代码、制作源与历史原话，逐项记录依据；连续修改按真实父版本继承，不把旧目标再做一遍。
-- **导入素材**：支持自包含 GLB、静态角色；有本机 Blender 时可导入带角色的 FBX。
-- **观察与表达**：单独、并排、叠影；逐帧、慢放、部位定位、时间范围、四视图；一句话提交修改要求。
-- **真实 Agent 任务**：在现有聊天中通过 CLI/MCP 领取，或明确连接已登录的本机 Codex CLI 自动处理。后者使用账号正常额度，不要求额外密钥。
-- **看得懂的进度**：真实阶段、最近活动、已用时间和最后更新时间；需要补充时直接回复继续，没有虚构百分比。
-- **独立候选**：任务绑定资产版本，结果过期时拒绝覆盖新工作；保留执行记录与用户决定。
-- **本地动作微调**：显式选骨骼和摆动系数即可试用确定性变换；此工具不冒充 AI 创作或自动艺术验收。
+## 运行要求
 
-安装、导入格式、连接与排错见 [运行说明](references/setup.md)。Agent 使用入口为 [SKILL.md](SKILL.md)，任务操作见 [Agent 工作流程](references/agent-workflow.md)。
+| 项目 | 说明 |
+|---|---|
+| Node.js 22+ | 必需 |
+| 支持 WebGL2 的浏览器 | 三维预览需要；纯曲线预览可用 Canvas2D |
+| Blender 4.2+ | 可选，用于导入 FBX |
+| Codex CLI（已登录） | 可选，用于自动处理修改任务，使用你账号的正常额度 |
 
-静态角色与另一套动作骨架不能仅靠格式转换自动匹配。复杂重定向、衣料和游戏运行时仍需实际制作源与对应工具。代码和原创练习资源见 LICENSE，第三方库见 THIRD_PARTY.md，历史案例见 references/real-case.md。包中不包含私人游戏角色或商用动作。
+## 功能
 
-验证：`node --test scripts/test/*.test.mjs`。
+- **关联项目一次**：在顶栏项目切换器选择游戏工程，素材、任务、决定和验收检查点都保存在项目内的 `.motion-studio/`；下次启动自动恢复。
+- **角色栏**：项目角色以渲染好的头像列出；**全部角色** 还能看到项目里其他带蒙皮的模型。
+- **动作库**：分为 **常用**、**角色自带**、**匹配动作**；按 待机 / 移动 / 攻击 / 技能 / 防御 / 受击 / 跳跃 / 倒地 / 表演 / 其他 分类（根据动作名推断，仅供参考），支持中文名、英文名和原始动作名搜索；悬停即看小预览。
+- **试用别的动作**：匹配动作只是临时播放，不改模型；你明确收录后才进入 **常用**。
+- **修改模式**：逐帧、慢放、部位定位、时间范围、四视图；在卡片上点 **修改这个动作** 就能开始。
+- **看得懂的进度**：真实阶段、最近活动、已用时间；需要补充时直接回复一句话继续。
+- **版本与来源**：公共动作包、名称映射和每个角色收录的动作分开管理，旧版本与任务记录全部保留。
+- **导入素材**：**＋导入** 支持自包含 GLB、静态模型、采样动作 JSON；有本机 Blender 时可导入 FBX。
+- **项目外观（可选）**：安装经审阅的适配包后，可用游戏自己的着色器预览角色；默认是中性检查。
+- **环境检查**：**⋯ → 环境检查** 显示启动结果与浏览器的真实渲染状态。
 
-项目工作区、来源关联与连续修改规则见 [项目上下文说明](references/project-workspace.md)。
+## 从 3.x 升级
 
-通用资源预览支持独立模型、骨架/节点动作和采样动作 JSON；纯曲线不需要 WebGL2。模型与动作组合仍需明确关联和兼容检查，旧版本与任务记录继续保留。详见 [资源库](references/asset-library.md)。
+数据格式不变，项目里的 `.motion-studio/` 和独立工作区直接沿用。4.0 新增工作区 `cache/thumbnails/` 缩略图缓存，可以随时删除，下次查看时自动重新生成。升级前请先停止旧版服务。
+
+## 边界
+
+- 骨架不兼容的动作不能只靠格式转换套用，需要明确的重定向任务。
+- 普通 GLB 不包含实时布料、引擎 IK、战斗混合或自定义材质；正式游戏效果仍需在游戏里检查。
+- 程序只监听 127.0.0.1，模型与历史留在本机。连接在线 Agent 后，修改要求、选区信息和截图会进入该 Agent 的上下文。
+
+## 文档
+
+- Agent 入口：[SKILL.md](SKILL.md)
+- 动作库：[references/action-library.md](references/action-library.md)
+- 修改任务流程：[references/agent-workflow.md](references/agent-workflow.md)
+- 分离动作与版本：[references/separated-motion.md](references/separated-motion.md)
+- 角色声明：[references/character-map.md](references/character-map.md)
+- 资源库与格式：[references/asset-library.md](references/asset-library.md)
+- 项目工作区：[references/project-workspace.md](references/project-workspace.md)
+- 项目外观：[references/project-appearance.md](references/project-appearance.md)
+- 安装与排错：[references/setup.md](references/setup.md)
+- 环境诊断与恢复：[references/reliability.md](references/reliability.md)
+- 实测案例：[references/agent-case.md](references/agent-case.md)、[references/real-case.md](references/real-case.md)
+
+## 测试与许可
+
+```sh
+node --test scripts/test/*.test.mjs
+```
+
+代码和原创练习资源见 [LICENSE](LICENSE)，第三方库见 [THIRD_PARTY.md](THIRD_PARTY.md)。包中不包含私人游戏角色或商用动作。

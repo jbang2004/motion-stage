@@ -1,0 +1,45 @@
+{
+  "note": "Generation lineage of the MotionStage app icon (Codex image, gpt-image). Each step used the previous image as its reference.",
+  "final": "motionstage-icon-1024.png",
+  "steps": [
+    {
+      "name": "2-onion-skin",
+      "path": "2-onion-skin.png",
+      "source": "exec-77231559-2af2-4fb9-a8b4-4d56e46afc26.png",
+      "reference": null,
+      "tool": "codex built-in image_gen",
+      "driver_model": "config default",
+      "thread_id": "01a1b364-e225-7d80-a77e-51a97ee66557",
+      "dimensions": "1254x1254",
+      "bytes": 1586961,
+      "prompt": "Use case: new-asset. Asset type: premium app icon for a 3D character animation studio, NOT a screenshot or mockup.\nA single rounded-square app icon tile (Apple macOS/iOS continuous-corner squircle) filling the whole canvas, dark indigo stage background with a warm spotlight from above.\nSymbol: a smooth, faceless, simplified matte white artist's mannequin figure caught mid-leap, with three translucent glassy 'onion-skin' ghost copies of earlier poses trailing behind it in fading violet tints, showing motion frame by frame. Standing over a small glowing circular stage disc. One accent of warm orange light on the leading figure.\nClean 3D render, soft shadows, Apple-quality polish, simple silhouette that reads at 32 px.\nOutput full-bleed 1:1 at high resolution.\nZERO baked text, numbers, letters, logos, interface controls, borders or watermarks anywhere. Output aspect ratio 1:1.",
+      "generated_at": "2026-11-07T08:25:37"
+    },
+    {
+      "name": "b-bold",
+      "path": "b-bold.png",
+      "source": "exec-3610818d-2b3e-47c0-8596-56dacb9500e2.png",
+      "reference": "2-onion-skin.png",
+      "tool": "codex built-in image_gen",
+      "driver_model": "config default",
+      "thread_id": "01a1b36a-5248-7f73-a35c-c3e417580069",
+      "dimensions": "1254x1254",
+      "bytes": 1508238,
+      "prompt": "Use case: precise-object-edit. Asset type: premium macOS/iOS app icon optimized for small sizes, NOT a screenshot or mockup.\nInput image is the reference concept: a faceless artist's mannequin leaping with onion-skin ghost frames, on a stage under a spotlight.\nRedesign it as a BOLD, iconic app icon that still reads at 16-32 px: one large smooth matte white mannequin in a dynamic leap filling most of the tile, strong clear silhouette (big head, limbs spread wide, nothing overlapping), and only TWO soft translucent violet ghost silhouettes directly behind it showing the earlier frames. Minimal stage: just a soft elliptical glow of warm orange light on the floor beneath. Background a clean, smooth deep indigo gradient with a gentle top light. High contrast between the white figure and the dark background. Very few elements, maximum clarity, generous safe margins.\nPolished Apple-style 3D, soft shadows. Rounded-square squircle tile filling the canvas. Output full-bleed 1:1 at high resolution.\nZERO baked text, numbers, letters, logos, interface controls, borders or watermarks anywhere. Output aspect ratio 1:1.",
+      "generated_at": "2026-11-07T08:31:38"
+    },
+    {
+      "name": "e1-from-bold",
+      "path": "e1-from-bold.png",
+      "source": "exec-5a7167b8-bde4-457f-978a-a06177bc1e60.png",
+      "reference": "b-bold.png",
+      "tool": "codex built-in image_gen",
+      "driver_model": "config default",
+      "thread_id": "01a1b36b-f433-7620-bf23-04371e7d72cb",
+      "dimensions": "1254x1254",
+      "bytes": 1613979,
+      "prompt": "Use case: precise-object-edit. Asset type: premium macOS/iOS app icon, NOT a screenshot or mockup.\nInput image is the edit target. Keep its bold composition: one large white mannequin leaping to the right with two translucent ghost frames behind it, on a deep indigo background.\nRefinements:\n1) Scale the whole group down about 10% and center it so there is a generous, even safe margin; the front foot, raised fist and head must stay well inside the rounded tile.\n2) The lead figure becomes a refined artist's wooden-mannequin style in smooth matte warm white, with subtle ball joints at the neck, shoulders, elbows, wrists, hips and knees, and a warm orange rim light along its back and limbs.\n3) The two ghost frames become translucent glass with a time-colour progression: the older one cool blue-violet, the newer one magenta-pink, both softly glowing, clearly separated from the lead figure.\n4) Under the figure, a slim stage disc seen at a slight angle with a thin warm-orange glowing rim and soft reflection, replacing the plain floor glow. A gentle soft spotlight from the top.\nKeep it simple: exactly three figures in total, high contrast, readable at 32 px. Rounded-square squircle tile filling the canvas. Output full-bleed 1:1 at high resolution.\nZERO baked text, numbers, letters, logos, interface controls, borders or watermarks anywhere. Output aspect ratio 1:1.",
+      "generated_at": "2026-11-07T08:33:29"
+    }
+  ]
+}

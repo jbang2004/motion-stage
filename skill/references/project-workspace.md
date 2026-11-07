@@ -4,7 +4,7 @@
 
 ## 用户最短路径
 
-在顶栏“关联项目”选择建议工程或系统文件夹。首次关联会把当前素材和已完成的记录复制到项目的 `.motion-studio/`，原工作区保持。项目已有工作区时直接打开，不覆盖。A项目切B项目时不复制A的内容。下次启动优先恢复最近可用项目。
+在顶栏的项目切换器选择建议工程或系统文件夹（关联只需一次）。首次关联会把当前素材和已完成的记录复制到项目的 `.motion-studio/`，原工作区保持。项目已有工作区时直接打开，不覆盖。A项目切B项目时不复制A的内容。下次启动优先恢复最近可用项目。
 
 也可由Agent直接打开已明确的工程：
 
@@ -44,7 +44,7 @@ node "$SKILL_DIR/scripts/start.mjs" --project "/absolute/path/game"
 
 ## 每次任务怎样取上下文
 
-`project-context --workspace PATH --request TEXT --slot candidate` 预览，`--job ID` 读取当时冻结快照；MCP工具为 `motion_project_context`。当前任务的冻结快照应优先于新的即时预览。
+每个新任务冻结一份工程/上下文包：相关代码、制作源与历史参考，加上准确的父版本链和用户验收记录。从 `job` 返回的 `projectContextFile`、`project-context --job ID` 或 MCP `motion_project_context` 读取。`project-context --workspace PATH --request TEXT --slot candidate` 只做即时预览；当前任务的冻结快照应优先于新的即时预览。标为候选的依据不是已确认的制作源映射。
 
 选定输入SHA是检索锚点，对照槽只说明正在比较什么，不能把另一个角色的代码当本轮来源。定位顺序为实际源路径/文件SHA、制作清单和字面资产引用，再到名称/关键词候选。每项记录相对路径、SHA、来源原因、证据及摘录行号。同名、旧清单哈希不符或缺失来源会明确标候选/警告。
 

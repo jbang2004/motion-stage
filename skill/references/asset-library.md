@@ -1,6 +1,8 @@
 # 通用资源库
 
-关联项目后，本地服务自动递归扫描；独立工作区仍支持手动导入。模型目录显示相对路径、格式、动作数量、预览状态及源文件更新。查询和分页在服务端执行，画面只载入选中的原版与候选。首次打开未修改的教学工作区时，优先预览目录中的首个有效 GLB；FBX 仍按用户打开操作转换。
+Read this for project scanning, supported formats, resource capabilities, model identities and the catalog CLI/MCP/HTTP. Selecting a project folder indexes resources recursively without loading all geometry. Mesh, hierarchy, joints, skin, node/morph animation and raw curves are independent capabilities: static models, standalone skeleton/node animations and sampled-motion JSON each open on their own; empty containers show metadata; unsupported formats stay visible as source files.
+
+关联项目后，本地服务自动递归扫描；独立工作区仍支持 **＋导入**。**⋯ → 项目文件** 显示相对路径、格式、动作数量、预览状态及源文件更新。查询和分页在服务端执行，画面只载入选中的原版与候选。首次打开未修改的教学工作区时，优先预览目录中的首个有效 GLB；FBX 仍按用户打开操作转换。
 
 ## 身份、版本与兼容
 
@@ -63,62 +65,9 @@ HTTP 为 `GET /api/catalog?query=&offset=&limit=`、`POST /api/catalog/scan`、`
 
 曲线反馈冻结所选轨道、分量、时刻与合成截图。候选对照同步所选轨道，使用共同的数值轴；绘图降采样保留每个区间的极值。模型、骨架、曲线共用原有模型 ID、版本、候选、任务和恢复逻辑，避免另一套记录系统。必要检查拒绝损坏 accessor、时间顺序、零旋转及丢失原网格/骨架/曲线或必需动作；失败不提交新版本。
 
-## 角色与分离动作
+## 角色与动作
 
-3.2 新增的资产中心优先使用独立公共动作与固定版本引用，见 [分离动作与版本设计](separated-motion.md)。以下 `character-map.json` 合成预览协议继续兼容已有项目声明；不会自动改写或拆解已有任务与检查点。
-
-
-存在显式映射时优先展示角色；没有映射时默认展示全部资源，覆盖纯模型与纯动作项目。“角色”视图仍可查看带蒙皮或动画的待确认候选。“全部资源”始终保留静态道具、骨架、动作与制作源，FBX 按需转换。扫描找到文件不等于已确认运行时角色：应读取项目的 manifest、角色注册表、Prefab/场景引用，判断哪些是当前模型、历史版本、动作包或演示素材。
-
-角色关联只保存在工作区 `character-map.json`。Agent 首次分析项目时可保存如下声明，后续预览不调用模型推理，也不运行游戏代码。路径相对当前关联项目根目录，支持 Windows 分隔符输入，落盘统一为 `/`。
-
-```json
-{
-  "version": 1,
-  "characters": [{
-    "id": "hero",
-    "name": "主角",
-    "model": "public/models/hero.glb",
-    "variants": ["public/models/hero-old.glb"],
-    "animations": [
-      {"file": "public/models/exploration.glb", "format": "glb"},
-      {"file": "public/models/director.json", "format": "sampled-tracks-v1"}
-    ],
-    "evidence": [{"file": "src/characters/hero.js"}]
-  }]
-}
-```
-
-保存时校验项目边界，并冻结 evidence 文件 SHA。依据变化后，外部来源标记需要确认；主模型仍可返回。重新阅读注册表、核对关联后，重新保存经确认的声明（旧 evidence SHA 不一致会拒绝保存，可在确认后移除旧 SHA 让保存操作重新计算）。`variants` 仅归组，不自动从旧模型借动作。普通目录如果无显式项目注册信息，保留候选，由用户明确关联；不能把同一骨架的所有动作自动归给所有角色。
-
-`glb` 接受分离或带网格的自包含 GLB。每条已选轨道必须能唯一绑定，检查全部父链、局部和世界参考变换；名字相似或同为人形不足以通过。支持内置 meshopt 动作解码与规范允许的量化旋转。不同骨架、参考姿势或坐标单位保留为需要重定向；不自动推测重定向。`nodeMap` 可显式映射名称，仍须通过参考变换校验。可用 `clips` 只选指定动作；重名须设置 `prefix`，或明确 `replace:true` 才覆盖已有名称。
-
-`sampled-tracks-v1` 是明确声明的、面向目标模型的本地采样曲线格式，不是任意 JSON 的通用识别器：
-
-```json
-{"fps":60,"clips":{"Pose":{"duration":1,"tracks":[
-  ["Hips.quaternion","quaternion",4,[0,0,0,1]],
-  ["Hips.position","vector",3,[0,1,0]]
-]}}}
-```
-
-关键帧按 `i/fps` 采样，常量轨道补到 clip 时长，允许末帧时长的半个采样间隔舍入误差。该格式没有源参考骨架，因此依赖显式的项目目标声明与依据；仍校验唯一节点、维度、有限值和时间。格式无法确认时用 `unsupported`，等待项目导出器。映射最多 1 MiB / 500 角色，每角色最多 50 动作源；单个外部源最多 50 MiB，压缩动作最多展开 128 MiB，合成预览最多 200 MiB。
-
-每个来源独立合成，出错时整份来源跳过，保留其他已验证动作及原模型。预览及每个动作的文件、原名、解析格式记录在 `source.assembly`。任务冻结已消费动作源、项目依据与该角色绑定声明；源变化会阻止过期结果回写。改其他角色、重命名、修改版本归组或只触碰文件时间不应重置当前候选。合成角色有独立身份，不接管旧单文件历史；旧记录继续保留在文件视图。已有快照在来源缺失、映射删除或损坏时仍可打开。
-
-```sh
-node scripts/motion-feedback.mjs character-map --workspace "$WORKSPACE" --file reviewed-map.json
-node scripts/motion-feedback.mjs characters --workspace "$WORKSPACE"
-node scripts/motion-feedback.mjs open-character --workspace "$WORKSPACE" --asset-id "$CHARACTER_ID"
-node scripts/motion-feedback.mjs associate-motion --workspace "$WORKSPACE" --asset-id "$CHARACTER_ID" --source-id "$FILE_ID"
-node scripts/motion-feedback.mjs open-character --workspace "$WORKSPACE" --asset-id "$CHARACTER_ID" --refresh-source
-```
-
-显式保存 map 会替换整个声明文件，编辑前读取并保留其他角色。UI 的“关联到当前角色”仅增加选定来源，先做兼容检查，使用文件名前缀避免重名，并防止并发映射覆盖；之后由用户载入源文件新版本。它不会证明该动作在游戏中被使用。
-
-MCP 对应 `motion_list_characters`、`motion_save_character_map`、`motion_open_character`、`motion_associate_motion`。HTTP 增加 `GET /api/characters`、`POST /api/characters/map`、`POST /api/characters/:id/open`、`POST /api/characters/:id/associate`，沿用会话令牌。所有旧目录 API 保持文件级语义。浏览器仅加载选中角色的版本对，不一次载入整个工程的几何数据。
-
-这些预览覆盖可确认的文件动作，不保证包含游戏运行时的 IK、布料、动作状态机叠加、程序动画、远程资源或未支持的引擎二进制。普通项目应通过声明或项目导出器接入这些来源，不能声称仅选择目录就一定还原所有运行时表现。
+项目角色的声明（`character-map.json`）、外部动作的归属规则与合成预览见 [角色声明](character-map.md)。角色可播放的全部动作、自动匹配与缩略图见 [动作库](action-library.md)。可复用的公共动作包与名称映射见 [分离动作与版本设计](separated-motion.md)。
 
 ## 通用构图与重名节点
 

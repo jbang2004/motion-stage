@@ -1,4 +1,5 @@
-import {discoverCharacterActions,previewCharacterAction,stopCharacterActionDiscovery} from './character-actions.mjs';
+import {discoverCharacterActions,previewCharacterAction,characterActionCurves,stopCharacterActionDiscovery} from './character-actions.mjs';
+import {listThumbnails,saveThumbnail,thumbnailPath} from './thumbnails.mjs';
 import {motionLibrary,registerMotionPack,saveMotionMapping,previewMotion,adoptMotion,materializeMotion,motionRigOptions} from './motion-library.mjs';
 import {createServer} from 'node:http';
 import {readFile,stat,realpath} from 'node:fs/promises';
@@ -6,7 +7,7 @@ import {extname} from 'node:path';
 import {randomBytes} from 'node:crypto';
 import {ROOT,json,inside,atomic,validateNote,importAsset,readMarks,sha,withWorkspaceLock,hasClip,readProject,projectView,modelSlots,activateModel} from './core.mjs';
 import {catalogPage,startCatalogScan,openCatalogAsset,stopCatalogScan} from './asset-catalog.mjs';
-import {characterPage,openCharacter,associateCharacterMotion,saveCharacterMap} from './character-library.mjs';
+import {characterPage,castRoster,characterModelFile,openCharacter,associateCharacterMotion,saveCharacterMap} from './character-library.mjs';
 import {listJobs,getJob,createJob,cancelJob,localEditJob,reviewJob,inspectSlot,importBytes,replyJob,updateJobProgress,getJobProjectContext,previewProjectContext,retryJob,restoreJob,interruptJob,jobArtifacts,reconcileExecutions} from './jobs.mjs';
 import {projectStatus,prepareProject,chooseProjectFolder,revealWorkspace} from './project-workspaces.mjs';
 import {diagnoseRuntime} from './runtime-diagnostics.mjs';
@@ -16,7 +17,7 @@ import * as jobLifecycle from './jobs.mjs';
 
 async function studioJobIndex(work){return withWorkspaceLock(work,async()=>{let index=await readJobIndex(work);if(jobLifecycle.reconcileExecutions&&(await jobLifecycle.reconcileExecutions(work,{index})).changed)index=await readJobIndex(work);return index;});}
 
-const MIME={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json; charset=utf-8','.glb':'model/gltf-binary','.wasm':'application/wasm','.svg':'image/svg+xml','.png':'image/png','.jpg':'image/jpeg','.mp4':'video/mp4','.md':'text/plain; charset=utf-8'};
+const MIME={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json; charset=utf-8','.glb':'model/gltf-binary','.wasm':'application/wasm','.svg':'image/svg+xml','.png':'image/png','.webp':'image/webp','.jpg':'image/jpeg','.mp4':'video/mp4','.md':'text/plain; charset=utf-8'};
 const workspaceServers=new Map();
 async function body(req,limit){let size=0;const chunks=[];for await(const b of req){size+=b.length;if(size>limit)throw Error('文件过大');chunks.push(b);}return Buffer.concat(chunks);}
 export async function serve(work,port=5178,options={}){
@@ -48,6 +49,10 @@ export async function serve(work,port=5178,options={}){
    if(p==='/api/motions/export'&&req.method==='GET'){const result=await materializeMotion(work,{...Object.fromEntries(url.searchParams),exportOnly:true});res.writeHead(200,{'Content-Type':'model/gltf-binary','Content-Disposition':"attachment; filename=motion-stage-character.glb",'Content-Length':result.bytes.length,'Cache-Control':'no-store'});return res.end(result.bytes);}
    if(p==='/api/catalog'&&req.method==='GET')return send(200,await catalogPage(work,Object.fromEntries(url.searchParams)));
    if(p==='/api/characters'&&req.method==='GET')return send(200,await characterPage(work,Object.fromEntries(url.searchParams)));
+   if(p==='/api/cast'&&req.method==='GET')return send(200,await castRoster(work,{scope:url.searchParams.get('scope')||'all'}));
+   if(p==='/api/thumbnails'&&req.method==='GET')return send(200,await listThumbnails(work));
+   const characterModel=p.match(/^\/api\/characters\/([-\w]+)\/model$/);
+   if(characterModel&&req.method==='GET'){const file=await characterModelFile(work,characterModel[1]),bytes=await readFile(file);res.writeHead(200,{'Content-Type':'model/gltf-binary','Content-Length':bytes.length,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});return res.end(bytes);}
    if(p==='/api/appearance'&&req.method==='GET')return send(200,await appearanceStatus(work,url.searchParams.get('assetId')||undefined));
    if(p==='/api/project'&&req.method==='GET')return send(200,await projectStatus(work,options));
    const pc=p.match(/^\/api\/jobs\/([a-f0-9-]{36})\/project-context$/);if(pc&&req.method==='GET')return send(200,await getJobProjectContext(work,pc[1]));
@@ -72,6 +77,11 @@ export async function serve(work,port=5178,options={}){
    if(p.startsWith('/api/')&&req.method!=='GET'){
     if(req.headers['x-motion-token']!==token)return send(403,{error:'请刷新页面后重试'});
     const data=await body(req,p.startsWith('/api/assets/')?200*1024*1024:12*1024*1024);
+    // Cache writes and read-only curve reads skip the mutation queue so
+    // thumbnails never wait behind character assembly or task commits.
+    const thumbnailKey=p.match(/^\/api\/thumbnails\/([a-z0-9-]+)$/);
+    if(thumbnailKey&&req.method==='POST')return send(200,await saveThumbnail(work,thumbnailKey[1],data));
+    if(p==='/api/actions/curves'&&req.method==='POST')return send(200,await characterActionCurves(work,JSON.parse(data)));
     if(p==='/api/actions/preview'&&req.method==='POST')return send(200,await previewCharacterAction(work,JSON.parse(data)));
     if(p.startsWith('/api/motions/')&&req.method==='POST'){const action=p.slice('/api/motions/'.length),input=JSON.parse(data),fn={register:registerMotionPack,mapping:saveMotionMapping,rigs:motionRigOptions,preview:previewMotion,adopt:adoptMotion,prepare:materializeMotion}[action];if(fn)return send(200,await fn(work,input));}
     if(p==='/api/catalog/scan'&&req.method==='POST')return send(200,await startCatalogScan(work,{force:true}));
@@ -167,9 +177,10 @@ export async function serve(work,port=5178,options={}){
    else if(p.startsWith('/workspace/assets/')){root=work;name=p.slice(11);if(!/^assets\/[a-f0-9]{64}\.glb$/.test(name))return send(404,{error:'Not found'});}
    else if(/^\/workspace\/jobs\/[a-f0-9-]{36}\/view\.png$/.test(p)){root=work;name=p.slice(11);}
    else if(p.startsWith('/workspace/snapshots/')){root=work;name=p.slice(11);if(!/^snapshots\/[-\w]+\.png$/.test(name))return send(404,{error:'Not found'});}
+   else if(p.startsWith('/workspace/thumbnails/')){root=work;name=thumbnailPath(p);if(!name)return send(404,{error:'Not found'});}
    else return send(404,{error:'Not found'});
    const file=await inside(root,name),s=await stat(file);if(!s.isFile())return send(404,{error:'Not found'});
-   const bytes=await readFile(file);res.writeHead(200,{'Content-Type':MIME[extname(file)]||'application/octet-stream','Content-Length':bytes.length,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});res.end(req.method==='HEAD'?undefined:bytes);
+   const bytes=await readFile(file);res.writeHead(200,{'Content-Type':MIME[extname(file)]||'application/octet-stream','Content-Length':bytes.length,'Cache-Control':name.startsWith('cache/thumbnails/')?'private, max-age=31536000, immutable':'no-store','X-Content-Type-Options':'nosniff'});res.end(req.method==='HEAD'?undefined:bytes);
   }catch(e){if(!res.headersSent)send(e.code==='ENOENT'?404:e.code==='MODEL_JOB_ACTIVE'?409:400,{error:e.message,...(e.code?{code:e.code}:{}),...(e.jobId?{jobId:e.jobId}:{})});else res.end();}
  });
  server.once('close',()=>{if(workspaceServers.get(work)===server)workspaceServers.delete(work);serverCloseCleanup();});

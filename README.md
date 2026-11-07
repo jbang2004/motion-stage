@@ -1,3 +1,5 @@
+<img src="skill/assets/viewer/app-icon.svg" width="96" alt="动作台 MotionStage">
+
 # 动作台 MotionStage
 
 **3D 模型与动画工作台 · 3D model & animation studio**
@@ -6,12 +8,15 @@
 动作台把这句话连同当时的时刻、镜头、截图和模型版本打包成一条任务，交给你正在用的 AI Agent。
 Agent 回传候选后，原版和候选并排放在同一时刻、同一镜头下比较，由你决定留不留。原版始终保留。
 
+打开游戏项目，左边是每个角色的头像，右边是这个角色能做的全部动作：每个动作都是一张渲染在**这个角色身上**的缩略图，
+项目里骨架兼容的其他动作会被自动匹配过来。点一下卡片，角色就在舞台上做这个动作。
+
 > A local, browser-based studio for reviewing 3D character animation with an AI agent:
 > pause, point at a body part, describe the change in one sentence, hand the frozen task
 > to your agent (CLI or stdio MCP), then compare the returned candidate side by side.
 > The UI is in Chinese. MIT licensed. Skill / package id: `motion-stage`.
 
-当前版本 3.3.0。界面只有中文。
+当前版本 4.0.0。界面只有中文。
 
 ## 适合谁
 
@@ -41,24 +46,27 @@ node scripts/start.mjs
 
 三步上手：
 
-1. **找到那个瞬间**：选动作、放慢、按空格暂停；可以点一下身体定位部位。
+1. **找到那个瞬间**：在“动作库”点一张动作卡片，切到“修改”，放慢、按空格暂停；可以点一下身体定位部位。
 2. **说出想要的变化**：例如“左手摆得太大，收一点，另一只手和脚步保持”。
 3. **用同一个镜头看结果**：候选回来后自动并排对照，可逐帧比较、保留原版或继续提意见。
 
 不连接任何 AI 也能体验一轮：页面里的“先试一次本地微调”是一个确定性的摆幅缩放工具，
 用来熟悉流程；它不是 AI 修改，页面也不会把它说成 AI 修改。
 
-## 同页选择角色与动作
+## 动作库：选角色，点动作
 
-1. 在角色旁的“切换角色”下拉框选择角色，角色预设直接列在旁边。
-2. 后台自动检查项目 GLB 和已转换动作，按骨架层级与参考姿势匹配。“其他兼容动作”点击即可试播，无需先建立公共库。
-3. 预设、兼容试播和已保存动作使用不同标识；满意后可“加入常用动作”。试播不会替换角色原有动作。
+1. **选角色**：左侧角色栏是项目里声明的角色，头像直接渲染自角色模型；“全部角色”还能看到项目里其他带蒙皮的模型。
+2. **看动作**：右侧按“常用 / 角色自带 / 匹配动作”分组，每张卡片是角色在这个动作关键姿势上的样子（行走取迈步、跳跃取最高点、攻击带残影）。
+   顶部分类：全部、待机、移动、攻击、技能、防御、受击、跳跃、倒地、表演、其他（根据动作名推断，仅供参考）；搜索支持中文名、英文名和原始动作名。
+3. **点一下就播放**：角色自带的动作立刻播放；匹配动作是临时试播，不改模型，镜头会自动框住整段动作。鼠标悬停在卡片上可以先看小预览。
+4. **想改就点“修改这个动作”**：切到修改模式，接着暂停、点部位、写一句话。
 
-搜索覆盖所有已匹配动作；长列表分批显示。相同曲线编码会去重，预设同名的不同曲线留在“预设其他版本”筛选中。后台匹配期间仍可播放已有动作，窄屏下同一面板位于角色预览下方。
+“匹配动作”来自后台扫描：项目里其他 GLB 和已转换动作，只要参考姿势和骨骼层级与当前角色一致就会列出，完全相同的曲线自动去重。
+扫描期间可以照常播放已有动作。缩略图保存在工作区 `cache/thumbnails/`，删掉也会自动重新生成。
 
 “版本与来源”是管理入口；“项目文件”保留动作包、制作源、旧模型和构建副本，其文件数量不等于角色数量。不兼容或尚未转换的动作需要先适配或导入，不会冒充可直接播放的动作。
 
-详见 [分离动作与版本设计](skill/references/separated-motion.md)。
+详见 [动作库](skill/references/action-library.md) 和 [分离动作与版本设计](skill/references/separated-motion.md)。
 
 ## 连续修改与审阅
 
@@ -97,7 +105,13 @@ node scripts/motion-feedback.mjs progress --workspace "$WORKSPACE" --job "$ID" -
 node scripts/motion-feedback.mjs complete --workspace "$WORKSPACE" --job "$ID" --lease "$LEASE" --candidate candidate.glb --summary "改了什么、查了什么"
 ```
 
-**2. stdio MCP。** 提供任务、执行恢复、检查点恢复和资产检查工具：
+想先知道某个角色能做哪些动作，Agent 可以直接列出动作库（只读，带分类和中文名）：
+
+```sh
+node scripts/motion-feedback.mjs actions --workspace "$WORKSPACE" --category attack
+```
+
+**2. stdio MCP。** 提供任务、执行恢复、检查点恢复、资产检查和动作库（`motion_action_catalog`）工具：
 
 ```sh
 node scripts/mcp.mjs --workspace "$WORKSPACE"

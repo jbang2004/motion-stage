@@ -9,6 +9,8 @@ class Element {
     this.dataset = {};
     this.attributes = new Map();
     this.hidden = false;
+    this.listeners = {};
+    this.style = {values: {}, setProperty: (name, value) => { this.style.values[name] = String(value); }};
     this.disabled = false;
     this.open = false;
     this.value = '';
@@ -42,6 +44,12 @@ class Element {
     this.append(...nodes);
   }
   setAttribute(name, value) { this.attributes.set(name, String(value)); }
+  getAttribute(name) { return this.attributes.has(name) ? this.attributes.get(name) : null; }
+  addEventListener(type, listener) { (this.listeners[type] ||= []).push(listener); }
+  dispatch(type, event = {}) { for (const listener of this.listeners[type] || []) listener({target: this, preventDefault() {}, ...event}); }
+  scrollTo() {}
+  scrollIntoView() {}
+  focus() { this.ownerDocument.activeElement = this; }
   removeAttribute(name) { this.attributes.delete(name); }
   showModal() { this.open = true; }
   close() { this.open = false; }
@@ -57,6 +65,9 @@ export function createDocument() {
   const elements = new Map();
   const document = {
     createElement: tag => new Element(tag, document),
+    createElementNS: (_namespace, tag) => new Element(tag, document),
+    listeners: {},
+    addEventListener(type, listener) { (document.listeners[type] ||= []).push(listener); },
     getElementById: id => elements.get(id),
     querySelector: selector => document.body.querySelector(selector),
     add(tag, id, parent = document.body) {

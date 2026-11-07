@@ -1,4 +1,5 @@
 import {discoverCharacterActions,previewCharacterAction} from './character-actions.mjs';
+import {actionCatalog} from './action-catalog.mjs';
 import {motionLibrary,registerMotionPack,saveMotionMapping,previewMotion,adoptMotion,materializeMotion,motionRigOptions} from './motion-library.mjs';
 import {createInterface} from 'node:readline';
 import {readFile,realpath} from 'node:fs/promises';
@@ -14,6 +15,7 @@ const str={type:'string'},id={type:'string',description:'Job ID returned by moti
 const tool=(name,description,properties={},required=[])=>({name,description,inputSchema:{type:'object',properties,required,additionalProperties:false}});
 const motionInput={assetId:str,slot:{type:'string',enum:['baseline','candidate']},expectedModelSha:str,packId:str,versionId:str,clip:str,mappingId:str,previewId:str,expectedRevision:{type:'integer',minimum:0},name:str};
 export const tools=[
+ tool('motion_action_catalog','List every action a character can play — its own clips plus auto-matched compatible actions — with category (idle/move/attack/skill/defense/hit/air/down/emote/other), Chinese label, duration and loop hint. Read-only. Use wait=true to finish matching first; filter with category or query.',{assetId:str,slot:str,category:str,query:str,limit:{type:'integer',minimum:1,maximum:2000},wait:{type:'boolean'}}),
  tool('motion_available_actions','Automatically discover compatible actions next to a character. Non-mutating; poll while scanning. Presets and identical curves are deduplicated.',{assetId:str,slot:str,expectedModelSha:str,refresh:{type:'boolean'}}),
  tool('motion_preview_available_action','Resolve one discovered compatible action for transient preview; does not adopt or replace character heads.',{assetId:str,slot:str,expectedModelSha:str,actionId:str},['assetId','actionId']),
  tool('motion_asset_library','Read model versions, immutable public motion packs, verified mappings and adopted character action versions.'),
@@ -50,7 +52,7 @@ export const tools=[
  tool('motion_cancel_job','Cancel an unfinished task at user request. Does not undo an already completed edit.',{id},['id'])
 ];
 export async function callTool(work,name,args={}){
- if(name==='motion_available_actions')return discoverCharacterActions(work,{...args,refresh:args.refresh?'1':undefined});if(name==='motion_preview_available_action')return previewCharacterAction(work,args);
+ if(name==='motion_action_catalog')return actionCatalog(work,args);if(name==='motion_available_actions')return discoverCharacterActions(work,{...args,refresh:args.refresh?'1':undefined});if(name==='motion_preview_available_action')return previewCharacterAction(work,args);
  const libraryTool={motion_asset_library:motionLibrary,motion_register_pack:registerMotionPack,motion_preview_binding:previewMotion,motion_rig_options:motionRigOptions,motion_save_rig_mapping:saveMotionMapping,motion_adopt_action:adoptMotion,motion_prepare_action:materializeMotion}[name];if(libraryTool)return libraryTool(work,args);
  if(name==='motion_diagnostics')return diagnoseRuntime({workspace:work});
  if(name==='motion_project_appearance')return appearanceStatus(work,args.assetId);
