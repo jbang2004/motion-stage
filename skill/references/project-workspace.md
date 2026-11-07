@@ -36,11 +36,12 @@ node "$SKILL_DIR/scripts/start.mjs" --project "/absolute/path/game"
       agent-output/          脚本、候选、审计与执行记录
     checkpoints/             用户明确认可的精确预览版本
     decisions/               每次决定的独立记录
+    integrations/            Agent 按用户要求接入游戏时改了哪些文件
 ```
 
 最近项目路径保存在本机 `~/.motion-atelier/recent-projects.json`，不是项目制作数据。页面有“打开记录文件夹”和复制路径入口；用户无需显示隐藏文件。
 
-工作区记录不等于正式游戏安装。生成候选、用户认可预览、写入游戏是三个不同事实。程序不会自动改游戏资产、提交Git或上传工程。大文件使用项目自己的备份/资产版本管理方式，复制工作区时不要丢掉JSON引用的GLB。
+工作区记录不等于正式游戏安装。生成候选、用户认可预览、写入游戏是三个不同事实。程序不会自动改游戏资产、提交Git或上传工程；写入游戏只在用户要求后由 Agent 完成，并记录在 `integrations/`，见 [game-integration.md](game-integration.md)。大文件使用项目自己的备份/资产版本管理方式，复制工作区时不要丢掉JSON引用的GLB。
 
 ## 每次任务怎样取上下文
 

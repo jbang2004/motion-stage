@@ -32,6 +32,7 @@ Loopback server on a free port; only a new workspace gets the teaching scene. Us
 | Reusable motion packs, name mappings | `motion_register_pack`, `motion_save_rig_mapping` | [separated-motion](references/separated-motion.md) |
 | Declare a character's models and motions | Read the registry read-only, save `character-map.json` | [character-map](references/character-map.md) |
 | Fix or tweak an action (修动作) | Task loop below | [agent-workflow](references/agent-workflow.md) |
+| Put an accepted edit or adopted action into the game (接入游戏) | `integrations`, change and check the game, `integrate` | [game-integration](references/game-integration.md) |
 | Match game shading | Workspace adapter + `appearance-install` | [project-appearance](references/project-appearance.md) |
 | Import GLB / FBX / sampled JSON | **＋导入**, or CLI `add` (Quick start) | [setup](references/setup.md), [asset-library](references/asset-library.md) |
 | Environment, upgrade, recovery, retry | `doctor`, `motion_diagnostics`, **⋯ → 环境检查** | [reliability](references/reliability.md) |
@@ -75,7 +76,9 @@ node "$CLI" needs-input --workspace "$WORKSPACE" --job "$ID" --lease "$LEASE" --
 6. **Check** with `motion-check` (input vs candidate) when legs, arms or rotations change.
 7. **Return** with `complete` (optional `--audit FILE`), or `needs-input` / `fail` with a specific `--error`. After `reply`, read the clarification and claim again.
 
-MCP (`node "$SKILL_DIR/scripts/mcp.mjs" --workspace "$WORKSPACE"`) mirrors this: `motion_list_jobs`, `motion_get_job`, `motion_claim_job`, `motion_inspect_asset`, `motion_report_progress`, `motion_check_motion`, `motion_complete_job`, `motion_fail_job`, `motion_reply_job`. Optional worker: **连接 Codex 并开始修改** or `worker --workspace PATH [--once]` runs the user's logged-in Codex CLI per job on their own account. Neither is required.
+Accepting a candidate or adopting an action writes nothing into the game. When the user asks for that, run `integrations`, change and check the game, then `integrate` ([game-integration](references/game-integration.md)).
+
+MCP (`node "$SKILL_DIR/scripts/mcp.mjs" --workspace "$WORKSPACE"`) mirrors this: `motion_list_jobs`, `motion_get_job`, `motion_claim_job`, `motion_inspect_asset`, `motion_report_progress`, `motion_check_motion`, `motion_complete_job`, `motion_fail_job`, `motion_reply_job`, and for game integration `motion_integration_status`, `motion_export_action`, `motion_record_integration`. Optional worker: **连接 Codex 并开始修改** or `worker --workspace PATH [--once]` runs the user's logged-in Codex CLI per job on their own account. Neither is required.
 
 ## Guardrails
 
@@ -85,7 +88,7 @@ MCP (`node "$SKILL_DIR/scripts/mcp.mjs" --workspace "$WORKSPACE"`) mirrors this:
 - A clicked influence is a hint. Within a frozen SHA `target.nodeIndex` is the node; duplicate names never redirect to another rig.
 - Trial playback is transient, never a task input. `motion_adopt_action` only on explicit user adoption; `motion_prepare_action` only when the user wants to edit. Keep `source.motionBinding`. Publish to a public pack only if asked.
 - Preserve source/version identities, clip provenance and frozen dependencies. Only **载入源文件新版本** adopts source changes. A new head revision or confirmed source change invalidates a task; browsing does not. Never borrow another model's history for matching bytes.
-- Build only in the job directory. Never edit project files until the user asks for game integration.
+- Build only in the job directory. Never edit project files until the user asks for game integration. Then integrate only what they asked for and record it with `integrate`. A recorded integration is not approval and does not prove the game was checked.
 - Completion refuses stale identities: never override. A clarification cannot adopt changed sources; start a fresh task.
 - No fake percentages, reasoning or raw output in progress. Never call an unchanged copy an improvement. Never run `practice` on private models.
 - Carry earlier preserve clauses; completed goals and AI summaries are background; the current explicit request wins; ask about conflicts. Candidate evidence is not a confirmed mapping; older sources may need edits replayed. Use current `executionPaths` after a move.
@@ -108,6 +111,7 @@ MCP (`node "$SKILL_DIR/scripts/mcp.mjs" --workspace "$WORKSPACE"`) mirrors this:
 - [action-library](references/action-library.md): 动作库, discovery, categories, thumbnails, "what can X do?"
 - [agent-workflow](references/agent-workflow.md): task loop in depth, motion checks, completion gate, compare and decide
 - [separated-motion](references/separated-motion.md): packs, mappings, preview → adopt → prepare contract
+- [game-integration](references/game-integration.md): accepted or adopted → game files, export, in-game check, integration record
 - [character-map](references/character-map.md): declaring characters, ownership, composite previews
 - [asset-library](references/asset-library.md): scanning, formats, capabilities, identities
 - [project-workspace](references/project-workspace.md): project linking, layout, context packets, continuity

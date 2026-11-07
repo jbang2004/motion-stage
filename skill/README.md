@@ -37,6 +37,7 @@ macOS 可双击 `Open MotionStage.command`，Windows 可双击 `Open MotionStage
 - **试用别的动作**：匹配动作只是临时播放，不改模型；你明确收录后才进入 **常用**。
 - **修改模式**：逐帧、慢放、部位定位、时间范围、四视图；在卡片上点 **修改这个动作** 就能开始。
 - **看得懂的进度**：真实阶段、最近活动、已用时间；需要补充时直接回复一句话继续。
+- **接入游戏**：保留的候选和收录的动作不会自动进游戏。回到对话说一句“接入游戏”，Agent 会列出等待接入的版本、改游戏文件、在游戏里检查并留下接入记录；结果卡片显示已接入的文件。
 - **版本与来源**：公共动作包、名称映射和每个角色收录的动作分开管理，旧版本与任务记录全部保留。
 - **导入素材**：**＋导入** 支持自包含 GLB、静态模型、采样动作 JSON；有本机 Blender 时可导入 FBX。
 - **项目外观（可选）**：安装经审阅的适配包后，可用游戏自己的着色器预览角色；默认是中性检查。
@@ -58,6 +59,7 @@ macOS 可双击 `Open MotionStage.command`，Windows 可双击 `Open MotionStage
 - 动作库：[references/action-library.md](references/action-library.md)
 - 修改任务流程：[references/agent-workflow.md](references/agent-workflow.md)
 - 分离动作与版本：[references/separated-motion.md](references/separated-motion.md)
+- 接入游戏：[references/game-integration.md](references/game-integration.md)
 - 角色声明：[references/character-map.md](references/character-map.md)
 - 资源库与格式：[references/asset-library.md](references/asset-library.md)
 - 项目工作区：[references/project-workspace.md](references/project-workspace.md)

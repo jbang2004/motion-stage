@@ -74,7 +74,7 @@ export async function prepareProject(work,path,{adoptCurrent=true,settingsPath}=
    await withWorkspaceLock(from,async()=>{
     const jobs=await import('./jobs.mjs');if((await jobs.listJobs(from)).some(j=>['running','queued'].includes(j.state)))throw Error('当前工作区仍有待执行或运行中的任务。请完成或停止后再关联；原工作区保持可用。');
     const filter=async source=>{if((await lstat(source)).isSymbolicLink())throw Error('工作区含符号链接，未自动迁移：'+relative(from,source));return true;};
-    for(const name of ['assets','sources','conversions','incoming','jobs','snapshots','checkpoints','decisions'])if(await exists(join(from,name)))await cp(join(from,name),join(stage,name),{recursive:true,errorOnExist:true,force:false,filter});
+    for(const name of ['assets','sources','conversions','incoming','jobs','snapshots','checkpoints','decisions','integrations'])if(await exists(join(from,name)))await cp(join(from,name),join(stage,name),{recursive:true,errorOnExist:true,force:false,filter});
     for(const name of ['feedback.json','marks.json','task.md','practice-report.json','catalog.json','motion-library.json'])if(await exists(join(from,name)))await cp(join(from,name),join(stage,name),{errorOnExist:true,force:false,filter});
     const cfg=normalizeProject(await json(join(from,'project.json'))),cfgTime=(await stat(join(from,'project.json'))).mtimeMs;
     // Older studios recorded 'return to original' without moving the active head.
@@ -87,7 +87,7 @@ export async function prepareProject(work,path,{adoptCurrent=true,settingsPath}=
   if(!await exists(join(stage,'project.json')))await initializeWorkspace(stage,{title:basename(projectRoot)+' · 动作工作区'});
   if(!await exists(join(stage,'feedback.json')))await atomic(join(stage,'feedback.json'),{version:1,notes:[]});
   await linkProject(stage,projectRoot,{name:basename(projectRoot)});
-  await atomic(join(stage,'README.txt'),'动作台 MotionStage 项目工作区\n\nassets/ 为按内容哈希保存的原版与候选；jobs/ 保存每次修改要求、观察现场、项目上下文快照、执行输出和候选。checkpoints/ 是用户认可的预览版本，decisions/ 保留每次决定。正式游戏文件不会因预览或认可而自动替换。\n\n复制或备份时保留整个工作区。不要只保留JSON而丢掉引用的GLB。大文件可由项目已有Git LFS或资产存储方案管理；程序不会自动提交或上传。\n');
+  await atomic(join(stage,'README.txt'),'动作台 MotionStage 项目工作区\n\nassets/ 为按内容哈希保存的原版与候选；jobs/ 保存每次修改要求、观察现场、项目上下文快照、执行输出和候选。checkpoints/ 是用户认可的预览版本，decisions/ 保留每次决定，integrations/ 记录 Agent 按用户要求接入游戏时改了哪些文件。正式游戏文件不会因预览或认可而自动替换。\n\n复制或备份时保留整个工作区。不要只保留JSON而丢掉引用的GLB。大文件可由项目已有Git LFS或资产存储方案管理；程序不会自动提交或上传。\n');
   await atomic(join(stage,'.gitignore'),'.motion-write.lock/\n.motion-write.ticket-*.json\n*.tmp\ncache/\n');
   if(await exists(target))await rmdir(target); // Only succeeds for an empty directory; never removes user files.
   await rename(stage,target);return result(true,migrated,false);

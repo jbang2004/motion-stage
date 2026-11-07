@@ -48,6 +48,8 @@ HTTP：
 - `POST /api/motions/prepare`：显式生成工作候选，并在 `source.motionBinding` 冻结来源。
 - `GET /api/motions/export`：同一组合按需导出 GLB。
 
+接入游戏时，Agent 用 CLI `export-action --workspace PATH --action ID --out FILE.glb` 或 MCP `motion_export_action` 按收录动作 ID 导出；它固定在收录时的模型和动作版本上，模型已更新就拒绝导出。流程见 [game-integration.md](game-integration.md)。
+
 写接口沿用本机会话 token、Origin 检查和工作区锁；所有资源定位都验证工作区或已关联项目边界。查询 preview/prepare/export 时固定 `assetId`、`slot`、`expectedModelSha`、`packId`、`versionId`、`clip`、可选 `mappingId`，收录和准备还需要 preview 返回的 `recipe.id`。
 
 CLI `motion-library --workspace PATH` 读取清单；`motion-register / motion-preview / motion-mapping / motion-adopt / motion-prepare --workspace PATH --file PARAMS.json` 使用相同结构。MCP 为 `motion_asset_library / motion_register_pack / motion_rig_options / motion_save_rig_mapping / motion_preview_binding / motion_adopt_action / motion_prepare_action`。
@@ -59,6 +61,7 @@ Agent rules:
 - `motion_rig_options` returns both node sets. `motion_save_rig_mapping` accepts only an explicit name mapping that passes the reference-pose and hierarchy checks.
 - `motion_preview_binding` changes no model heads. Trial playback is transient and can never be submitted as a canonical editing task.
 - Call `motion_adopt_action` only after the user explicitly adopts the action. It pins the preview recipe and source version.
+- To put an adopted action into the game, follow [game-integration.md](game-integration.md): `motion_integration_status`, `motion_export_action`, then `motion_record_integration`.
 - Call `motion_prepare_action` only when the user wants to edit that action. It archives the previous heads and refuses while the same model has an active task. Then create or claim the normal editing task on the resulting candidate.
 - Name mapping is not arbitrary retargeting. Changed rest poses, incompatible roots, missing bones and mesh-specific morph tracks need their own authoring workflow.
 

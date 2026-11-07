@@ -71,10 +71,23 @@ export async function adoptMotion(work,input={}){return withWorkspaceLock(work,a
  const existing=actions.find(a=>a.recipe.id===r.recipe.id);if(existing)return {action:existing,revision:lib.revision,reused:true};
  const name=label(input.name,input.clip),previous=actions.filter(a=>a.name===name),action={id:randomUUID(),name,number:previous.length+1,recipe:r.recipe,createdAt:new Date().toISOString(),parentId:previous.at(-1)?.id||null};actions.push(action);await save(work,lib);return {action,revision:lib.revision};
 });}
+async function assemble(r){const result=await assembleCharacter(r.model,[{file:r.version.file,format:'glb',bytes:r.source,...r.options,replace:true}]);requireValue(result.sources[0]?.status==='ready',result.sources[0]?.error);return result;}
+export const readMotionLibrary=work=>withWorkspaceLock(work,()=>readLibrary(work));
+export function findAdoptedAction(lib,actionId){for(const [assetId,actions] of Object.entries(lib.characters||{})){const action=actions.find(a=>a.id===actionId);if(action)return {assetId,action,latest:actions.filter(a=>a.name===action.name).at(-1)};}return null;}
+// Game-integration export of an adopted action, pinned to what the user adopted:
+// a moved model head or source identity refuses instead of exporting something else.
+export async function exportAdoptedAction(work,{actionId}={}){return withWorkspaceLock(work,async()=>{
+ const lib=await readLibrary(work),cfg=await readProject(work),found=findAdoptedAction(lib,actionId);requireValue(found,'没有找到这条收录动作，请用 integrations 查看收录动作 ID');
+ const pinned=found.action.recipe,head=modelSlots(cfg,found.assetId)[pinned.slot];
+ requireValue(head?.sha256===pinned.modelSha,'角色模型在收录后已更新，这条收录固定在旧模型上；请在动作库对当前模型重新试播并收录后再导出。');
+ const r=await resolve(work,lib,cfg,{assetId:found.assetId,slot:pinned.slot,expectedModelSha:pinned.modelSha,packId:pinned.packId,versionId:pinned.versionId,clip:pinned.clip,mappingId:pinned.mappingId||undefined});
+ requireValue(['modelSha','versionId','motionFile','clip','mappingId','engine'].every(k=>(r.recipe[k]??null)===(pinned[k]??null)),'收录时固定的动作来源已变化，请重新试播并收录后再导出。');
+ const {bytes}=await assemble(r);return {bytes,sha256:sha(bytes),assetId:found.assetId,action:found.action,recipe:pinned};
+});}
 export async function materializeMotion(work,input={}){return withWorkspaceLock(work,async()=>{
  const lib=await readLibrary(work),cfg=await readProject(work),r=await resolve(work,lib,cfg,input);requireValue(input.previewId===r.recipe.id,'预览已变化，请重新试播');
  // Explicit task/export bridge. Ordinary previews and adoption never copy model bytes.
- const result=await assembleCharacter(r.model,[{file:r.version.file,format:'glb',bytes:r.source,...r.options,replace:true}]);requireValue(result.sources[0]?.status==='ready',result.sources[0]?.error);
+ const result=await assemble(r);
  if(input.exportOnly)return {bytes:result.bytes,recipe:r.recipe};
  const {readJobIndex,activeJobStates}=await import('./job-index.mjs');const busy=(await readJobIndex(work)).rows.find(j=>j.assetId===r.target.id&&activeJobStates.has(j.state));requireValue(!busy,'当前角色已有未完成任务，请先处理或取消后再准备修改');
  (cfg.models[r.target.id].revisions??=[]).push({slots:structuredClone(modelSlots(cfg,r.target.id)),at:new Date().toISOString(),kind:'motion-preparation'});

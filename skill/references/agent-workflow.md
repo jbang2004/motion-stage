@@ -125,6 +125,8 @@ When the candidate returns, the page restores the submission's input time, camer
 
 Technical completion and user approval are separate. Only a decision the user clicks is aesthetic acceptance. Accepting the candidate, continuing to revise, and keeping the original each bind to the reviewed model versions; none of them writes into the game. The user may pick a rejection reason and add a note, or leave both empty. Restoring a historical checkpoint is a separate, explicit operation; it verifies the current version and refuses to overwrite an active task on the same model.
 
+Putting an accepted candidate into the game is another explicit step the user asks for in chat; see [game-integration.md](game-integration.md).
+
 ## Legacy records
 
 The v2 flow uses `jobs/<id>/` with `task.md`, `context.json`, `job.json`, `view.png` and the execution output. The task template is `assets/templates/task.md`. Older `feedback.json`, `marks.json` and templates remain readable and exportable, and historical cases keep their original words and decisions. They are compatibility records and cannot replace a v2 claim, execution and candidate return.

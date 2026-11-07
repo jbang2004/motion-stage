@@ -1,7 +1,7 @@
 {
   "name": "motion-stage",
   "version": "4.0.0",
-  "createdAt": "2026-11-07T04:07:59.753524+00:00",
+  "createdAt": "2026-11-07T06:58:12.033686+00:00",
   "runtime": "Node.js >=22 / Canvas2D curves; WebGL2 spatial previews",
   "externalRuntimeDependencies": {
     "base": [],
@@ -33,13 +33,13 @@
     },
     {
       "path": "README.md",
-      "bytes": 4996,
-      "sha256": "597913e51dee1872d0d625e679708dbb33b8aec45634c0adf2fa4998fd54a08b"
+      "bytes": 5337,
+      "sha256": "fbebc6fe93277ac5bf47bd500a68eb009cf24abc00bc541409cc3136c81839db"
     },
     {
       "path": "SKILL.md",
-      "bytes": 12806,
-      "sha256": "6d843443852087ed7be3b5c65f6f700476aed1530bbb5aeb8d739fbb9e92438d"
+      "bytes": 13601,
+      "sha256": "ac470e6c90657aea7a77b16b276eb55083c5c3eb94213f39c861927a44fccf03"
     },
     {
       "path": "THIRD_PARTY.md",
@@ -233,8 +233,8 @@
     },
     {
       "path": "assets/viewer/app.js",
-      "bytes": 135701,
-      "sha256": "516ddde925413a91396f274873152d6c14a870499672edbe8a0a245f279806a4"
+      "bytes": 136233,
+      "sha256": "d617d662a9b9ef5f83da903cd29f92f27807b2f14553d2d6d8d5423d8f193dff"
     },
     {
       "path": "assets/viewer/asset-loader.mjs",
@@ -303,8 +303,8 @@
     },
     {
       "path": "assets/viewer/motion-workspace.mjs",
-      "bytes": 20748,
-      "sha256": "98a84043537cf2b5bcd453221917e53af9bbd3ad0dea24cf0819cb7c510f8f4b"
+      "bytes": 20800,
+      "sha256": "4431dfdf1edbf6ddece74f685a45ea37b3bc7bdb1f4b9573c4f1edcda7fc15b7"
     },
     {
       "path": "assets/viewer/motionstage.css",
@@ -383,8 +383,8 @@
     },
     {
       "path": "references/agent-workflow.md",
-      "bytes": 19449,
-      "sha256": "86d614f036652cbccadcd925826d894e00d64c72dab0ad27b62576b90fd39701"
+      "bytes": 19594,
+      "sha256": "18c300805446778862b448ffa6da0222d68b3e0d69f7bd9f48768591f5d45911"
     },
     {
       "path": "references/asset-library.md",
@@ -397,14 +397,19 @@
       "sha256": "1f3fe043d7c02227b76d88effc7bad5f3aa5b347f837478065f08e406521a9c9"
     },
     {
+      "path": "references/game-integration.md",
+      "bytes": 6881,
+      "sha256": "43eaf8c6089da7553f631e51b24b2747b2b1701b1b343ce6e4d06bbf4360c968"
+    },
+    {
       "path": "references/project-appearance.md",
       "bytes": 6885,
       "sha256": "d42c2b8521fe25de8f5a58fc57ef11333fd80426015170d3e17668ecb4a2c781"
     },
     {
       "path": "references/project-workspace.md",
-      "bytes": 6477,
-      "sha256": "419190d7fbd6a55b6702a018b6fc8bc2095da8e403286060db5665c60589d127"
+      "bytes": 6693,
+      "sha256": "5a2009167dc533ac2e521383d475361d10ff8bcc45d9fbb9952adaeaa4871ccf"
     },
     {
       "path": "references/real-case.md",
@@ -418,8 +423,8 @@
     },
     {
       "path": "references/separated-motion.md",
-      "bytes": 8467,
-      "sha256": "76ad1f0133266682dee833302417929c79cd399acf19b17bd03175bb1425bfb5"
+      "bytes": 8939,
+      "sha256": "3fa562630e61374bd38680998bbcca1ab8786907f83b6547de069d6131ef97f7"
     },
     {
       "path": "references/setup.md",
@@ -492,19 +497,24 @@
       "sha256": "5b0220a0997ac927805f1f791bdc08d089451e945e79c4bddb5ffb9c25ca8ee7"
     },
     {
+      "path": "scripts/game-integration.mjs",
+      "bytes": 14851,
+      "sha256": "6316cfd005b33f31254d5efef04e766583ea09be0f630af82a62c8124ad36b04"
+    },
+    {
       "path": "scripts/job-index.mjs",
       "bytes": 4979,
       "sha256": "31496a252f896aced56f71397c4dcfcff8cb23203893f23547a2dcc2cd6dbcc1"
     },
     {
       "path": "scripts/jobs.mjs",
-      "bytes": 40057,
-      "sha256": "ada016a0f7629cebe4cc9dfed35db8888b1e4a453781627077fa7aaa4453e8fc"
+      "bytes": 40451,
+      "sha256": "d8e81a5409009694d37dd99038281caf409d09e01ef00b821f6e555a86174ab9"
     },
     {
       "path": "scripts/mcp.mjs",
-      "bytes": 15703,
-      "sha256": "9d7669a1790c872fd505fb4b8b501ed2a74d6306a465b235012fed1b82778d61"
+      "bytes": 18088,
+      "sha256": "c95bdd352da39b1e5447cfe8ee8ebf3da54a89a7d5d087e86ee312f144ad64b7"
     },
     {
       "path": "scripts/motion-assembly.mjs",
@@ -518,13 +528,13 @@
     },
     {
       "path": "scripts/motion-feedback.mjs",
-      "bytes": 15949,
-      "sha256": "21f004ab2b60bc89b236d8cb9876f2445fa2021ea0391e8b39aba9a9d7fc3b8e"
+      "bytes": 17628,
+      "sha256": "60552a3a30c22c1bc10b22ce77d57623cfae9895ebdf2c7df091b58fe5428c5f"
     },
     {
       "path": "scripts/motion-library.mjs",
-      "bytes": 13257,
-      "sha256": "2e0edac2d18f43c756b62bbc6945e918a046a8fe270e102432fde36fe3c32878"
+      "bytes": 14979,
+      "sha256": "0ae2eccc7e117b44fac244c739ac5eb30873a29c40c4082ea1f84859ae0b4142"
     },
     {
       "path": "scripts/platform-runtime.mjs",
@@ -553,8 +563,8 @@
     },
     {
       "path": "scripts/project-workspaces.mjs",
-      "bytes": 10827,
-      "sha256": "6fa240643270467f9ce6160df8383b7e151db4f42a08ef505d0dc1cf8e1d96a9"
+      "bytes": 10920,
+      "sha256": "349b083ffcadf82e98548bea1c6ec4e05dd2f1ce7763ee19387a4f59eb225623"
     },
     {
       "path": "scripts/runtime-diagnostics.mjs",
@@ -675,6 +685,11 @@
       "path": "scripts/test/environment-view.test.mjs",
       "bytes": 4710,
       "sha256": "d66ef0b69078114a73f05e149c90543e33c77cab0e15a747e38fc520793a8e94"
+    },
+    {
+      "path": "scripts/test/game-integration.test.mjs",
+      "bytes": 10112,
+      "sha256": "337d8b0c734302f9e845a5e47cc8b45a51f73660fd6bec9c29ae9e7bd64b7f5d"
     },
     {
       "path": "scripts/test/gltf-source.test.mjs",

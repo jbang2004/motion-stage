@@ -137,6 +137,7 @@ export async function validateJobs(work){
   if(j.screenshot){const b=await readFile(await inside(work,j.screenshot));if(b.subarray(0,8).toString('hex')!=='89504e470d0a1a0a')throw Error('任务截图无效：'+j.id);}
   if(j.state==='complete'){await asset(j.candidate);text(j.summary,'完成说明');}
   for(const r of j.reviews||[]){if(!['accept-candidate','keep-baseline','revise'].includes(r.decision)||!r.assets?.candidate)throw Error('任务评审缺少候选身份：'+j.id);for(const a of Object.values(r.assets))if(a)await asset(a);if(r.recordFile){const record=await json(await inside(work,r.recordFile));if(record.jobId!==j.id||record.id!==r.id||record.decision!==r.decision)throw Error('任务决定记录不一致：'+j.id);}if(r.checkpointFile){const point=await json(await inside(work,r.checkpointFile));if(point.jobId!==j.id||point.asset?.sha256!==r.assets.candidate.sha256||point.status!=='user-accepted-preview'||point.installed!==false)throw Error('已验收检查点身份不一致：'+j.id);}}
+  for(const g of j.integrations||[]){if(typeof g.recordFile!=='string'||!/^integrations\/[a-f0-9-]{36}\.json$/.test(g.recordFile))throw Error('任务接入记录无效：'+j.id);const record=await json(await inside(work,g.recordFile));if(record.id!==g.id||record.kind!=='candidate'||record.jobId!==j.id||record.checkpointId!==g.checkpointId)throw Error('任务接入记录不一致：'+j.id);}
  }
  return {jobs:rows,jobsCount:rows.length,assetVersionsChecked:checked.size};
 }
