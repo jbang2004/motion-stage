@@ -63,7 +63,7 @@ const CLASSIFIED = [
   ['mixamo.com', 'other', 'mixamo.com'],
   ['Armature|Run', 'move', '奔跑'],
   ['Take 001', 'other', 'Take 001'],
-  ['CharacterArmature|Idle_Sword', 'idle', '待机 Sword'],
+  ['CharacterArmature|Idle_Sword', 'idle', '待机剑'],
   ['run_forward', 'move', '奔跑 · 前', {direction: 'F'}],
   ['Walk-Back', 'move', '行走 · 后', {direction: 'B'}],
 ];
@@ -228,4 +228,81 @@ test('real-name sample classifies sanely', () => {
     if (result.category === 'other') other += 1;
   }
   assert.ok(other / SAMPLE.length <= 0.15, `other share ${other}/${SAMPLE.length}`);
+});
+
+// Ordinary projects name clips in plain English: Mixamo descriptions, asset-pack
+// exports, auto-rig tools and generated prompts. [raw name, category, label].
+const GENERIC = [
+  ['Walking', 'move', '行走'],
+  ['Running', 'move', '奔跑'],
+  ['Dying', 'down', '死亡'],
+  ['defeat_02', 'down', '战败 02'],
+  ['Falling', 'air', '坠落'],
+  ['Crouch', 'idle', '蹲'],
+  ['Crouch Walk', 'move', '蹲行走'],
+  ['Sitting_Enter', 'idle', '坐进入'],
+  ['Rifle Aim', 'idle', '步枪瞄准'],
+  ['Walking While Aiming Rifle', 'move', '行走瞄准步枪'],
+  ['Hit Reaction From The Left With Axe', 'hit', '受击反应持斧 · 左'],
+  ['Knocked Out Falling To Back', 'down', '击倒坠落 · 后'],
+  ['Getting Up From Back', 'down', '起身 · 后'],
+  ['Walking Forward With Bow', 'move', '行走持弓 · 前'],
+  ['Bow', 'emote', '鞠躬'],
+  ['Standing Aim Fire Arrow', 'attack', '站立瞄准放箭'],
+  ['Three Hit Combo Attack With Axe', 'attack', '三连击连招攻击持斧'],
+  ['Death_A', 'down', '死亡 A'],
+  ['A_Pose', 'other', 'A 姿势'],
+  ['Running With A Sword In The Right Hand', 'move', '奔跑持剑手 · 右'],
+  ['Sword And Shield Powering Up', 'skill', '剑盾强化'],
+  ['Hip Hop Dancing', 'emote', '街舞舞蹈'],
+  ['CharacterArmature|HitRecieve', 'hit', '受击'],
+  ['Lie_StandUp', 'down', '躺起身'],
+  ['Facing forward, a man drives a fast deep lunge forward, extendi', 'attack', '快速扑击 · 前'],
+  ['Archer attack, powerful and cinematic: from a ready stance, step', 'attack', '攻击架势步'],
+];
+
+for (const [raw, category, label] of GENERIC) {
+  test(`classifies generic ${raw}`, () => {
+    const result = classifyAction(raw, {duration: 1});
+    assert.equal(result.category, category);
+    assert.equal(result.label, label);
+  });
+}
+
+test('long prompt-like names without a known action keep their English title', () => {
+  const raw = 'A Chinese swordsman holding a sword in his right hand raises it';
+  assert.equal(classifyAction(raw).label, 'A Chinese Swordsman Holding A Sword In His Hand Raises It');
+});
+
+test('English glue words never leak breathing or bowing glosses into labels', () => {
+  assert.doesNotMatch(classifyAction('Running With A Sword In The Right Hand').label, /吸入|The/);
+  assert.doesNotMatch(classifyAction('Knocked Out Falling To Back').label, /呼出/);
+  assert.equal(classifyAction('Tanjiro_BreatheOut').label, '呼吸呼出');
+  assert.equal(classifyAction('Tanjiro_GuardHitA').label, '防御受击 A');
+});
+
+// Mixamo / asset-pack names, the generic counterpart of SAMPLE above.
+const GENERIC_SAMPLE = [
+  'Idle', 'Walking', 'Running', 'Jump', 'Death', 'Dying', 'Falling', 'Crouch Walk', 'Sitting Idle', 'Climbing',
+  'Swimming', 'Shooting', 'Rifle Aim', 'Throw', 'Hip Hop Dancing', 'Victory', 'Taunt', 'Punch', 'Kick', 'Sword Slash',
+  'Spell Cast', 'Block', 'Dodge', 'Roll', 'Hit Reaction', 'Knocked Down', 'Getting Up', 'Strafe Left', 'Turn Right',
+  'Talking', 'Yell', 'Laughing', 'Sad Idle', 'Look Around', 'Breathing Idle', 'Walk_Back', 'Run_Fwd', 'Attack_02',
+  'Hurt', 'Flying', 'CharacterArmature|Gun_Shoot', 'CharacterArmature|Punch_Left', 'CharacterArmature|Run_Shoot',
+  'Sword_AttackFast', 'Staff_Attack', 'Bow_Shoot', 'Unarmed_Idle', 'Swim_Fwd', 'Gesture_Point', 'Death_B',
+  'Sword And Shield Slash (combo)', 'Inward Slashing With A Sword Standing Stable', 'Running With A Sword In The Right Hand',
+  'Standing React Large From Front', 'Dying Falling Backward', 'Quick Roll To Run', 'Withdrawing A Sword',
+  'Sheathing A Sword', 'Jumping Backwards Dodge', 'Knocked Over And Falling To The Ground', 'Getting Up From Stomach',
+  'Walking Forward With Axe', 'Charging Bow For Powershot', 'Walking While Aiming Rifle', 'General Conversation',
+  'Being Terrified While Standing', 'Asking A Question With Two Hands', 'Slow Old Man Shuffle Walk',
+];
+
+test('ordinary English clip names classify sanely', () => {
+  let other = 0;
+  for (const name of GENERIC_SAMPLE) {
+    const result = classifyAction(name, {duration: 1});
+    assert.ok(result.label.length > 0, name);
+    if (result.category === 'other') other += 1;
+  }
+  assert.ok(other / GENERIC_SAMPLE.length <= 0.15, `other share ${other}/${GENERIC_SAMPLE.length}`);
+  assert.equal(classifyAction('Walking Forward With Bow').category, 'move', 'a held bow is not a bow gesture');
 });

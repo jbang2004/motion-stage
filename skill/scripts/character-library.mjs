@@ -99,10 +99,14 @@ async function library(work,{onlyId=null,includeCandidates=true}={}){
  return {rows,link,catalog,cfg,map};
 }
 export async function characterPage(work,{query='',offset=0,limit=100,preferMapped=false}={}){
- const data=await library(work,{includeCandidates:!preferMapped}),q=String(query).trim().toLowerCase();
- if(!data.rows.length||preferMapped&&!data.rows.some(r=>r.confirmed)){const page=await catalogPage(work,{query,offset,limit});return {...page,kind:'files',scan:{...page.scan,warnings:[...(page.scan.warnings||[]),...(data.map.error?['角色映射无法读取：'+data.map.error]:[])]}};}
+ let data=await library(work,{includeCandidates:!preferMapped});const q=String(query).trim().toLowerCase();
+ // A project without declarations still has characters: the rigged GLBs the
+ // 角色 rail shows. Opening one of those (not its file row) keeps a single
+ // model identity, so the first automatic open matches a later rail click.
+ if(preferMapped&&!data.rows.some(r=>r.confirmed))data=await library(work,{includeCandidates:true});
+ if(!data.rows.length){const page=await catalogPage(work,{query,offset,limit});return {...page,kind:'files',scan:{...page.scan,warnings:[...(page.scan.warnings||[]),...(data.map.error?['角色映射无法读取：'+data.map.error]:[])]}};}
  if(preferMapped&&data.rows.some(r=>r.confirmed))data.rows=data.rows.filter(r=>r.confirmed);
- data.rows.sort((a,b)=>Number(Boolean(b.confirmed))-Number(Boolean(a.confirmed))||a.name.localeCompare(b.name));
+ data.rows.sort((a,b)=>Number(Boolean(b.confirmed))-Number(Boolean(a.confirmed))||a.name.localeCompare(b.name,'zh-Hans-CN'));
  const matches=data.rows.filter(r=>(r.name+' '+r.relativePath+' '+(r.metadata?.clips||[]).map(c=>c.name).join(' ')).toLowerCase().includes(q));
  offset=Math.max(0,Math.floor(Number(offset)||0));limit=Math.max(1,Math.min(200,Math.floor(Number(limit)||100)));
  return {entries:matches.slice(offset,offset+limit).map(({profile,signature,readyEvidence,...row})=>row),total:data.rows.length,confirmedTotal:data.rows.filter(r=>r.confirmed).length,matched:matches.length,offset,limit,hasMore:offset+limit<matches.length,scan:{...data.catalog.scan,warnings:[...(data.catalog.scan.warnings||[]),...(data.map.error?['角色映射无法读取：'+data.map.error]:[])]},linked:data.link?.status==='linked',activeAssetId:data.cfg.activeAssetId,kind:'characters',sourceTotal:data.catalog.entries.length};

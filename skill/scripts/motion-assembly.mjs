@@ -26,7 +26,12 @@ function graph(doc){
  }
  return {nodes,parents,local,world,resolve};
 }
-function equalMatrix(a,b){return a.elements.every((value,i)=>Number.isFinite(value)&&Math.abs(value-b.elements[i])<=1e-5*Math.max(1,Math.abs(value),Math.abs(b.elements[i])));}
+// Same-rig tolerance. A Blender glTF round trip of an unchanged Mixamo-style rig
+// (import, delete mesh, export actions) moves rest-matrix elements by up to
+// ~2.5e-5; distinct characters on that rig differ by ~1–2. 1e-4 accepts the
+// former with margin and is still four orders of magnitude below the latter.
+const REST_TOLERANCE=1e-4;
+function equalMatrix(a,b){return a.elements.every((value,i)=>Number.isFinite(value)&&Math.abs(value-b.elements[i])<=REST_TOLERANCE*Math.max(1,Math.abs(value),Math.abs(b.elements[i])));}
 
 export function motionTargetResolver(base,source,nodeMap={}){
  const from=graph(source),to=graph(base),mapped=new Map();

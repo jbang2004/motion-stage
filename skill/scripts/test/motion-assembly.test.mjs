@@ -24,6 +24,13 @@ test('equal bone names cannot bypass rest pose, ancestry, ambiguity or missing-t
  const mapped=await assembleCharacter(base,[{...source(motion(d=>{d.nodes.find(n=>n.name==='LeftShoulder').name='Alias';})),nodeMap:{Alias:'LeftShoulder'}}]);assert.equal(mapped.sources[0].status,'ready');
 });
 
+test('a same-rig source after a DCC round trip still binds; a visibly different rest pose does not',async()=>{
+ // Blender re-exports of an unchanged Mixamo-style rig drift by ~2.5e-5 in rest matrices.
+ const nudge=delta=>motion(d=>{const n=d.nodes.find(n=>n.name==='LeftShoulder');n.translation=(n.translation||[0,0,0]).map((v,i)=>i===1?v+delta:v);});
+ assert.equal((await assembleCharacter(base,[source(nudge(3e-5))])).sources[0].status,'ready');
+ const moved=await assembleCharacter(base,[source(nudge(2e-3))]);assert.notEqual(moved.sources[0].status,'ready');assert.ok(moved.bytes.equals(base));
+});
+
 test('source failures are atomic and independent; collisions require explicit prefix or override',async()=>{
  const conflict=motion(d=>{d.animations[0].name='Run';});
  const result=await assembleCharacter(base,[source(conflict),{...source(conflict),prefix:'shared__'},{file:'missing.glb',format:'glb'},sampled({Pose:pose})]);

@@ -40,6 +40,16 @@ test('automatic selection respects host eligibility and never takes another open
  const h=setup(page([]),{view:{allowAutomaticOpen:false}});await h.catalog.refresh();assert.equal(h.$('modelCatalogDialog').open,false);h.view.allowAutomaticOpen=true;const other=h.document.add('dialog','other');other.showModal();await h.catalog.refresh();assert.equal(h.$('modelCatalogDialog').open,false);other.close();await h.catalog.refresh();assert.equal(h.$('modelCatalogDialog').open,false,'the one-time automatic decision is retained');
 });
 
+test('the one-time automatic open in file view starts with the first character, not the first file path',async()=>{
+ const files=page([row('anims-pack'),row('hero-file')]),characters=page([row('character-hero',{character:true})]);
+ const opened=[],document=createCatalogDocument();
+ const catalog=createModelCatalog({defaultView:'files',document,getView:()=>({activeAssetId:'teaching',jobs:[],switching:false,allowAutomaticOpen:true}),
+  onOpen:async(...args)=>{opened.push(args);},onChooseFolder:()=>{},onError:error=>assert.fail(error.message),
+  api:async path=>path.startsWith('/api/characters?preferMapped=true')?characters:files});
+ await catalog.refresh();assert.deepEqual(opened,[['character-hero',{character:true}]]);
+ await catalog.refresh();assert.equal(opened.length,1,'automatic open happens once');
+});
+
 test('a current catalog failure keeps its previous DOM and displays the error without changing the data mirror',async()=>{
  const document=createCatalogDocument(),changes=[];let failing=false;
  const catalog=createModelCatalog({document,getView:()=>({activeAssetId:'A',jobs:[],switching:false,allowAutomaticOpen:false}),onOpen:()=>{},onChooseFolder:()=>{},onError:()=>{},onChange:data=>changes.push(data),api:async()=>{if(failing)throw Error('Catalog unavailable');return page([row('A')]);}});
