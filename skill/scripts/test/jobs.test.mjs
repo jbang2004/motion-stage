@@ -80,3 +80,21 @@ test('direct MCP entry remains active when launched through a filesystem alias',
   const r=spawnSync(process.execPath,[link,'--workspace',w],{input:JSON.stringify(msg)+'\n',encoding:'utf8'});assert.equal(r.status,0,r.stderr);const out=JSON.parse(r.stdout.trim());assert.equal(out.id,1);assert.equal(out.result.serverInfo.name,'motion-stage');
  }finally{await rm(w,{recursive:true,force:true});}
 });
+
+test('CLI rejects unknown flags with hints and lists jobs as compact summaries by default',async()=>{
+ const w=await setup();try{
+  const job=await createJob(w,await input(w)),cli=(...a)=>spawnSync(process.execPath,[resolve(ROOT,'scripts/motion-feedback.mjs'),...a],{encoding:'utf8'});
+  const p=await json(resolve(w,'project.json')),file=resolve(w,p.slots.baseline.file);
+  const wrong=cli('motion-check','--input',file,'--candidate',file,'--clip','Run');assert.equal(wrong.status,1);assert.match(wrong.stderr,/--input（是不是 --baseline-file？）/);assert.match(wrong.stderr,/--candidate（是不是 --file？）/);
+  const right=cli('motion-check','--baseline-file',file,'--file',file,'--clip','Run');assert.equal(right.status,0,right.stderr);assert.equal(JSON.parse(right.stdout).summary.newWarnings,0);
+  const badCheck=cli('motion-check','--file',file,'--clip','Run','--checks','flips');assert.equal(badCheck.status,1);assert.match(badCheck.stderr,/未知检查项：flips/);
+  assert.match(cli('actions','--workspace',w,'--catgory','attack').stderr,/actions 不认识 --catgory/);
+  const compact=cli('jobs','--workspace',w),full=cli('jobs','--workspace',w,'--full');assert.equal(compact.status,0,compact.stderr);
+  const summary=JSON.parse(compact.stdout).jobs[0],detail=JSON.parse(full.stdout).jobs[0];
+  assert.equal(summary.id,job.id);assert.equal(summary.request,job.request);assert.equal(summary.state,'queued');assert.equal(summary.clip,'Run');
+  assert.ok(!('context' in summary)&&'context' in detail);assert.ok(compact.stdout.length*3<full.stdout.length);
+  const messages=[{jsonrpc:'2.0',id:1,method:'initialize',params:{protocolVersion:'2024-11-05',capabilities:{},clientInfo:{name:'test',version:'1'}}},{jsonrpc:'2.0',method:'notifications/initialized'},{jsonrpc:'2.0',id:2,method:'tools/call',params:{name:'motion_list_jobs',arguments:{}}},{jsonrpc:'2.0',id:3,method:'tools/call',params:{name:'motion_list_jobs',arguments:{full:true}}}];
+  const r=spawnSync(process.execPath,[resolve(ROOT,'scripts/motion-feedback.mjs'),'mcp','--workspace',w],{input:messages.map(m=>JSON.stringify(m)).join('\n')+'\n',encoding:'utf8'});assert.equal(r.status,0,r.stderr);
+  const [,listed,listedFull]=r.stdout.trim().split('\n').map(JSON.parse);assert.equal(listed.result.structuredContent.jobs[0].id,job.id);assert.ok(!('context' in listed.result.structuredContent.jobs[0]));assert.ok('context' in listedFull.result.structuredContent.jobs[0]);
+ }finally{await rm(w,{recursive:true,force:true});}
+});

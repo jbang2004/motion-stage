@@ -52,6 +52,12 @@ export async function listJobs(work,{raw=false}={}){return withWorkspaceLock(wor
  const jobs=[];for(const f of files)if(f.isDirectory()&&ID.test(f.name)){try{jobs.push(await rawJob(work,f.name));}catch(e){if(e.code!=='ENOENT')throw e;}}
  jobs.sort((a,b)=>b.createdAt.localeCompare(a.createdAt));return raw?jobs:jobs.map(clean);
 });}
+// The listing an agent reads to pick a task: one summary per job (state,
+// request, model, clip, progress) instead of every frozen detail. `job` reads one.
+export async function listJobSummaries(work){return withWorkspaceLock(work,async()=>{
+ let index=await readJobIndex(work);if((await reconcileExecutions(work,{index})).changed)index=await readJobIndex(work);
+ return index.rows.map(({detailRevision,summaryOnly,...row})=>row);
+});}
 export async function getJob(work,id,{raw=false}={}){return withWorkspaceLock(work,async()=>{await reconcileExecutions(work,{id});const j=await rawJob(work,id);if(j.state==='running'&&j.execution)j.executionHealth={...j.executionHealth,...await executionHealth(work,j.execution)};return raw?j:clean(j);});}
 // Recovery is serialized with claims/completion. Heartbeats live outside this lock so
 // a busy workspace never masquerades as an unresponsive execution host.

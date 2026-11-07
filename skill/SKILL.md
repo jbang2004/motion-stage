@@ -53,13 +53,13 @@ Loopback server on a free port; only a new workspace gets the teaching scene. Us
 | `POST /api/actions/curves` | Read-only curves for up to 12 matched actions |
 | `GET /api/thumbnails` · `POST /api/thumbnails/<key>` | Thumbnail cache |
 
-Agents read the same catalog without the browser: `node "$SKILL_DIR/scripts/motion-feedback.mjs" actions --workspace "$WORKSPACE" [--asset-id ID] [--category attack] [--query 连招] [--json]`, or MCP `motion_action_catalog` (`wait:true` to finish matching). It lists own and matched actions with category, Chinese label, duration and loop hint, and adopts nothing. The raw scan stays at `motion_available_actions` / `GET /api/actions`.
+Agents read the same catalog without the browser: `node "$SKILL_DIR/scripts/motion-feedback.mjs" actions --workspace "$WORKSPACE" [--asset-id ID] [--category attack] [--query 连招] [--json]`, or MCP `motion_action_catalog` (`wait:true` to finish matching). It lists own and matched actions with category, Chinese label, duration and loop hint, and adopts nothing. Match results persist in `$WORKSPACE/cache/actions/` (safe to delete), so repeat runs return in well under a second. The raw scan stays at `motion_available_actions` / `GET /api/actions`.
 
 ## Task loop
 
 ```sh
 CLI="$SKILL_DIR/scripts/motion-feedback.mjs"
-node "$CLI" jobs  --workspace "$WORKSPACE"
+node "$CLI" jobs  --workspace "$WORKSPACE"                  # one summary per task; --full for every field
 node "$CLI" job   --workspace "$WORKSPACE" --job "$ID"
 node "$CLI" claim --workspace "$WORKSPACE" --job "$ID" --owner claude-code   # keep the lease
 node "$CLI" progress --workspace "$WORKSPACE" --job "$ID" --lease "$LEASE" --phase editing --message "正在收小左上臂摆幅，保留其他轨道。"

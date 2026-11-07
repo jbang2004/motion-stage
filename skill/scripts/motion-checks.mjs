@@ -149,8 +149,10 @@ export function footSlip(poser,clip,foot,{fps=30,legLength,pelvis,contacts,floor
 }
 
 // ---- entry point ----
-export function checkMotion(bytes,{clip,fps=30,feet,chains,checks=['rotationFlips','footSlip','limbExtension'],maxStepDegrees=90,popDegrees=20,contacts,floor,tolerance}={}){
+export const CHECK_NAMES=['rotationFlips','footSlip','limbExtension'];
+export function checkMotion(bytes,{clip,fps=30,feet,chains,checks=CHECK_NAMES,maxStepDegrees=90,popDegrees=20,contacts,floor,tolerance}={}){
  if(!Number.isFinite(fps)||fps<1||fps>240)throw Error('采样帧率需要在 1 到 240 之间。');
+ const unknown=(Array.isArray(checks)?checks:[checks]).filter(c=>!CHECK_NAMES.includes(c));if(unknown.length)throw Error('未知检查项：'+unknown.join(', ')+'。可用：'+CHECK_NAMES.join(', '));
  const {doc,bin}=parseGlb(bytes),nodes=doc.nodes||[],c=loadClip(doc,bin,clip),poser=makePoser(doc,c),limitations=[],result={};
  if(checks.includes('rotationFlips'))result.rotationFlips=rotationFlips(doc,c,{fps,maxStepDegrees});
  const wantsLegs=checks.includes('footSlip')||checks.includes('limbExtension');

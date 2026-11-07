@@ -5,7 +5,7 @@ import {resolve,basename} from 'node:path';
 import {ROOT,VERSION,json,atomic,importAsset,validateFeedback,sha,readMarks} from './core.mjs';
 import {serve} from './server.mjs';
 import {buildDemo,measureDemo} from './practice.mjs';
-import {listJobs,getJob,createJob,claimJob,completeJob,failJob,cancelJob,localEditJob,reviewJob,inspectSlot,checkMotionSlot,importFile,validateJobs,updateJobProgress,replyJob,getJobProjectContext,previewProjectContext,retryJob,restoreJob,interruptJob,jobArtifacts} from './jobs.mjs';
+import {listJobs,listJobSummaries,getJob,createJob,claimJob,completeJob,failJob,cancelJob,localEditJob,reviewJob,inspectSlot,checkMotionSlot,importFile,validateJobs,updateJobProgress,replyJob,getJobProjectContext,previewProjectContext,retryJob,restoreJob,interruptJob,jobArtifacts} from './jobs.mjs';
 import {projectStatus,prepareProject,initializeWorkspace} from './project-workspaces.mjs';
 import {diagnoseRuntime} from './runtime-diagnostics.mjs';
 import {catalogPage,startCatalogScan,waitForCatalogScan,openCatalogAsset,stopCatalogScan} from './asset-catalog.mjs';
@@ -15,7 +15,16 @@ import {appearanceStatus,installAppearance} from './project-appearance.mjs';
 import {actionCatalog,formatActionCatalog} from './action-catalog.mjs';
 const args=process.argv.slice(2),cmd=args.shift();
 const val=k=>{const i=args.indexOf('--'+k);return i<0?undefined:args[i+1];};
-const usage=`动作台 MotionStage ${VERSION} · Node >=22\n\ndoctor                        检查 Node、Blender、Codex 可用能力\ninit --workspace PATH           创建独立练习工作区\nserve --workspace PATH [--port 5178]  启动本地查看器（--port 0 自动分配）\nadd --workspace PATH --slot baseline|candidate --file MODEL.glb|MODEL.fbx|MOTION.json [--new-model | --asset-id ID]\nappearance --workspace PATH [--asset-id ID]  查看可选项目外观\nappearance-install --workspace PATH --file MANIFEST.json  安装已审阅的外观适配包\nmotion-library --workspace PATH  查看角色、公共动作、映射与收录版本\nmotion-register|motion-preview|motion-mapping|motion-adopt|motion-prepare --workspace PATH --file PARAMS.json\ncharacters --workspace PATH [--query TEXT]\nactions --workspace PATH [--asset-id ID] [--category attack] [--query TEXT] [--limit 200] [--no-wait] [--json]  角色自带与自动匹配的动作，按类别列出（默认等匹配完成）\ncharacter-map --workspace PATH --file MAP.json  保存已核对的项目角色关联\nopen-character --workspace PATH --asset-id ID [--refresh-source]\nassociate-motion --workspace PATH --asset-id CHARACTER_ID --source-id FILE_ID\nmodels --workspace PATH [--query TEXT] [--offset 0] [--limit 100]\nscan-models --workspace PATH     刷新关联项目模型目录\nopen-model --workspace PATH --asset-id ID [--refresh-source]\ninspect --workspace PATH [--slot baseline] [--asset-id ID]\nmotion-check [--workspace PATH --slot baseline|candidate --asset-id ID | --file MODEL.glb] --clip NAME [--baseline-slot baseline | --baseline-file INPUT.glb] [--feet A,B] [--fps 30] [--options PARAMS.json]  测量旋转翻转、脚滑、膝肘弹直\nproject --workspace PATH        查看关联项目与最近项目\nproject-open --workspace PATH --path PROJECT [--empty] 关联项目并创建项目内工作区\nproject-context --workspace PATH [--job ID | --request TEXT --slot baseline]\njobs --workspace PATH           列出待处理和历史任务\njob --workspace PATH --job ID    读取冻结任务与来源映射\nclaim --workspace PATH --job ID [--owner NAME]\nprogress --workspace PATH --job ID --lease TOKEN --phase reading|editing|checking|exporting --message TEXT\nreply --workspace PATH --job ID --message TEXT\ncomplete --workspace PATH --job ID --lease TOKEN --candidate FILE --summary TEXT\nfail|needs-input --workspace PATH --job ID --lease TOKEN --error TEXT\ncancel --workspace PATH --job ID\ninterrupt --workspace PATH --job ID\nretry --workspace PATH --job ID\nartifacts --workspace PATH --job ID\nrestore --workspace PATH --job ID --expected-revision N [--checkpoint ID]\nlocal-edit --workspace PATH --job ID --bone NAME --factor 0.7\nworker --workspace PATH [--once] 明确启动本机 Codex 自动处理\nmcp --workspace PATH            启动 stdio MCP 工具\npractice --workspace PATH       生成原创练习的修正版与测量报告\nreport --workspace PATH         读取反馈、版本和决定\nvalidate --workspace PATH       核对反馈、版本身份、截图\ninstall --target PATH           安装完整 Skill（目标不得存在）\n\n不写正式游戏文件；全部数据保存在指定工作区。`;
+// Commands whose flags are fully known reject anything else, so a mistyped or
+// borrowed flag (--input, --candidate) fails loudly instead of being ignored.
+const MISTAKES={input:'--baseline-file',baseline:'--baseline-file 或 --baseline-slot',candidate:'--file',model:'--file',asset:'--asset-id',id:'--asset-id',detail:'--full',all:'--full'};
+function strictFlags(name,allowed){
+ const known=new Set(allowed),bad=args.filter(a=>a.startsWith('--')).map(a=>a.slice(2)).filter(f=>!known.has(f));
+ if(!bad.length)return;
+ const hint=f=>MISTAKES[f]&&known.has(MISTAKES[f].split(' ')[0].slice(2))?'（是不是 '+MISTAKES[f]+'？）':'';
+ throw Error(name+' 不认识 '+bad.map(f=>'--'+f+hint(f)).join('、')+'。可用：'+allowed.map(f=>'--'+f).join(' '));
+}
+const usage=`动作台 MotionStage ${VERSION} · Node >=22\n\ndoctor                        检查 Node、Blender、Codex 可用能力\ninit --workspace PATH           创建独立练习工作区\nserve --workspace PATH [--port 5178]  启动本地查看器（--port 0 自动分配）\nadd --workspace PATH --slot baseline|candidate --file MODEL.glb|MODEL.fbx|MOTION.json [--new-model | --asset-id ID]\nappearance --workspace PATH [--asset-id ID]  查看可选项目外观\nappearance-install --workspace PATH --file MANIFEST.json  安装已审阅的外观适配包\nmotion-library --workspace PATH  查看角色、公共动作、映射与收录版本\nmotion-register|motion-preview|motion-mapping|motion-adopt|motion-prepare --workspace PATH --file PARAMS.json\ncharacters --workspace PATH [--query TEXT]\nactions --workspace PATH [--asset-id ID] [--category attack] [--query TEXT] [--limit 200] [--no-wait] [--json]  角色自带与自动匹配的动作，按类别列出（默认等匹配完成）\ncharacter-map --workspace PATH --file MAP.json  保存已核对的项目角色关联\nopen-character --workspace PATH --asset-id ID [--refresh-source]\nassociate-motion --workspace PATH --asset-id CHARACTER_ID --source-id FILE_ID\nmodels --workspace PATH [--query TEXT] [--offset 0] [--limit 100]\nscan-models --workspace PATH     刷新关联项目模型目录\nopen-model --workspace PATH --asset-id ID [--refresh-source]\ninspect --workspace PATH [--slot baseline] [--asset-id ID]\nmotion-check [--workspace PATH --slot baseline|candidate --asset-id ID | --file MODEL.glb] --clip NAME [--baseline-slot baseline | --baseline-file INPUT.glb] [--feet A,B] [--fps 30] [--checks rotationFlips,footSlip,limbExtension] [--options PARAMS.json]  测量旋转翻转、脚滑、膝肘弹直\nproject --workspace PATH        查看关联项目与最近项目\nproject-open --workspace PATH --path PROJECT [--empty] 关联项目并创建项目内工作区\nproject-context --workspace PATH [--job ID | --request TEXT --slot baseline]\njobs --workspace PATH [--full]  列出任务摘要（--full 输出全部字段）\njob --workspace PATH --job ID    读取冻结任务与来源映射\nclaim --workspace PATH --job ID [--owner NAME]\nprogress --workspace PATH --job ID --lease TOKEN --phase reading|editing|checking|exporting --message TEXT\nreply --workspace PATH --job ID --message TEXT\ncomplete --workspace PATH --job ID --lease TOKEN --candidate FILE --summary TEXT\nfail|needs-input --workspace PATH --job ID --lease TOKEN --error TEXT\ncancel --workspace PATH --job ID\ninterrupt --workspace PATH --job ID\nretry --workspace PATH --job ID\nartifacts --workspace PATH --job ID\nrestore --workspace PATH --job ID --expected-revision N [--checkpoint ID]\nlocal-edit --workspace PATH --job ID --bone NAME --factor 0.7\nworker --workspace PATH [--once] 明确启动本机 Codex 自动处理\nmcp --workspace PATH            启动 stdio MCP 工具\npractice --workspace PATH       生成原创练习的修正版与测量报告\nreport --workspace PATH         读取反馈、版本和决定\nvalidate --workspace PATH       核对反馈、版本身份、截图\ninstall --target PATH           安装完整 Skill（目标不得存在）\n\n不写正式游戏文件；全部数据保存在指定工作区。`;
 try{
  if(Number(process.versions.node.split('.')[0])<22)throw Error('请安装 Node.js 22 或更高版本');
  if(!cmd||cmd==='help'||cmd==='--help'){console.log(usage);process.exit(0);}
@@ -26,6 +35,7 @@ try{
  }
  if(cmd==='doctor'){console.log(JSON.stringify(await diagnoseRuntime({workspace:val('workspace')?resolve(val('workspace')):undefined}),null,2));process.exit(0);}
  if(cmd==='motion-check'){
+  strictFlags('motion-check',['workspace','slot','asset-id','file','clip','baseline-slot','baseline-file','feet','fps','options','checks']);
   const list=k=>val(k)?val(k).split(',').map(x=>x.trim()).filter(Boolean):undefined,extra=val('options')?JSON.parse(await readFile(resolve(val('options')),'utf8')):{};
   const r=await checkMotionSlot(val('workspace')?resolve(val('workspace')):undefined,{...extra,slot:val('slot')||'baseline',assetId:val('asset-id'),file:val('file'),baselineSlot:val('baseline-slot'),baselineFile:val('baseline-file'),clip:val('clip')??extra.clip,fps:val('fps')?Number(val('fps')):extra.fps,feet:list('feet')??extra.feet,checks:list('checks')??extra.checks});
   console.log(JSON.stringify(r,null,2));process.exit(0);
@@ -48,8 +58,9 @@ try{
  }else if(cmd==='appearance-install'){
   if(!val('file'))throw Error('需要 --file 外观包清单');console.log(JSON.stringify(await installAppearance(work,resolve(val('file'))),null,2));
  }else if(cmd==='actions'){
-  // A CLI run is its own process: matching state does not survive it, so wait
-  // by default and stop the background scan before exiting.
+  strictFlags('actions',['workspace','asset-id','slot','category','query','limit','no-wait','json']);
+  // A CLI run is its own process: it reuses match results saved under
+  // cache/actions, waits for the rest by default and stops the scan on exit.
   try{const r=await actionCatalog(work,{assetId:val('asset-id'),slot:val('slot')||'baseline',category:val('category'),query:val('query')||'',limit:val('limit'),wait:!args.includes('--no-wait')});
   console.log(args.includes('--json')?JSON.stringify(r,null,2):formatActionCatalog(r));}finally{await stopCharacterActionDiscovery(work);await stopCatalogScan(work);}
  }else if(cmd==='characters'){
@@ -71,7 +82,8 @@ try{
  }else if(cmd==='project-context'){
   console.log(JSON.stringify(val('job')?await getJobProjectContext(work,val('job')):await previewProjectContext(work,{request:val('request')||'',slot:val('slot')||'baseline',clip:val('clip'),parentJobId:val('parent-job')}),null,2));
  }else if(cmd==='jobs'){
-  console.log(JSON.stringify({jobs:await listJobs(work)},null,2));
+  strictFlags('jobs',['workspace','full']);
+  console.log(JSON.stringify(args.includes('--full')?{jobs:await listJobs(work)}:{jobs:await listJobSummaries(work),detail:'每个任务的完整内容用 job --job ID 读取；--full 列出全部字段'},null,2));
  }else if(cmd==='job'){
   console.log(JSON.stringify(await getJob(work,val('job')),null,2));
  }else if(cmd==='enqueue'){
