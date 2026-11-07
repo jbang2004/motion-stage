@@ -48,7 +48,7 @@ Loopback server on a free port; only a new workspace gets the teaching scene. Us
 | Endpoint (POST needs `x-motion-token` from `GET /api/session`) | Returns |
 |---|---|
 | `GET /api/cast` | Characters, declared first, with portrait sources |
-| `GET /api/characters/<id>/model` | Main model bytes of a declared GLB character |
+| `GET /api/characters/<id>/model` | Main model bytes of a declared GLB character (a `.gltf` is packed to GLB with its `.bin`/textures) |
 | `GET /api/actions?assetId=&slot=&expectedModelSha=` | Matched-action scan state and rows |
 | `POST /api/actions/curves` | Read-only curves for up to 12 matched actions |
 | `GET /api/thumbnails` · `POST /api/thumbnails/<key>` | Thumbnail cache |

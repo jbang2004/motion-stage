@@ -196,7 +196,7 @@ export function createModelCatalog({
     if (row.error) copy.append(el('small', row.error, 'catalog-error'));
     actions.append(el('span', badge(row, selected), 'catalog-badge'));
 
-    const previewable = ['glb', 'fbx','json'].includes(row.format);
+    const previewable = ['glb', 'gltf', 'fbx', 'json'].includes(row.format);
     const openOptions = row.character ? {character: true} : undefined;
     if (row.opened || previewable && row.status === 'available') {
       const open = button(selected ? '继续查看' : row.opened ? '打开' : '预览',
@@ -210,7 +210,7 @@ export function createModelCatalog({
       update.disabled = view.switching;
       actions.append(update);
     }
-    if (!row.character && row.origin === 'project' && row.format === 'glb' && row.status === 'available' &&
+    if (!row.character && row.origin === 'project' && ['glb', 'gltf'].includes(row.format) && row.status === 'available' &&
       view.activeAssetId?.startsWith('character-')) {
       const associate = button('关联到当前角色', async () => {
         const ticket = requests.capture();
@@ -248,7 +248,7 @@ export function createModelCatalog({
     for (const row of data.entries) host.append(rowCard(row, view));
     if (!data.entries.length) {
       const text = query ? '没有匹配的模型。' : scanning ? '正在发现模型，请稍候…' :
-        '此目录暂未发现资源。支持 GLB、采样动作 JSON 和按需转换的 FBX。';
+        '此目录暂未发现资源。支持 GLB、glTF、采样动作 JSON 和按需转换的 FBX。';
       host.append(el('p', text, 'clip-empty'));
     }
     $('catalogMore').hidden = !data.hasMore;
@@ -267,7 +267,7 @@ export function createModelCatalog({
     if (!requests.isCurrent(result) || data !== result.data) return;
     const current = result.data;
     if (!autoOpened && current.linked && current.scan.state !== 'scanning' && getView().allowAutomaticOpen) {
-      const playable = row => row.format === 'glb' && row.status === 'available' && row.origin === 'project';
+      const playable = row => ['glb', 'gltf'].includes(row.format) && row.status === 'available' && row.origin === 'project';
       autoOpened = true;
       // The file view lists paths alphabetically, where the first GLB may be a prop
       // or a motion pack. Start with what the 角色 rail shows first instead: declared

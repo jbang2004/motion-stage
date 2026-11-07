@@ -2,7 +2,7 @@ import {projectCharacterProfiles} from './character-library.mjs';
 import {readFile,stat} from 'node:fs/promises';
 import {randomUUID} from 'node:crypto';
 import {readProject,modelSlots,inside,sha,atomic,withWorkspaceLock,readWorkspaceJSON,glbInfo,importAsset,projectView} from './core.mjs';
-import {readCatalog} from './asset-catalog.mjs';
+import {readCatalog,readProjectModel} from './asset-catalog.mjs';
 import {getProjectLink} from './project-context.mjs';
 import {parseGlb} from './asset-tools.mjs';
 import {extractMotionPack,gltfClips,assembleCharacter} from './motion-assembly.mjs';
@@ -25,13 +25,15 @@ export async function motionLibrary(work){return withWorkspaceLock(work,async()=
  let models=Object.values(cfg.models).map(m=>{const heads=modelSlots(cfg,m.id),a=heads.baseline;return {id:m.id,name:m.name,origin:m.origin,headRevision:m.headRevision,active:m.id===cfg.activeAssetId,capabilities:a?.capabilities,versions:[...Object.entries(heads).map(([slot,asset])=>({slot,asset})),...(m.revisions||[]).slice().reverse().flatMap((r,i)=>Object.entries(r.slots||{}).map(([slot,asset])=>({slot,asset,archived:true,at:r.at,index:i})))],actions:lib.characters[m.id]||[]};});
  const projectCharacters=await projectCharacterProfiles(work);const declared=new Set(projectCharacters.map(m=>m.id));models=[...projectCharacters.map(m=>({...m,actions:lib.characters[m.id]||[]})),...models.filter(m=>!declared.has(m.id))];
  const catalog=await readCatalog(work).catch(()=>({entries:[]}));
- const sources=(catalog.entries||[]).filter(e=>e.status==='available'&&e.format==='glb'&&e.metadata?.clips?.length).map(e=>({id:e.id,name:e.name,relativePath:e.relativePath,clips:e.metadata.clips}));
+ const sources=(catalog.entries||[]).filter(e=>e.status==='available'&&['glb','gltf'].includes(e.format)&&e.metadata?.clips?.length).map(e=>({id:e.id,name:e.name,relativePath:e.relativePath,clips:e.metadata.clips}));
  return {...lib,models,sources,projectCharacterIds:[...declared],projectFileCount:catalog.entries.length,activeAssetId:cfg.activeAssetId};
 });}
 export async function registerMotionPack(work,input={}){return withWorkspaceLock(work,async()=>{
  const lib=await readLibrary(work);checkRevision(lib,input.expectedRevision);
  let bytes,source,key;
- if(input.sourceId){const [catalog,link]=await Promise.all([readCatalog(work),getProjectLink(work)]),entry=catalog.entries.find(e=>e.id===input.sourceId);requireValue(link?.exists&&entry?.format==='glb'&&entry.status==='available','请选择有效 GLB 动作来源，FBX 请先导入转换');const file=await inside(link.root,entry.relativePath),before=await stat(file,{bigint:true});requireValue(before.isFile()&&before.size<=50n*1024n*1024n,'动作来源超过 50 MB 或不是普通文件');bytes=await readFile(file);const after=await stat(file,{bigint:true});requireValue(['dev','ino','size','mtimeNs','ctimeNs'].every(key=>before[key]===after[key])&&BigInt(bytes.length)===before.size,'动作来源在读取期间变化，请重试');source={file:entry.relativePath,sha256:sha(bytes),name:entry.name};key='project:'+entry.relativePath;
+ if(input.sourceId){const [catalog,link]=await Promise.all([readCatalog(work),getProjectLink(work)]),entry=catalog.entries.find(e=>e.id===input.sourceId);requireValue(link?.exists&&['glb','gltf'].includes(entry?.format)&&entry.status==='available','请选择有效 GLB 或 glTF 动作来源，FBX 请先导入转换');
+  if(entry.format==='gltf'){const model=await readProjectModel(link.root,entry.relativePath,{maxBytes:50*1024*1024});bytes=model.bytes;source={file:entry.relativePath,sha256:model.sha256,name:entry.name,dependencies:model.dependencies};}
+  else{const file=await inside(link.root,entry.relativePath),before=await stat(file,{bigint:true});requireValue(before.isFile()&&before.size<=50n*1024n*1024n,'动作来源超过 50 MB 或不是普通文件');bytes=await readFile(file);const after=await stat(file,{bigint:true});requireValue(['dev','ino','size','mtimeNs','ctimeNs'].every(key=>before[key]===after[key])&&BigInt(bytes.length)===before.size,'动作来源在读取期间变化，请重试');source={file:entry.relativePath,sha256:sha(bytes),name:entry.name};}key='project:'+entry.relativePath;
  }else{const cfg=await readProject(work),{id,slot,asset}=targetAsset(cfg,input);bytes=await assetBytes(work,asset);source={assetId:id,slot,sha256:asset.sha256,name:asset.label};key='model:'+id;}
  const packed=await extractMotionPack(bytes,{clips:input.clips});requireValue(packed.length<=50*1024*1024,'提取后的公共动作包超过 50 MB，请拆分动作来源');const digest=sha(packed),info=glbInfo(packed);requireValue(info.clips.length,'来源没有骨架动作');
  if(input.clips)key+='\0'+input.clips.join('\0');
