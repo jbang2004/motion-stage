@@ -98,3 +98,13 @@ test('CLI rejects unknown flags with hints and lists jobs as compact summaries b
   const [,listed,listedFull]=r.stdout.trim().split('\n').map(JSON.parse);assert.equal(listed.result.structuredContent.jobs[0].id,job.id);assert.ok(!('context' in listed.result.structuredContent.jobs[0]));assert.ok('context' in listedFull.result.structuredContent.jobs[0]);
  }finally{await rm(w,{recursive:true,force:true});}
 });
+
+test('a request naming the other side than the picked bone is recorded for the agent',async()=>{
+ const w=await setup();try{
+  const conflict=await createJob(w,await input(w,{request:'右臂摆得太大，收一点',target:{bone:'LeftArm',inferred:true}}));
+  assert.deepEqual(conflict.sideConflict,{requested:'right',picked:'left',bone:'LeftArm',inferred:true});
+  const task=await readFile(conflict.taskPath,'utf8');assert.match(task,/左右提示：要求写的是右侧，页面选中的却是角色左侧的 LeftArm（由点击位置推断）/);assert.match(task,/needs-input/);
+  await cancelJob(w,conflict.id);
+  const clean=await createJob(w,await input(w,{request:'左右手都收一点',target:{bone:'LeftArm'}}));assert.equal(clean.sideConflict,undefined);assert.doesNotMatch(await readFile(clean.taskPath,'utf8'),/左右提示/);
+ }finally{await rm(w,{recursive:true,force:true});}
+});

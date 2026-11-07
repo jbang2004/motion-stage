@@ -286,6 +286,9 @@ kbd { display: inline-flex; justify-content: center; min-width: 14px; height: 13
 .context-chip b { display: block; font-size: 11px; color: #5f6e86; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .context-chip>span:last-child { color: #676d76; margin-left: auto; }
 .context-chip>span:last-child .icon { width: 11px; height: 11px; }
+.side-warning { margin: 8px 0 0; padding: 9px 11px; border: 1px solid #e3b98a66; border-radius: 9px; background: #fff6ea; color: #7c5a2f; font-size: 11px; line-height: 1.5; }
+.side-warning p { margin: 0; }
+.side-warning button { margin-top: 4px; padding: 0; font-size: 11px; }
 .context-auto { display: flex; justify-content: space-between; gap: 8px; color: #676e76; font-size: 10px; margin: 9px 1px 17px; }
 .context-auto [data-icon] { gap: 5px; }
 .context-auto .icon { width: 11px; height: 11px; }
