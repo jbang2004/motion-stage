@@ -107,6 +107,33 @@ export async function characterPage(work,{query='',offset=0,limit=100,preferMapp
  offset=Math.max(0,Math.floor(Number(offset)||0));limit=Math.max(1,Math.min(200,Math.floor(Number(limit)||100)));
  return {entries:matches.slice(offset,offset+limit).map(({profile,signature,readyEvidence,...row})=>row),total:data.rows.length,confirmedTotal:data.rows.filter(r=>r.confirmed).length,matched:matches.length,offset,limit,hasMore:offset+limit<matches.length,scan:{...data.catalog.scan,warnings:[...(data.catalog.scan.warnings||[]),...(data.map.error?['角色映射无法读取：'+data.map.error]:[])]},linked:data.link?.status==='linked',activeAssetId:data.cfg.activeAssetId,kind:'characters',sourceTotal:data.catalog.entries.length};
 }
+// Light roster for the 角色 rail and gallery: declared characters first, then
+// other skinned project GLBs, then workspace-only models (demo, imports).
+// `portrait` tells the viewer where to read bytes for a preview render; it
+// never opens, assembles or activates anything.
+export async function castRoster(work,{scope='all'}={}){
+ const data=await library(work,{includeCandidates:scope!=='confirmed'}),entries=[],seen=new Set();
+ const workspacePortrait=asset=>asset&&(asset.meshCount||0)>0?{source:'workspace',identity:asset.sha256,asset:{sha256:asset.sha256,file:asset.file,bytes:asset.bytes}}:null;
+ for(const r of data.rows){
+  seen.add(r.id);let portrait=workspacePortrait(modelSlots(data.cfg,r.id).baseline);
+  if(!portrait&&r.format==='glb'&&r.status==='available'&&r.profile&&data.link?.exists){try{const s=await stat(await inside(data.link.root,r.profile.model));portrait={source:'project',identity:[s.size,Math.round(s.mtimeMs)].join(':'),url:'/api/characters/'+encodeURIComponent(r.id)+'/model'};}catch{}}
+  entries.push({id:r.id,kind:'character',name:r.name,confirmed:Boolean(r.confirmed),opened:Boolean(r.opened),status:r.status,format:r.format,relativePath:r.relativePath||null,clipCount:r.metadata?.clips?.length||0,embeddedCount:r.embeddedCount||0,externalCount:r.externalCount||0,portrait});
+ }
+ for(const [id,m]of Object.entries(data.cfg.models)){
+  if(seen.has(id))continue;const base=modelSlots(data.cfg,id).baseline,portrait=workspacePortrait(base);if(!portrait)continue;
+  entries.push({id,kind:'model',name:m.name,confirmed:false,opened:true,status:'available',format:'glb',relativePath:m.relativePath||null,clipCount:base.clips?.length||0,embeddedCount:base.clips?.length||0,externalCount:0,portrait});
+ }
+ const rank=e=>e.confirmed?0:e.kind==='character'?1:2;
+ entries.sort((a,b)=>rank(a)-rank(b)||a.name.localeCompare(b.name,'zh-Hans-CN'));
+ return {entries,total:entries.length,confirmedTotal:entries.filter(e=>e.confirmed).length,activeAssetId:data.cfg.activeAssetId,linked:data.link?.status==='linked'};
+}
+// Main model bytes of a declared or discovered GLB character, for portraits.
+export async function characterModelFile(work,id){
+ const data=await library(work,{onlyId:id}),row=data.rows.find(r=>r.id===id);
+ requireValue(row?.profile&&data.link?.exists,'角色不存在或项目未关联');
+ requireValue(row.format==='glb'&&row.status==='available','这个角色的模型不能直接预览');
+ return inside(data.link.root,row.profile.model);
+}
 export async function openCharacter(work,id,{refreshSource=false}={}){
  const key=work+'|'+id+'|'+refreshSource;if(flights.has(key))return flights.get(key);
  const promise=prepareCharacter(work,id,refreshSource);flights.set(key,promise);try{return await promise;}finally{flights.delete(key);}

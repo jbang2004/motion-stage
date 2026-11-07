@@ -1,4 +1,6 @@
-import {createCharacterActions,displayActionName} from './character-actions.mjs';
+import {createCastBrowser} from './cast-browser.mjs';
+import {createThumbnailStudio} from './thumbnail-studio.mjs';
+import {classifyAction} from './action-taxonomy.mjs';
 import {createMotionWorkspace} from './motion-workspace.mjs';
 import {runtimeMotionClips} from './motion-runtime.mjs';
 import {findJoint,jointValue,selectedJoint,correspondingJoint} from './joint-targets.mjs';
@@ -22,7 +24,7 @@ decorateIcons();
 
 const $=id=>document.getElementById(id),slots=['baseline','candidate'];
 const state={switching:false,allJobs:[],jobCounts:{},totalJobs:0,jobsRevision:null,studioRevision:null,studioAssetId:null,historyJobs:[],historyAssetId:null,historyRevision:null,historyHasMore:false,historyTotal:0,catalog:null,initialized:false,ready:false,loading:false,playing:false,loop:true,time:0,speed:1,fps:30,display:'single',focus:'baseline',view:'front',models:{},project:null,token:null,paths:{},jobs:[],agent:null,target:null,selectedJob:null,archivedJobId:null,capturing:false,submitting:false,submissionOwner:null,panelMode:'compose',composerSource:null,comparisonPair:null,observationTransform:null,explicitCompose:false,projectLink:null,projectPreview:null,projectPreviewError:null,lineageParentJobId:null};
-let renderLoop,flatActions;
+let renderLoop,castBrowser;
 const viewState=createViewState(new URLSearchParams(location.search).get('asset'));
 const viewPositions={front:[0,1.12,4.8],side:[4.8,1.12,0],back:[0,1.12,-4.8],top:[0,5,.001]};
 const statusNames={queued:'等待 Agent',running:'正在处理',complete:'候选已就绪',failed:'处理失败','needs-input':'需要补充信息',cancelled:'已取消',stale:'版本已变化',interrupted:'执行已中断'};
@@ -107,7 +109,7 @@ function catalogMessage(message,error=false){modelCatalog.message(message,error)
 
 // A trial owns only clip bindings; canonical model heads remain untouched.
 const assetThumbnails=new Map();
-const motionWorkspace=createMotionWorkspace({api,onAdopt:()=>flatActions?.refresh(),
+const motionWorkspace=createMotionWorkspace({api,onAdopt:()=>castBrowser?.refresh(),
  onThumbnail:(id,sha)=>{const m=activeModel(),key=id+'|'+sha;if(id===state.project?.activeAssetId&&m?.meta.sha256===sha&&m.capabilities.hasMesh&&!state.motionPreview&&!assetThumbnails.has(key)){render();assetThumbnails.set(key,canvas.toDataURL('image/webp',.7));while(assetThumbnails.size>24)assetThumbnails.delete(assetThumbnails.keys().next().value);}return assetThumbnails.get(key);},
  getTarget:()=>({assetId:state.project?.activeAssetId,slot:activeSlot(),expectedModelSha:activeModel()?.meta.sha256}),
  onPreview:async (result,isCurrent=()=>true)=>{
@@ -127,15 +129,8 @@ function clearMotionTrial(redraw=true){
  if(!state.motionPreview)return;for(const [slot,m]of Object.entries(state.models)){if(!m.libraryOriginalClips)continue;m.mixer.stopAllAction();for(const c of m.clips)m.mixer.uncacheClip(c);m.clips=m.libraryOriginalClips;delete m.libraryOriginalClips;selectClip(slot,m.libraryOriginalClip||m.clips[0]?.name);delete m.libraryOriginalClip;}
  state.motionPreview=null;state.playing=false;state.time=0;jobsRenderSignature='';motionWorkspace.clear();$('motionTrialInspector').hidden=true;if(redraw){drawLibrary();drawMetadata();drawJobs();updateDisplay();renderLoop?.wake();}
 }
-$('openMotionWorkspace').onclick=$('navMotionWorkspace').onclick=$('trialBrowse').onclick=()=>motionWorkspace.open();
-flatActions=createCharacterActions({api,
- getTarget:()=>state.ready&&!state.switching&&!state.archivedJobId?{assetId:state.project?.activeAssetId,slot:activeSlot(),expectedModelSha:activeModel()?.meta.sha256}:null,
- getPreset:()=>activeModel()?.libraryOriginalClips||activeModel()?.clips||[],
- getSelection:()=>({presetName:state.motionPreview?null:activeModel()?.clip,recipeId:state.motionPreview?.recipe.id}),
- onPreset:name=>{clearMotionTrial(false);selectMotion(name);},
- onPreview:(result,request,isCurrent)=>motionWorkspace.play(result,request,isCurrent),
- onCharacter:(id,{character=false}={})=>openCatalogModel(id,{character,stored:!character}),onError:fail
-});
+$('openMotionWorkspace').onclick=$('trialBrowse').onclick=()=>motionWorkspace.open();
+
 
 
 async function restoreModelDraft(){
@@ -179,17 +174,37 @@ try{renderer=new T.WebGLRenderer({canvas,antialias:true,preserveDrawingBuffer:tr
 catch(e){renderer=null;environmentPanel.setGraphics({status:'error',error:'WebGL2 不可用。曲线仍可查看；三维资源请开启硬件加速后重试。'});}
 canvas.addEventListener('webglcontextlost',()=>environmentPanel.setGraphics({status:'error',error:'浏览器的三维上下文已丢失。等待恢复，或刷新页面重试。'}));
 canvas.addEventListener('webglcontextrestored',()=>environmentPanel.setGraphics({status:'ready'}));
-if(renderer){renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.outputColorSpace=T.SRGBColorSpace;renderer.toneMapping=T.NeutralToneMapping;renderer.setClearColor(0x161e2a);renderer.autoClear=false;}
+if(renderer){renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.outputColorSpace=T.SRGBColorSpace;renderer.toneMapping=T.NeutralToneMapping;renderer.setClearColor(0xebedf1);renderer.autoClear=false;}
 const loader=createModelLoader(renderer);
 const loadAsset=createAssetLoader();
+// 动作库: character rail, gallery and action grid. Thumbnails render in their
+// own offscreen renderer from clones, so the stage pose is never disturbed.
+const thumbnailStudio=createThumbnailStudio({api,loader,loadAsset,onError:e=>console.warn('thumbnail',e)});
+function assetTitle(m=activeModel()){if(!m)return '';const teaching=m.meta.generator?.includes('original teaching');const title=state.project?.title&&state.project.title!=='动作反馈练习'?state.project.title:teaching?'原创练习角色':m.meta.label.replace(/\.(glb|fbx)$/i,'');return (title||'').replace(/ · (修改前|修改后)$/,'');}
+castBrowser=createCastBrowser({api,studio:thumbnailStudio,
+ getStage:()=>{const m=activeModel();return {ready:Boolean(state.ready&&m&&!state.switching&&!state.loading&&!state.archivedJobId),loading:Boolean(state.loading||state.switching),assetId:state.project?.activeAssetId,slot:activeSlot(),modelSha:m?.meta.sha256,model:m,name:assetTitle(m),ownClips:m?.libraryOriginalClips||m?.clips||[],currentClip:state.motionPreview?null:m?.clip,previewing:Boolean(state.motionPreview)};},
+ openCharacter:entry=>openCatalogModel(entry.id,{character:entry.kind==='character',stored:entry.kind==='model'}),
+ playOwn:name=>{clearMotionTrial(false);if(state.focus!=='baseline'||state.display!=='single'){state.focus='baseline';state.display='single';updateDisplay();}selectMotion(name);state.loop=true;state.playing=duration()>0;updateClock();fitMotion();renderLoop?.wake();},
+ playShared:async(row,isCurrent)=>{const request={assetId:state.project?.activeAssetId,slot:activeSlot(),expectedModelSha:activeModel()?.meta.sha256,actionId:row.id},response=await api('/api/actions/preview','POST',request);if(!isCurrent())return;await motionWorkspace.play(response.result,response.request,isCurrent);if(isCurrent())fitMotion();},
+ playSaved:async(action,isCurrent)=>{const request={assetId:state.project?.activeAssetId,slot:activeSlot(),expectedModelSha:activeModel()?.meta.sha256,packId:action.recipe.packId,versionId:action.recipe.versionId,clip:action.recipe.clip,...(action.recipe.mappingId?{mappingId:action.recipe.mappingId}:{})},result=await api('/api/motions/preview','POST',request);if(!isCurrent())return;await motionWorkspace.play(result,request,isCurrent);if(isCurrent())fitMotion();},
+ onEdit:()=>{castBrowser.setMode('studio');if(state.motionPreview){notice('正在试播匹配动作。点击上方“以此动作继续修改”，先为这个角色准备独立的工作版本。');return;}if(state.panelMode!=='compose'&&!currentJob())void beginCompose({source:'baseline'});setTimeout(()=>$('request')?.focus({preventScroll:true}),160);},
+ onModeChange:()=>{renderLoop?.wake();requestAnimationFrame(()=>{render();updateMobileActionVisibility();});},
+ onError:fail
+});
+const moreMenu=$('moreMenu'),moreButton=$('moreMenuButton');
+function setMoreMenu(open){moreMenu.hidden=!open;moreButton.setAttribute('aria-expanded',String(open));if(open)moreMenu.querySelector('button')?.focus({preventScroll:true});}
+moreButton.onclick=event=>{event.stopPropagation();setMoreMenu(moreMenu.hidden);};
+moreMenu.addEventListener('click',()=>setMoreMenu(false));
+document.addEventListener('click',event=>{if(!moreMenu.hidden&&!moreMenu.contains(event.target))setMoreMenu(false);});
+document.addEventListener('keydown',event=>{if(event.key==='Escape'&&!moreMenu.hidden){setMoreMenu(false);moreButton.focus();}});
 const resourcePanels=Object.fromEntries(slots.map(slot=>{const panel=createResourcePanel({onChange:()=>syncCurveSelection(slot)});$('stage').append(panel.element);return [slot,panel];}));
 const cameras={},controls={};let cameraBusy=false;
 for(const slot of slots){const camera=new T.PerspectiveCamera(34,1,.01,1000);camera.position.set(...viewPositions.front);const ctl=new OrbitControls(camera,$('surface-'+slot));ctl.target.set(0,1,0);ctl.minDistance=.45;ctl.maxDistance=40;ctl.enableDamping=false;ctl.update();cameras[slot]=camera;controls[slot]=ctl;ctl.addEventListener('start',()=>{state.view='orbit';setViewButtons();});ctl.addEventListener('change',()=>{if(cameraBusy)return;if(!$('linkCameras').checked){render();return;}cameraBusy=true;const other=slot==='candidate'?'baseline':'candidate';cameras[other].position.copy(camera.position);cameras[other].quaternion.copy(camera.quaternion);ctl.target&&controls[other].target.copy(ctl.target);controls[other].update();cameraBusy=false;render();});}
-function makeScene(){const scene=new T.Scene();scene.background=new T.Color(0x161e2a);scene.fog=new T.Fog(0x161e2a,10,26);scene.add(new T.HemisphereLight(0xeaf0fa,0x263241,1.7));const key=new T.DirectionalLight(0xfff3e4,3.2);key.position.set(2.2,4,3.5);scene.add(key);const fill=new T.DirectionalLight(0xc6defa,1.4);fill.position.set(-3,2,-1);scene.add(fill);const rim=new T.DirectionalLight(0xdde8ff,1.7);rim.position.set(1,3,-4);scene.add(rim);
-const floor=new T.Mesh(new T.PlaneGeometry(80,80),new T.MeshStandardMaterial({color:0x1b2533,roughness:.95,metalness:.08}));floor.rotation.x=-Math.PI/2;floor.position.y=-.012;scene.add(floor);
-const grid=new T.GridHelper(40,80,0x4c607e,0x33445d);grid.material.transparent=true;grid.material.opacity=.24;grid.position.y=-.009;scene.add(grid);
-const ring=new T.Mesh(new T.RingGeometry(.73,.734,100),new T.MeshBasicMaterial({color:0x849dbb,transparent:true,opacity:.28,side:T.DoubleSide}));ring.rotation.x=-Math.PI/2;ring.position.y=-.005;scene.add(ring);
-const shadow=new T.Mesh(new T.CircleGeometry(.65,64),new T.MeshBasicMaterial({color:0x080e18,transparent:true,opacity:.22,depthWrite:false}));shadow.rotation.x=-Math.PI/2;shadow.scale.set(1,.58,1);shadow.position.y=-.003;scene.add(shadow);
+function makeScene(){const scene=new T.Scene();scene.background=new T.Color(0xebedf1);scene.fog=new T.Fog(0xebedf1,10,26);scene.add(new T.HemisphereLight(0xffffff,0xaab2c0,1.55));const key=new T.DirectionalLight(0xfff2e6,3.0);key.position.set(2.2,4,3.5);scene.add(key);const fill=new T.DirectionalLight(0xdfe9ff,1.25);fill.position.set(-3,2,-1);scene.add(fill);const rim=new T.DirectionalLight(0xffffff,1.9);rim.position.set(1,3,-4);scene.add(rim);
+const floor=new T.Mesh(new T.PlaneGeometry(80,80),new T.MeshStandardMaterial({color:0xe6e9ee,roughness:1,metalness:0}));floor.rotation.x=-Math.PI/2;floor.position.y=-.012;scene.add(floor);
+const grid=new T.GridHelper(40,80,0xb9c0cc,0xcfd4dc);grid.material.transparent=true;grid.material.opacity=.5;grid.position.y=-.009;scene.add(grid);
+const ring=new T.Mesh(new T.RingGeometry(.73,.734,100),new T.MeshBasicMaterial({color:0x8f9aad,transparent:true,opacity:.32,side:T.DoubleSide}));ring.rotation.x=-Math.PI/2;ring.position.y=-.005;scene.add(ring);
+const shadow=new T.Mesh(new T.CircleGeometry(.65,64),new T.MeshBasicMaterial({color:0x1c2230,transparent:true,opacity:.14,depthWrite:false}));shadow.rotation.x=-Math.PI/2;shadow.scale.set(1,.58,1);shadow.position.y=-.003;scene.add(shadow);
 return{scene,environment:[floor,grid,ring,shadow]};}
 function dispose(m){if(!m)return;m.mixer?.stopAllAction();m.mixer?.uncacheRoot(m.root);const resources=captureResources(m.scene,m.inputResources);for(const material of m.ghostMaterials||[])resources.materials.add(material);disposeAppearance(m);disposeResources(resources);}
 function timeModel(m,time){m.holder.position.copy(m.offset);if(m.action){m.action.reset().play();m.mixer.setTime(time);}m.scene.updateMatrixWorld(true);}
@@ -212,7 +227,8 @@ function normalizePair(models=state.models,options=null){
 
 async function loadSlot(slot,overrideMeta,{commit=true}={}){let gltf,createdScene;try{
  const meta=overrideMeta||state.project.slots[slot];if(!meta)return;gltf=await loadAsset(meta,loader);
- const resource=await prepareResource(gltf,T),{root,capabilities,meshes,joints,bbox,height}=resource;
+ const resource=await prepareResource(gltf,T),{root,capabilities,meshes,joints,bbox,height}=resource;// Root lock moves the holder against root motion; bind-pose bounds would cull the skinned body.
+root.traverse(o=>{if(o.isSkinnedMesh)o.frustumCulled=false;});
  createdScene=root;
  if(!renderer&&['model','skeleton','nodes'].includes(capabilities.preview))throw Error('此资源需要 WebGL2 三维预览。请开启浏览器硬件加速后重试；已有版本保持。');
  const {scene,environment}=makeScene();createdScene=scene;const holder=new T.Group();holder.add(root);scene.add(holder);
@@ -282,7 +298,29 @@ function updateDisplay(){
  document.querySelectorAll('[data-version]').forEach(b=>{const yes=b.dataset.version===(state.display==='single'?state.focus:'compare');b.classList.toggle('active',yes);b.setAttribute('aria-pressed',String(yes));});
  $('comparisonMeaning').textContent=$('progress').checked?'按进度对齐 · 速度可能不同':'同一秒数比较 · 保留真实节奏';size();updateWorkflow();
 }
-function selectMotion(name){flatActions?.cancelPreview();if(state.switching||state.loading)return;for(const slot of slots)if(state.models[slot]?.clips.some(c=>c.name===name))selectClip(slot,name);state.time=0;state.playing=duration()>0;clearTarget();drawLibrary();updateBoneChoices();drawMetadata();render();}
+// 动作库 frames the whole motion: sample the clip once and fit the camera to
+// every joint's travel, keeping the current view direction. Only the camera
+// moves; the pose, clip and root-lock state are untouched.
+let fitTween=0;
+function fitMotion(){
+ if(castBrowser?.mode()!=='library'||state.display!=='single'||!renderer)return;
+ const slot=activeSlot(),m=state.models[slot],camera=cameras[slot],control=controls[slot];if(!m?.joints?.length||!camera)return;
+ const box=new T.Box3(),point=new T.Vector3(),span=m.duration||0,samples=span>0?24:0,lock=$('lockRoot').checked;
+ for(let i=0;i<=samples;i++){timeModel(m,samples?span*i/samples:0);if(lock&&m.action){const delta=m.hip.getWorldPosition(new T.Vector3()).sub(m.anchor);m.holder.position.x-=delta.x;m.holder.position.z-=delta.z;m.scene.updateMatrixWorld(true);}for(const joint of m.joints)box.expandByPoint(joint.getWorldPosition(point));}
+ m.poseStamp=null;if(box.isEmpty())return;
+ const frame=m.frame,scale=frame?.distanceScale||1,base=new T.Vector3().fromArray(frame?.target||[0,1,0]),standard=viewPositions.front[2]*scale;
+ const height=box.max.y-box.min.y;box.max.y+=height*.08+.12*scale;box.min.y=Math.min(box.min.y,0);
+ const direction=camera.position.clone().sub(control.target).normalize(),right=new T.Vector3().crossVectors(new T.Vector3(0,1,0),direction).normalize(),up=new T.Vector3().crossVectors(direction,right);
+ const tanV=Math.tan(T.MathUtils.degToRad(camera.fov/2)),tanH=tanV*camera.aspect,center=box.getCenter(new T.Vector3());
+ let distance=0;for(const x of [box.min.x,box.max.x])for(const y of [box.min.y,box.max.y])for(const z of [box.min.z,box.max.z]){const offset=new T.Vector3(x,y,z).sub(center);distance=Math.max(distance,offset.dot(direction)+Math.abs(offset.dot(right))*1.1/tanH,offset.dot(direction)+Math.abs(offset.dot(up))*1.1/tanV);}
+ const expand=distance>standard;const target=expand?new T.Vector3(base.x,Math.max(base.y,center.y),base.z):base;const finalDistance=Math.max(standard,distance);
+ const fromPosition=camera.position.clone(),fromTarget=control.target.clone(),toTarget=target,toPosition=target.clone().addScaledVector(direction,finalDistance);
+ if(fromPosition.distanceTo(toPosition)<1e-3&&fromTarget.distanceTo(toTarget)<1e-3)return;
+ const ticket=++fitTween,start=performance.now(),length=matchMedia('(prefers-reduced-motion: reduce)').matches?0:320;
+ const step=now=>{if(ticket!==fitTween)return;const k=length?Math.min(1,(now-start)/length):1,e=1-Math.pow(1-k,3);cameraBusy=true;camera.position.lerpVectors(fromPosition,toPosition,e);control.target.lerpVectors(fromTarget,toTarget,e);control.update();cameraBusy=false;render();if(k<1)requestAnimationFrame(step);};
+ requestAnimationFrame(step);
+}
+function selectMotion(name){castBrowser?.cancelPreview();if(state.switching||state.loading)return;for(const slot of slots)if(state.models[slot]?.clips.some(c=>c.name===name))selectClip(slot,name);state.time=0;state.playing=duration()>0;clearTarget();drawLibrary();updateBoneChoices();drawMetadata();render();}
 function seek(time){state.playing=false;state.time=Math.max(0,Math.min(duration(),Number(time)||0));render();updateClock();}
 function updateClock(){const d=duration();$('timeline').max=String(d||1);$('timeline').value=String(Math.min(state.time,d));$('timeline').style.setProperty('--progress',(d?Math.min(100,state.time/d*100):0)+'%');$('clock').replaceChildren(document.createTextNode(state.time.toFixed(3)+' '),el('span','/ '+d.toFixed(3)+' s'));const symbol=state.playing?'pause':'play';if($('play').dataset.symbol!==symbol){$('play').replaceChildren(icon(symbol));$('play').dataset.symbol=symbol;}$('play').setAttribute('aria-label',state.playing?'暂停':'播放');$('play').disabled=!state.ready||!d;$('prev').disabled=!d;$('next').disabled=!d;$('contextTime').textContent=localTime(activeSlot()).toFixed(3)+'s';$('frameInfo').textContent='第 '+Math.round(localTime(activeSlot())*state.fps)+' 帧 · '+state.fps+' fps 审阅';$('contextClip').textContent=activeModel()?.clip||'静态姿态';$('tickQuarter').textContent=(d/4).toFixed(2);$('tickMid').textContent=(d/2).toFixed(2);$('tickThreeQuarter').textContent=(d*.75).toFixed(2);$('tickEnd').textContent=d.toFixed(2)+' s';updateScopeVisual();}
 function context(){const slot=activeSlot(),m=state.models[slot];return{assetId:viewState.loadedAssetId,slot,asset:m?{sha256:m.meta.sha256,file:m.meta.file}:null,clip:m?.clip||null,time:localTime(slot),frame:Math.round(localTime(slot)*state.fps),fps:state.fps,speed:state.speed,loop:state.loop,scaleMode:$('scaleMode').value,view:state.view,displayMode:state.display==='single'?'all':'comparison',display:state.display,mode:$('progress').checked?'progress':'elapsed',normalized:$('scaleMode').value!=='raw'&&Boolean(m?.capabilities.hasMesh||m?.capabilities.hasNodes),rootLocked:$('lockRoot').checked,linkedCameras:$('linkCameras').checked,cameras:Object.fromEntries(slots.map(s=>[s,{position:cameras[s].position.toArray(),target:controls[s].target.toArray(),fov:cameras[s].fov,projection:'perspective'}])),slots:Object.fromEntries(slots.filter(s=>state.models[s]).map(s=>[s,{sha256:state.models[s].meta.sha256,file:state.models[s].meta.file,clip:state.models[s].clip,duration:state.models[s].duration,time:localTime(s)}])),normalization:Object.fromEntries(slots.filter(s=>state.models[s]).map(s=>[s,{scale:state.models[s].factor,restOffset:state.models[s].offset.toArray(),displayOffset:state.models[s].holder.position.toArray(),sourceHeight:state.models[s].height}])),selection:state.target?structuredClone(state.target):null,appearance:appearance.snapshot(m),resourceObservation:resourcePanels[slot].observe()};}
@@ -303,7 +341,7 @@ const nodeIndex=associated?m.parser?.associations?.get(associated)?.nodes:undefi
 for(const slot of slots){let down=null;const surface=$('surface-'+slot);surface.addEventListener('pointerdown',e=>{down={x:e.clientX,y:e.clientY};});surface.addEventListener('pointerup',e=>{if(down&&Math.hypot(e.clientX-down.x,e.clientY-down.y)<5)pickSurface(e,slot);down=null;});}
 $('boneSelect').onchange=()=>{const slot=activeSlot(),m=state.models[slot],b=selectedJoint(m,$('boneSelect').value);if(!b)return clearTarget();setTarget({slot,assetSha256:m.meta.sha256,bone:rawName(m,b),nodeIndex:m.parser?.associations?.get(b)?.nodes,mesh:null,space:'bone-local',inferred:false});};$('clearSelection').onclick=clearTarget;
 function drawSidebar(){
- const clips=activeModel()?.libraryOriginalClips||activeModel()?.clips||[];$('sidebarClipCount').textContent=clips.length;$('presetActionCount').textContent=clips.length;flatActions?.sync();
+ castBrowser?.sync();
 }
 
 function drawLibrary(){const m=activeModel(),list=$('clipList'),query=$('search').value.trim().toLowerCase();drawSidebar();list.replaceChildren();const clips=(m?.clips||[]).filter(c=>!query||c.name.toLowerCase().includes(query));$('clipCount').textContent=m?.clips.length||0;const chooser=$('motionSelect');chooser.replaceChildren();for(const c of m?.clips||[]){const o=el('option',c.name);o.value=c.name;chooser.append(o);}if(m?.clip)chooser.value=m.clip;if(!m?.clips.length){const o=el('option','无内置动作');o.value='';chooser.append(o);}chooser.disabled=!m?.clips.length;if(!m?.clips.length){list.append(el('p',m?resourceLabel(m.capabilities)+'。此资源没有内置动作；可独立检查，或明确关联兼容动作。':'导入模型、骨架或动作，或稍候读取示例。','clip-empty'));return;}for(const [index,c] of clips.entries()){const b=el('button',undefined,'motion-card'+(m.clip===c.name?' active':''));b.setAttribute('role','option');b.setAttribute('aria-selected',String(m.clip===c.name));b.dataset.clip=c.name;const glyph=el('span',undefined,'motion-icon'),text=el('span',undefined,'motion-text');glyph.append(icon('motion'));text.append(el('strong',c.name),el('small',c.duration.toFixed(2)+' 秒 · '+(state.display==='single'&&state.focus==='baseline'?'原版动作':'版本对照')));b.append(glyph,text,el('span',String(index+1).padStart(2,'0'),'motion-index'));b.onclick=()=>{selectMotion(c.name);$('libraryDialog').close();};list.append(b);}if(!clips.length)list.append(el('p','没有找到这个动作，试试其他名称。','clip-empty'));}
@@ -313,11 +351,11 @@ function drawMetadata(){
  const m=activeModel();if(!m)return;
  const teaching=m.meta.generator?.includes('original teaching');
  const title=state.project.title&&state.project.title!=='动作反馈练习'?state.project.title:teaching?'原创练习角色':m.meta.label.replace(/\.(glb|fbx)$/i,'');
- $('sidebarAssetName').textContent=(title||'当前角色').replace(/ · (修改前|修改后)$/,'');$('sidebarAssetName').title=title||'当前角色';$('sidebarAssetMeta').textContent=(m.meta.bytes/1048576).toFixed(1)+' MB · GLB';flatActions?.sync();
+ castBrowser?.sync();
  $('roleName').textContent=title||'当前角色';$('workspaceTitle').textContent=title||'动作修改工作台';$('assetKind').textContent=resourceLabel(m.capabilities);
  const motionOrigin=m.meta.source?.assembly?.clips?.[m.clip];
  $('assetDescription').textContent=motionOrigin?'动作来源：'+motionOrigin.file+' · '+motionOrigin.sourceClip:teaching?'原创教学角色，可以直接体验一次动作修改。':m.capabilities.limitations.join('；')||'素材留在本机，原文件与每次修改独立保留。';$('assetLabel').textContent=m.meta.label;$('assetStats').textContent=(m.meta.bytes/1048576).toFixed(1)+' MB · '+m.joints.length+' 个骨骼 / 节点';
- $('clipTitle').textContent=state.motionPreview?displayActionName(m.clip):m.clip==='mixamo.com'?'角色动作':m.clip||resourceLabel(m.capabilities);$('stageEyebrow').textContent=state.motionPreview?'兼容动作试播':state.archivedJobId?'历史版本':state.focus==='candidate'?'修改后的版本':m.clip?'当前动作':'当前资源';
+ const clipInfo=m.clip?classifyAction(m.clip,{duration:m.duration}):null;$('clipTitle').textContent=m.clip==='mixamo.com'?'角色动作':clipInfo?.label||resourceLabel(m.capabilities);$('clipTitle').title=m.clip||'';$('roleName').textContent=[assetTitle(m)||'当前角色',m.clip&&m.clip!==clipInfo?.label?m.clip:null,m.duration?m.duration.toFixed(2)+' s':null].filter(Boolean).join(' · ');$('stageEyebrow').style.setProperty('--heading-cat',clipInfo?'var(--cat-'+clipInfo.category+')':'var(--ms-accent)');$('stageEyebrow').textContent=state.motionPreview?'匹配动作 · 试播':state.archivedJobId?'历史版本':state.focus==='candidate'?'修改后的版本':clipInfo?({idle:'待机',move:'移动',attack:'攻击',skill:'技能',defense:'防御',hit:'受击',air:'跳跃',down:'倒地',emote:'表演',other:'动作'})[clipInfo.category]:'当前资源';
  $('currentHash').textContent=m.meta.sha256;$('stageStatus').textContent=state.motionPreview?'动作试播 · 模型版本保持':state.archivedJobId?'历史对照 · 当前素材保持':(m.appearance?'项目外观 · ':'中性检查 · ')+resourceLabel(m.capabilities);
  $('baselineFile').textContent=state.models.baseline?.meta.label||'—';$('candidateFile').textContent=state.models.candidate?.meta.label||'尚无候选';$('baselineImportName').textContent=state.models.baseline?.meta.label||'';$('candidateImportName').textContent=state.models.candidate?.meta.label||'';
  if(!state.target){$('targetText').textContent=m.capabilities.preview==='curves'?resourcePanels[activeSlot()].observe()?.binding||'全部曲线':m.capabilities.hasMesh?'整个模型':'整个资源';}$('openTarget').disabled=!m.capabilities.canPickNode&&!m.capabilities.canPickSurface;
@@ -418,6 +456,7 @@ async function copyText(text){try{await navigator.clipboard.writeText(text);toas
 function updateWorkflow(){
  if(!state.initialized){$('mobileTaskAction').disabled=true;return;}$('mobileTaskAction').disabled=false;
  const j=currentJob(),task=state.panelMode==='task'&&j,step=task?(j.state==='complete'?'compare':'process'):'observe';
+ const attention=(state.jobs||[]).filter(job=>['needs-input','running','queued'].includes(job.state)&&job.assetId===state.project?.activeAssetId).length;if(attention&&document.body.dataset.mode==='library')$('modeStudio').dataset.badge=String(attention);else delete $('modeStudio').dataset.badge;
  for(const [id,key]of[['flowObserve','observe'],['flowProcess','process'],['flowCompare','compare']])$(id).classList.toggle('current',step===key);
  let title='描述你想要的修改',detail='观察好了？用一句话告诉 Agent',icon='✎';
  if(task){icon=j.state==='complete'?'✓':['failed','needs-input'].includes(j.state)?'!':'◷';title=j.state==='running'?'正在修改 · '+(phaseNames[j.progress?.phase]||'Agent 执行中'):j.state==='queued'?(state.agent?.connected?'任务排队中':'等待连接 Agent'):j.state==='complete'?'候选已返回 · 检查效果':statusNames[j.state]||'查看修改任务';detail=j.state==='running'?(j.progress?.message||j.activity?.message||'处理结束后自动显示对照'):j.state==='complete'?'比较效果，也可以基于这版继续调整':'点击查看详情与下一步';}
@@ -474,10 +513,10 @@ async function loadJobHistory({more=false}={}){
 function drawJobs(){
  if($('motionTrialInspector'))$('motionTrialInspector').hidden=!state.motionPreview;if(state.motionPreview){$('composePanel').hidden=true;$('latestJob').hidden=true;return;}
  const count=state.jobCounts?.[state.project?.activeAssetId]?.total??state.jobs.length;
- $('jobCount').textContent=count;$('headerJobCount').textContent=count;$('sidebarJobCount').textContent=count;
+ $('jobCount').textContent=count;$('headerJobCount').textContent=count;
  const history=state.historyAssetId===state.project?.activeAssetId?state.historyJobs:[],historyKey=history.map(j=>j.id+':'+j.detailRevision).join('|');
  if(historyKey!==historyRenderSignature){historyRenderSignature=historyKey;const host=$('historyList');host.replaceChildren();
-  for(const job of history){const card=el('button',undefined,'history-card');card.append(el('span',statusNames[job.state]||job.state,'status-label '+job.state),el('strong',job.request),el('small',(job.clip||'静态资源')+' · '+new Date(job.createdAt||Date.now()).toLocaleString([],{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})));card.onclick=async()=>{const ticket=viewState.capture();try{const full=await ensureJobDetail(job);if(!full||!viewState.isUnchanged(ticket,job.assetId))return;state.selectedJob=job.id;state.panelMode='task';$('libraryDialog').close();if(full.state==='complete')await showCandidate(full,{restoreAppearance:true});else drawLatestJob();$('taskPanel').scrollIntoView({block:'nearest',behavior:'smooth'});}catch(e){fail(e);}};host.append(card);}
+  for(const job of history){const card=el('button',undefined,'history-card');card.append(el('span',statusNames[job.state]||job.state,'status-label '+job.state),el('strong',job.request),el('small',(job.clip||'静态资源')+' · '+new Date(job.createdAt||Date.now()).toLocaleString([],{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})));card.onclick=async()=>{const ticket=viewState.capture();try{const full=await ensureJobDetail(job);if(!full||!viewState.isUnchanged(ticket,job.assetId))return;state.selectedJob=job.id;state.panelMode='task';castBrowser?.setMode('studio');$('libraryDialog').close();if(full.state==='complete')await showCandidate(full,{restoreAppearance:true});else drawLatestJob();$('taskPanel').scrollIntoView({block:'nearest',behavior:'smooth'});}catch(e){fail(e);}};host.append(card);}
   if(!history.length)host.append(el('p',count?'打开修改记录后按需读取历史。':'每一次要求、候选和决定都会保存在这里。','clip-empty'));
  }
  $('historyMore').hidden=$('historyList').hidden||!state.historyHasMore||state.historyAssetId!==state.project?.activeAssetId;$('historyMore').textContent='加载更多记录（已显示 '+history.length+' / '+(state.historyTotal||count)+'）';
@@ -674,15 +713,14 @@ $('snapshotButton').onclick=async()=>{if(!state.ready||state.loading||state.swit
 $('exportFeedback').onclick=async()=>{try{const data=await api('/api/export');downloadBlob(new Blob([JSON.stringify({...data,studioVersion:3},null,2)],{type:'application/json'}),'motion-feedback.json');toast('反馈与修改任务已导出。');}catch(e){fail(e);}};
 function openInfo(){const m=activeModel();if(!m)return;const host=$('sceneInfo');host.replaceChildren();const grid=el('div',undefined,'info-grid');for(const [number,label]of[[m.clips.length,'动作片段'],[m.joints.length,'骨骼 / 节点'],[m.meshes.length,'网格']]){const card=el('div');card.append(el('b',String(number)),el('small',label));grid.append(card);}host.append(grid,el('p','当前文件：'+m.meta.label),el('p','固定版本：'+m.meta.sha256),el('p','默认以修改前的静止最大尺寸归一化到 2 个显示单位，两版共用缩放与偏移；可在视角与显示中检查原始尺度和原点。'),el('p','审阅帧号从零计数，不是源 Blender / FBX 帧号。修改应以秒数和制作源映射定位。'),el('p','本预览不包含游戏中的运行时 IK、衣料、动作混合与特效；游戏接入需另行检查。'));$('contextJSON').textContent=JSON.stringify(context(),null,2);$('infoDialog').showModal();}
 $('assetInfo').onclick=openInfo;$('viewInitialOriginal').onclick=async()=>{try{state.archivedJobId=null;await refreshModels({preserve:true});state.focus='baseline';state.display='single';$('focusSlot').value='baseline';clearTarget();drawLibrary();drawMetadata();updateDisplay();drawJobs();$('infoDialog').close();if($('libraryDialog').open)$('libraryDialog').close();notice('正在查看最初原版。任务中的“修改前”指该轮实际输入的版本。');}catch(error){fail(error);}};
-$('navStudio').onclick=()=>{$('stage').scrollIntoView({block:'nearest',behavior:'smooth'});$('stage').focus({preventScroll:true});};
-$('navLibrary').onclick=()=>$('openLibrary').click();$('navHistory').onclick=()=>$('openHistory').click();$('sidebarAssetInfo').onclick=openInfo;$('sidebarImport').onclick=()=>$('openAssets').click();$('sidebarHelp').onclick=()=>$('helpButton').click();
+$('sidebarImport').onclick=()=>$('openAssets').click();
 $('quickFit').onclick=()=>$('fitView').click();$('quickSnapshot').onclick=()=>$('snapshotButton').click();
 $('openLibrary').onclick=()=>{setLibraryTab(false);$('libraryDialog').showModal();};$('openHistory').onclick=()=>{setLibraryTab(true);$('libraryDialog').showModal();};$('motionSelect').onchange=e=>selectMotion(e.target.value);
 $('importDone').onclick=()=>{$('importDialog').close();$('stage').scrollIntoView({block:'center',behavior:'smooth'});};$('importMine').onclick=()=>$('importDialog').showModal();$('openSettings').onclick=()=>$('settingsDialog').showModal();$('projectButton').onclick=()=>openProjectDialog();$('linkProjectInline').onclick=()=>openProjectDialog();$('projectContextDetails').addEventListener('click',e=>{if(e.target===$('projectContextSummary')&&state.projectLink?.status!=='linked'){e.preventDefault();openProjectDialog();}});$('projectContextDetails').addEventListener('toggle',()=>{if($('projectContextDetails').open)scheduleProjectPreview();});$('request').addEventListener('input',()=>scheduleProjectPreview());
 $('useSuggestedProject').onclick=()=>openLinkedProject(state.projectLink?.suggested?.root);$('projectPathForm').onsubmit=e=>{e.preventDefault();openLinkedProject($('projectPath').value);};$('confirmProjectFolder').onclick=()=>openLinkedProject(selectedProjectFolder);$('pickProjectFolder').onclick=async()=>{if(projectBusy)return;projectBusy=true;$('pickProjectFolder').disabled=true;projectStatus('请选择项目文件夹…');try{const result=await api('/api/project/select-folder','POST',{});if(result.cancelled){projectStatus('已取消选择，当前工作区保持。');return;}if(!result.path)throw Error('没有收到文件夹路径。');selectedProjectFolder=result.path;$('projectPath').value=result.path;$('projectSelectedPath').textContent=result.path;$('projectSelection').hidden=false;projectStatus('');}catch(error){projectStatus(error.message+'。也可以粘贴文件夹路径。',true);$('projectPathFallback').open=true;}finally{projectBusy=false;$('pickProjectFolder').disabled=false;}};
 $('showAllBones').onchange=updateBoneChoices;$('openTarget').onclick=()=>$('targetDialog').showModal();$('localTarget').onclick=()=>$('targetDialog').showModal();
 for(const id of ['openScope','scopeChip'])$(id).onclick=()=>$('scopeDialog').showModal();$('applyScope').onclick=()=>{try{scope();updateScopeVisual();$('scopeDialog').close();}catch(e){fail(e);}};
-$('mobileTaskAction').onclick=()=>{$('taskPanel').scrollIntoView({block:'start',behavior:'smooth'});if(state.panelMode==='compose')setTimeout(()=>$('request').focus({preventScroll:true}),250);};
+$('mobileTaskAction').onclick=()=>{castBrowser?.setMode('studio');$('taskPanel').scrollIntoView({block:'start',behavior:'smooth'});if(state.panelMode==='compose')setTimeout(()=>$('request').focus({preventScroll:true}),250);};
 document.querySelectorAll('[data-version]').forEach(b=>b.onclick=()=>{state.display=b.dataset.version==='compare'?'split':'single';if(state.display==='single')state.focus=b.dataset.version;state.time=Math.min(state.time,duration());clearTarget();drawLibrary();updateBoneChoices();drawMetadata();updateDisplay();drawJobs();});
 
 $('openAssets').onclick=()=>$('importDialog').showModal();$('helpButton').onclick=()=>$('helpDialog').showModal();$('footerHelp').onclick=()=>$('helpDialog').showModal();document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>b.closest('dialog').close());document.querySelectorAll('[data-help]').forEach(b=>b.onclick=()=>{for(const name of ['guide','case','connect'])$('help'+name[0].toUpperCase()+name.slice(1)).hidden=name!==b.dataset.help;document.querySelectorAll('[data-help]').forEach(x=>x.classList.toggle('active',x===b));});
@@ -716,5 +754,5 @@ renderLoop=createDemandLoop({requestFrame:requestAnimationFrame,cancelFrame:canc
 
 async function loadCase(){try{const r=await fetch('/case/case.json');if(!r.ok)return;const c=await r.json();for(const section of c.sections||[]){$('caseContent').append(el('h3',section.title));for(const p of section.paragraphs||[])$('caseContent').append(el('p',p));if(section.quote)$('caseContent').append(el('blockquote',section.quote));for(const item of section.images||[]){const img=el('img');img.src='/case/'+item.file;img.alt=item.caption;$('caseContent').append(img,el('p',item.caption));}}const link=el('a','查看证据与来源记录');link.href='/case/evidence.json';link.target='_blank';$('caseContent').append(link);}catch{}}
 let persistTimer;function persistView(){if(state.motionPreview)return;return saveViewDraft(()=>localStorage,viewState,state,()=>({context:context(),request:$('request').value,preserve:$('preserve').value,selectedJob:state.selectedJob,panelMode:state.panelMode,comparisonPair:state.comparisonPair,composerSource:state.composerSource,lineageParentJobId:state.lineageParentJobId,composerIntent:state.panelMode==='compose'&&Boolean(state.composerSource||$('request').value.trim())}));}window.addEventListener('beforeunload',persistView);document.addEventListener('visibilitychange',()=>{if(document.hidden)persistView();});persistTimer=setInterval(persistView,5000);
-try{await refreshModels();await restoreModelDraft();await pollStudio();state.initialized=true;$('taskRestoring').hidden=true;$('taskFooter').hidden=false;drawMetadata();drawLatestJob();updateDisplay();}catch(e){state.initialized=true;$('taskRestoring').hidden=true;$('taskFooter').hidden=false;drawLatestJob();fail(e,true);}loadProjectIdentity().catch(error=>{$('projectButton').title='项目状态暂未同步：'+error.message;});loadCase();refreshCatalog().catch(e=>catalogMessage(e.message,true));setInterval(()=>{pollStudio();if(state.catalog?.scan?.state==='scanning'||$('modelCatalogDialog').open)refreshCatalog().catch(e=>catalogMessage(e.message,true));},1800);setInterval(updateTaskClock,1000);
-window.motionReview={state,openCatalogModel,refreshCatalog,seek,view,refresh:refreshModels,render,context,cameras,controls,showCandidate,pollStudio,clearTarget,selectMotion};
+try{await refreshModels();await restoreModelDraft();await pollStudio();state.initialized=true;$('taskRestoring').hidden=true;$('taskFooter').hidden=false;drawMetadata();drawLatestJob();updateDisplay();}catch(e){state.initialized=true;$('taskRestoring').hidden=true;$('taskFooter').hidden=false;drawLatestJob();fail(e,true);}castBrowser.loadCast();loadProjectIdentity().catch(error=>{$('projectButton').title='项目状态暂未同步：'+error.message;});loadCase();refreshCatalog().catch(e=>catalogMessage(e.message,true));setInterval(()=>{pollStudio();if(state.catalog?.scan?.state==='scanning'||$('modelCatalogDialog').open)refreshCatalog().catch(e=>catalogMessage(e.message,true));},1800);setInterval(updateTaskClock,1000);
+window.motionReview={state,castBrowser,thumbnailStudio,openCatalogModel,refreshCatalog,seek,view,refresh:refreshModels,render,context,cameras,controls,showCandidate,pollStudio,clearTarget,selectMotion};

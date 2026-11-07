@@ -232,7 +232,7 @@ export function createModelCatalog({
     const view = getView();
     host.replaceChildren();
     $('modelCount').textContent = (data.sourceTotal??data.total)+' 文件';
-    $('sidebarModelCount').textContent = (data.sourceTotal??data.total)+' 文件';
+    if ($('sidebarModelCount')) $('sidebarModelCount').textContent = (data.sourceTotal??data.total)+' 文件';
     const scan = data.scan || {};
     const scanning = scan.state === 'scanning';
     $('refreshCatalog').disabled = scanning;
@@ -290,10 +290,12 @@ export function createModelCatalog({
   }
   if ($('catalogCharacters')) $('catalogCharacters').onclick = () => switchMode('characters').catch(showError);
   if ($('catalogFiles')) $('catalogFiles').onclick = () => switchMode('files').catch(showError);
-  $('openModelCatalog').onclick = $('navCatalog').onclick = () => {
+  const openCatalog = () => {
     $('modelCatalogDialog').showModal();
     return refresh().catch(showError);
   };
+  $('openModelCatalog').onclick = openCatalog;
+  if ($('navCatalog')) $('navCatalog').onclick = openCatalog;
   $('refreshCatalog').onclick = async () => {
     try {
       await api('/api/catalog/scan', 'POST', {});

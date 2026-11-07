@@ -4,7 +4,8 @@ import {basename} from 'node:path';
 import {inside,readProject,modelSlots,sha,withWorkspaceLock} from './core.mjs';
 import {readCatalog} from './asset-catalog.mjs';
 import {getProjectLink} from './project-context.mjs';
-import {motionTargetResolver} from './motion-assembly.mjs';
+import {motionTargetResolver,gltfClips} from './motion-assembly.mjs';
+import {parseGlb} from './asset-tools.mjs';
 import {motionLibrary,registerMotionPack,previewMotion} from './motion-library.mjs';
 
 const jobs=new Map(),sourceCache=new Map(),inventories=new Map(),MAX_JSON=8*1024*1024,MAX_VIEW=32*1024*1024;
@@ -48,13 +49,14 @@ async function inventory(work){
 async function scan(work,job){
  try{
   const fh=await open(await inside(work,job.target.asset.file),'r');let base,preset=new Set();
-  try{base=await header(fh);job.presetNames=new Set((base.doc.animations||[]).map(a=>a.name));const actual=await readFile(await inside(work,job.target.asset.file));required(sha(actual)===job.target.asset.sha256,'角色快照已损坏');const resolver=motionTargetResolver(base.doc,base.doc),views=new Map();for(const clip of base.doc.animations||[])try{preset.add(await curveHash(fh,base,clip,resolver,views));}catch{} }finally{await fh.close();}
+  try{base=await header(fh);job.presetNames=new Set((base.doc.animations||[]).map(a=>a.name));const actual=await readFile(await inside(work,job.target.asset.file));required(sha(actual)===job.target.asset.sha256,'角色快照已损坏');const resolver=motionTargetResolver(base.doc,base.doc),views=new Map();for(const clip of base.doc.animations||[]){if(job.retired)return;try{preset.add(await curveHash(fh,base,clip,resolver,views));}catch{}} }finally{await fh.close();}
   const unique=new Map();
   const deadline=Date.now()+120000;for(const source of job.sources){if(job.retired)return;if(Date.now()>deadline){job.state='partial';return;}job.checked++;if(source.file===await inside(work,job.target.asset.file))continue;
    let fh;try{
     fh=await open(source.file,'r');const mapping=source.kind==='pack'?job.mappings.find(m=>m.targetSha===job.target.asset.sha256&&m.sourceSha===source.versionId):null;source.mappingId=mapping?.id;const info=await fh.stat(),fingerprint=stamp(info),key=digest([work,source.file,fingerprint,job.target.asset.sha256,mapping?.id]);let entries=sourceCache.get(key);
     if(!entries){const meta=await header(fh),resolver=motionTargetResolver(base.doc,meta.doc,mapping?.nodeMap||{}),views=new Map();entries=[];let incompatible=0;
      for(const [index,clip]of (meta.doc.animations||[]).entries()){
+      if(job.retired)return; // a cancelled file is never cached half-read
       try{required(clip.channels?.length,'空动作');const curve=await curveHash(fh,meta,clip,resolver,views);entries.push({clip:clip.name||'animation_'+index,curve,duration:Math.max(0,...clip.samplers.map(s=>meta.doc.accessors?.[s.input]?.max?.[0]||0))});}catch{incompatible++;}
      }
      required(stamp(await fh.stat())===fingerprint,'读取期间来源变化');entries={rows:entries,incompatible};sourceCache.set(key,entries);while(sourceCache.size>1200)sourceCache.delete(sourceCache.keys().next().value);
@@ -83,6 +85,52 @@ export async function previewCharacterAction(work,input={}){return withWorkspace
  else{const library=await motionLibrary(work),source=entry.source,pack=await registerMotionPack(work,{...(source.kind==='project'?{sourceId:source.sourceId}:{assetId:source.ownerId,slot:source.slot,expectedModelSha:source.assetSha}),clips:[entry.clip],expectedRevision:library.revision,name:source.name+' / '+entry.clip});request={assetId:target.assetId,slot:target.slot,expectedModelSha:target.asset.sha256,packId:pack.pack.id,versionId:pack.version.id,clip:entry.clip};}
  const result=await previewMotion(work,request);return {result,request};
 });}
+// Read-only curve resolution for thumbnails and hover previews. Unlike
+// previewCharacterAction this never registers a motion pack or touches
+// motion-library.json; it re-reads the exact source the scan indexed.
+const CURVE_BATCH=12,curveTargets=new Map();
+function resampleTrack(track,times){
+ const width=track.values.length/Math.max(1,track.times.length),cubic=track.interpolation==='CUBICSPLINE',stride=cubic?width:width,valueWidth=cubic?width/3:width;
+ const at=(key,i)=>track.values[key*stride+(cubic?valueWidth:0)+i];
+ const values=[];
+ for(const t of times){
+  let hi=track.times.findIndex(x=>x>=t);if(hi<0)hi=track.times.length-1;const lo=Math.max(0,hi-1);
+  const span=track.times[hi]-track.times[lo],f=track.interpolation==='STEP'||span<=0?0:Math.min(1,Math.max(0,(t-track.times[lo])/span));
+  const row=[];for(let i=0;i<valueWidth;i++)row.push(at(lo,i)+(at(hi,i)-at(lo,i))*f);
+  if(track.path==='rotation'){const n=Math.hypot(...row)||1;for(let i=0;i<row.length;i++)row[i]/=n;}
+  values.push(...row);
+ }
+ return {...track,interpolation:'LINEAR',times,values};
+}
+async function curveTarget(work,asset){
+ const cached=curveTargets.get(asset.sha256);if(cached)return cached;
+ const doc=parseGlb(await readFile(await inside(work,asset.file))).doc;
+ curveTargets.set(asset.sha256,doc);while(curveTargets.size>4)curveTargets.delete(curveTargets.keys().next().value);return doc;
+}
+export async function characterActionCurves(work,input={}){
+ const ids=[...new Set((Array.isArray(input.actionIds)?input.actionIds:[]).map(String))].slice(0,CURVE_BATCH);
+ required(ids.length,'需要选择动作');
+ const samples=input.samples==null?null:Math.floor(Number(input.samples));required(samples==null||samples>=2&&samples<=120,'采样数需要在 2–120 之间');
+ const target=await withWorkspaceLock(work,()=>targetInfo(work,input)),key=work+'|'+target.assetId+'|'+target.slot+'|'+target.asset.sha256,job=jobs.get(key);
+ required(job&&!job.retired,'动作列表已更新，请重新选择');
+ const base=await curveTarget(work,target.asset),groups=new Map(),results={};
+ for(const id of ids){const entry=job.details.get(id);if(!entry){results[id]={error:'动作列表已更新，请重新选择'};continue;}const list=groups.get(entry.source.file)||[];list.push([id,entry]);groups.set(entry.source.file,list);}
+ for(const [file,list]of groups){
+  try{
+   required(list.every(([,entry])=>entry.fingerprint===list[0][1].fingerprint),'动作来源已变化，请重新匹配');
+   const bytes=await readFile(file);required(stamp(await stat(file))===list[0][1].fingerprint,'动作来源已变化，请重新匹配');
+   const mapping=list[0][1].source.mappingId?job.mappings.find(m=>m.id===list[0][1].source.mappingId):null;
+   const clips=await gltfClips(base,bytes,{clips:list.map(([,entry])=>entry.clip),nodeMap:mapping?.nodeMap||{}});
+   for(const [id,entry]of list){
+    const clip=clips.find(c=>c.name===entry.clip);if(!clip?.tracks.length){results[id]={error:'所选动作没有可用轨道'};continue;}
+    const duration=Math.max(0,...clip.tracks.map(t=>t.times.at(-1)||0));
+    const times=samples?Array.from({length:samples},(_,i)=>duration*i/(samples-1)):null;
+    results[id]={name:clip.name,duration,tracks:times?clip.tracks.map(t=>resampleTrack(t,times)):clip.tracks};
+   }
+  }catch(error){for(const [id]of list)results[id]={error:error.message};}
+ }
+ return {assetId:target.assetId,slot:target.slot,modelSha:target.asset.sha256,clips:results};
+}
 export async function waitForCharacterActions(work,input={}){const state=await discoverCharacterActions(work,input),key=work+'|'+state.assetId+'|'+state.slot+'|'+state.modelSha;await jobs.get(key)?.done;return discoverCharacterActions(work,input);}
 
 export async function stopCharacterActionDiscovery(work){const pending=[];for(const [key,job]of jobs)if(key.startsWith(work+'|')){job.retired=true;pending.push(job.done);jobs.delete(key);}await Promise.allSettled(pending);}

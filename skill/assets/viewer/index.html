@@ -2,68 +2,58 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="color-scheme" content="light">
-  <meta name="theme-color" content="#e5e8ef">
-  <title>动作台 MotionStage · 3D 模型与动画工作台</title>
-  <link rel="icon" href="/viewer/app-icon.svg" type="image/svg+xml">
+  <meta name="theme-color" content="#f5f5f7">
+  <title>动作台 MotionStage</title>
+  <link rel="icon" href="/viewer/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/viewer/style.css">
   <link rel="stylesheet" href="/viewer/motion-workspace.css">
+  <link rel="stylesheet" href="/viewer/library.css">
   <script type="importmap">{"imports":{"three":"/vendor/three/build/three.module.js","three/addons/":"/vendor/three/examples/jsm/"}}</script>
 </head>
-<body>
+<body data-mode="library">
 <a class="skip-link" href="#stage">跳至三维预览</a>
 <div class="atelier-window">
   <header class="topbar">
     <a class="brand" href="/" aria-label="动作台首页">
-      <span class="brand-mark" data-icon="atelier"></span>
-      <span class="brand-copy"><b>动作台</b><small>MOTIONSTAGE · 3D 模型与动画工作台</small></span>
+      <img class="brand-mark" src="/viewer/app-icon.svg" alt="" width="30" height="30" draggable="false">
+      <span class="brand-copy"><b>动作台</b><small>MotionStage</small></span>
     </a>
-    <span class="header-divider"></span>
     <button id="projectButton" class="project-button" title="关联游戏项目">
       <span data-icon="folder"></span><span id="projectButtonLabel">关联项目</span><span class="project-link-dot"></span><span data-icon="chevron"></span>
     </button>
     <span id="workspaceTitle" class="workspace-name" hidden>动作修改工作台</span>
+    <nav class="mode-switch" role="tablist" aria-label="工作模式">
+      <button id="modeLibrary" type="button" role="tab" aria-selected="true" class="active" data-icon="grid">动作库</button>
+      <button id="modeStudio" type="button" role="tab" aria-selected="false" data-icon="wand">修改</button>
+    </nav>
     <nav class="header-actions" aria-label="工作台工具">
-      <button id="openMotionWorkspace" class="quiet" data-icon="layers">版本与来源</button>
-      <button id="openModelCatalog" class="quiet" data-icon="folder">项目文件 <span id="modelCount">—</span></button>
-      <button id="openHistory" class="quiet" data-icon="history">修改记录 <span id="headerJobCount">—</span></button>
-      <button id="openEnvironment" class="quiet" data-icon="shield">环境检查</button>
-      <button id="helpButton" class="icon-button" aria-label="使用帮助" title="使用帮助" data-icon="help"></button>
-      <span class="header-divider"></span>
-      <button id="openAssets" class="import-button" data-icon="plus">导入素材</button>
+      <button id="openHistory" class="quiet history-button" data-icon="history"><span class="label">修改记录</span><span id="headerJobCount" class="count-pill">—</span></button>
+      <button id="openAssets" class="import-button" data-icon="plus">导入</button>
+      <div class="menu-anchor">
+        <button id="moreMenuButton" class="icon-button" type="button" aria-label="更多工具" title="更多" aria-haspopup="menu" aria-expanded="false" data-icon="more"></button>
+        <div id="moreMenu" class="popover-menu" role="menu" hidden>
+          <button id="openMotionWorkspace" role="menuitem" data-icon="layers"><span>版本与来源</span></button>
+          <button id="openModelCatalog" role="menuitem" data-icon="folder"><span>项目文件</span><span id="modelCount" class="menu-meta">—</span></button>
+          <button id="openEnvironment" role="menuitem" data-icon="shield"><span>环境检查</span></button>
+          <hr>
+          <button id="helpButton" role="menuitem" data-icon="help"><span>使用帮助</span></button>
+        </div>
+      </div>
     </nav>
   </header>
   <div class="app-shell">
-    <aside class="workspace-sidebar" aria-label="素材导航">
-      <div class="sidebar-section-label">工作空间</div>
-      <nav class="workspace-nav" aria-label="工作空间导航">
-        <button id="navStudio" class="sidebar-item active" aria-current="page" data-icon="studio"><span>动作工作室</span></button>
-        <button id="navMotionWorkspace" class="sidebar-item" data-icon="layers"><span>版本与来源</span><span class="mw-nav-new">NEW</span></button>
-        <button id="navCatalog" class="sidebar-item" data-icon="folder"><span>项目文件</span><span id="sidebarModelCount" class="nav-count">—</span></button>
-        <button id="navLibrary" hidden class="sidebar-item" data-icon="layers"><span>素材与动作</span><span id="sidebarClipCount" class="nav-count">—</span></button>
-        <button id="navHistory" class="sidebar-item" data-icon="history"><span>修改记录</span><span id="sidebarJobCount" class="nav-count">—</span></button>
-      </nav>
-      <div class="sidebar-divider"></div>
-      <div class="sidebar-section-label sidebar-label-row"><span>当前角色</span><button id="sidebarAssetInfo" class="icon-button" aria-label="查看当前素材信息" title="素材信息" data-icon="more"></button></div>
-      <div class="sidebar-asset">
-        <span class="asset-glyph" data-icon="cube"></span>
-        <div><b id="sidebarAssetName">正在读取角色</b><small id="sidebarAssetMeta">本地素材</small></div>
-      </div>
-      <div id="desktopActionMount"><section id="inlineActionPanel" aria-label="此角色可用动作"><div class="inline-action-panel-title">角色与可用动作</div>
-      <label class="inline-character-label" for="inlineCharacterSelect">切换角色</label><select id="inlineCharacterSelect" aria-label="切换角色" disabled><option>正在读取项目角色…</option></select>
-      <div class="inline-action-tools"><input id="inlineActionSearch" type="search" placeholder="搜索此角色可用的动作" aria-label="搜索角色动作"><select id="inlineActionFilter" aria-label="动作来源筛选"><option value="all">全部动作</option><option value="preset">角色预设</option><option value="compatible">其他兼容</option><option value="variants">预设其他版本</option></select></div>
-      <div class="inline-action-status"><span id="inlineActionStatus" role="status">自动匹配兼容动作</span><button id="refreshCompatibleActions" aria-label="重新匹配兼容动作">↻</button></div>
-      <div id="inlineActionScroll" class="inline-action-scroll"><div id="inlineAllActionList" class="inline-all-actions" role="group" aria-label="全部可用动作"></div><section id="presetActionGroup"><div class="inline-action-heading"><span>角色预设</span><b id="presetActionCount">—</b></div><div id="sidebarClipList" class="sidebar-clips" role="group" aria-label="当前资源动作"></div></section><section id="savedActionGroup" hidden><div class="inline-action-heading"><span>已保存动作</span></div><div id="savedActionList"></div></section><section id="compatibleActionGroup"><div class="inline-action-heading"><span>其他兼容动作</span><b id="compatibleActionCount">—</b></div><div id="compatibleActionList" role="group" aria-label="其他兼容动作"></div></section></div>
-      </section></div>
-      <button id="sidebarImport" class="sidebar-add" data-icon="plus">导入新素材</button>
-      <div class="sidebar-bottom">
-        <div class="preservation-note"><span data-icon="shield"></span><div><b>原版始终保留</b><small>每一次尝试，都可以回看。</small></div></div>
-        <button id="sidebarHelp" class="sidebar-guide" data-icon="help"><span>使用帮助</span><span data-icon="external"></span></button>
+    <aside id="castRail" class="cast-rail" aria-label="角色">
+      <div class="rail-head"><span>角色</span><span id="castTotal" class="rail-total"></span></div>
+      <div id="castList" class="cast-list" role="listbox" aria-label="项目角色"><p class="rail-message">正在读取角色…</p></div>
+      <div class="rail-foot">
+        <button id="castGalleryButton" class="rail-button" type="button" title="全部角色" aria-label="全部角色" data-icon="users"><span>全部</span></button>
+        <button id="sidebarImport" class="rail-button" type="button" title="导入素材" aria-label="导入素材" data-icon="plus"><span>导入</span></button>
       </div>
     </aside>
     <main class="stage-column">
-      <div class="workflow-header">
+      <div class="workflow-header studio-only">
         <div class="workflow" aria-label="修改流程">
           <span id="flowObserve"><i>1</i>观察动作</span><span class="flow-line"></span>
           <span id="flowProcess"><i>2</i>交给 Agent</span><span class="flow-line"></span>
@@ -73,11 +63,11 @@
       </div>
       <div class="stage-heading">
         <div class="asset-heading"><span id="stageEyebrow" class="eyebrow">当前素材</span><h1 id="clipTitle">正在载入角色…</h1><span id="roleName" class="asset-subtitle">本地工作空间</span></div>
-        <div class="stage-heading-actions"><select id="motionSelect" aria-label="选择动作"><option>读取动作…</option></select><button id="openLibrary" class="icon-button" aria-label="素材详情与动作库" title="素材详情与动作库" data-icon="more"></button></div>
+        <div class="stage-heading-actions"><select id="motionSelect" class="studio-only" aria-label="选择动作"><option>读取动作…</option></select><button id="editThisAction" type="button" class="edit-action library-only" data-icon="wand">修改这个动作</button><button id="openLibrary" class="icon-button" aria-label="素材详情" title="素材详情" data-icon="more"></button></div>
       </div>
       <div id="exampleBanner" class="example-banner" hidden><span>原创练习角色，试着收小一点左臂摆幅。</span><button id="importMine" class="text-button">导入我的角色 ↗</button></div>
       <div id="motionPreviewBar" class="mw-preview-bar" hidden aria-label="公共动作试播"></div>
-      <div class="preview-header">
+      <div class="preview-header studio-only">
         <div id="versionModes" class="version-modes" role="group" aria-label="查看版本"><button data-version="baseline" class="active">修改前</button><button data-version="candidate">修改后</button><button data-version="compare">并排对照</button></div>
         <div id="singleVersion" class="single-version">正在观察原版</div>
         <div class="preview-options"><button id="returnCurrent" class="text-button" hidden>↩ 返回当前素材</button><button id="openSettings" class="text-button" data-icon="sliders">视角与显示</button></div>
@@ -108,13 +98,21 @@
           <button id="openScope" class="text-button" data-icon="range">选一段修改</button>
         </div>
       </section>
-      <p id="observationConditions" class="observation-conditions" role="status"></p>
+      <p id="observationConditions" class="observation-conditions studio-only" role="status"></p>
       <div class="stage-footnote"><span><span class="live-dot"></span>本地三维预览</span><span class="desktop-shortcuts"><kbd>空格</kbd> 播放 / 暂停 <span class="key-separator">·</span> <kbd>←</kbd><kbd>→</kbd> 逐帧</span><span class="touch-hint">拖动旋转 · 双指缩放 · 轻点选部位</span></div>
-      <div id="mobileActionMount"></div>
-      <div id="notice" class="inline-notice" hidden role="status"></div>
+            <div id="notice" class="inline-notice" hidden role="status"></div>
     </main>
-    <aside id="taskPanel" class="task-panel" aria-label="修改任务">
-      <div class="inspector-heading"><span data-icon="sliders"></span><b>调整工作台</b><span class="inspector-tag">INSPECTOR</span></div>
+    <section id="actionBrowser" class="action-browser library-only" aria-label="动作库">
+      <header class="ab-head">
+        <div class="ab-title-row"><h2 id="abTitle">动作库</h2><span id="abCount" class="ab-count"></span></div>
+        <label class="ab-search"><span data-icon="search"></span><input id="abSearch" type="search" placeholder="搜索动作、类别或原名" aria-label="搜索动作（快捷键 /）" autocomplete="off" spellcheck="false"></label>
+        <div id="abCategories" class="ab-chips" role="tablist" aria-label="动作类别"></div>
+        <div id="abStatus" class="ab-status" role="status"></div>
+      </header>
+      <div id="abScroll" class="ab-scroll"><div id="abSections"></div></div>
+    </section>
+    <aside id="taskPanel" class="task-panel studio-only" aria-label="修改任务">
+      <div class="inspector-heading"><span data-icon="sliders"></span><b>调整工作台</b></div>
       <div class="task-scroll">
         <section id="taskRestoring" class="task-restoring"><div class="state-symbol running" aria-hidden="true"></div><h2>正在恢复工作台…</h2><p>读取角色与任务状态，稍候即可继续。</p></section>
         <section id="composePanel" class="compose-panel" hidden>
@@ -135,7 +133,7 @@
           </form>
           <details id="localTools" class="local-tools"><summary>先试一次本地微调 <span>无需 AI</span></summary><p>选择身体部位，直接调整旋转摆幅，快速比较效果。</p><button id="localTarget" class="text-button">选择修改部位 ↗</button><label class="field-label" for="swingFactor">摆动幅度 <output id="factorLabel">70%</output></label><input id="swingFactor" type="range" min="0.2" max="1.5" step=".05" value=".7" aria-label="摆动幅度倍率"><button id="localEdit" class="secondary-button" disabled>生成本地微调候选</button><small>数值工具，不调用 AI。其他骨骼与时长保留。</small></details>
         </section>
-        <section id="motionTrialInspector" class="mw-trial-inspector" hidden><span class="mw-overline">MOTION EXPLORER</span><h2>直接试播，再决定。</h2><p>这是其他来源的兼容动作。可继续点选旁边的动作，或将当前版本加入常用。</p><div class="mw-trial-note">原有动作保留。<br>试播满意后，再保存选择。</div><button id="trialBrowse" class="secondary-button">查看动作来源与版本 ↗</button></section>
+        <section id="motionTrialInspector" class="mw-trial-inspector" hidden><span class="mw-overline">动作试播</span><h2>直接试播，再决定。</h2><p>这是其他来源的兼容动作。可继续点选旁边的动作，或将当前版本加入常用。</p><div class="mw-trial-note">原有动作保留。<br>试播满意后，再保存选择。</div><button id="trialBrowse" class="secondary-button">查看动作来源与版本 ↗</button></section>
         <section id="latestJob" class="task-state" hidden aria-live="polite"></section>
       </div>
       <footer id="taskFooter" class="task-footer" hidden><button id="agentConnect" class="agent-status" title="连接本机 Codex"><span class="status-dot" id="agentDot"></span><span id="agentLabel">本机 Codex 未连接</span></button><button id="footerHelp" class="text-button" aria-label="打开使用指南" data-icon="help"></button></footer>
@@ -150,8 +148,12 @@
 </span>
 <span>↑</span>
 </button>
+<dialog id="castGallery" class="cast-gallery" aria-labelledby="castGalleryTitle">
+ <header class="cg-head"><div class="cg-title"><span class="cg-kicker">动作台 · 角色</span><h2 id="castGalleryTitle">选择角色</h2></div><label class="cg-search"><span data-icon="search"></span><input id="castGallerySearch" type="search" placeholder="搜索角色或路径" aria-label="搜索角色" autocomplete="off"></label><button data-close class="icon-button" aria-label="关闭角色列表"></button></header>
+ <div id="castGalleryBody" class="cg-body"></div>
+</dialog>
 <dialog id="motionWorkspace" class="motion-workspace" aria-labelledby="motionWorkspaceTitle">
- <header class="mw-top"><a class="mw-wordmark">M<span>↗</span></a><div><span class="mw-overline">MOTIONSTAGE / ASSET STUDIO</span><h2 id="motionWorkspaceTitle">角色与动作</h2></div><span class="mw-local">● 本地资产 · 独立版本</span><button id="closeMotionWorkspace" class="mw-close" aria-label="关闭资产中心">×</button></header>
+ <header class="mw-top"><a class="mw-wordmark" aria-hidden="true"><img src="/viewer/app-icon.svg" alt="" width="40" height="40" draggable="false"></a><div><span class="mw-overline">MOTIONSTAGE / ASSET STUDIO</span><h2 id="motionWorkspaceTitle">角色与动作</h2></div><span class="mw-local">● 本地资产 · 独立版本</span><button id="closeMotionWorkspace" class="mw-close" aria-label="关闭资产中心">×</button></header>
  <div class="mw-hero"><div><span class="mw-overline">从角色开始，按动作工作。</span><h1>先选角色，<br><em>直接预览已有动作。</em></h1><p>想查看、修改角色现有动作，直接打开角色。需要其他动作时，再使用公共动作库。</p><div class="mw-hero-actions"><button id="motionNewPack" class="mw-button mw-primary">＋ 添加公共动作（可选）</button><button id="motionWorkspaceImport" class="mw-button mw-light">导入素材 ↗</button></div></div><div class="mw-hero-orbit" aria-hidden="true"><span class="mw-orbit-ring"></span><span class="mw-orbit-core">M</span><i class="mw-orbit-label one">CHARACTER</i><i class="mw-orbit-label two">MOTION</i><i class="mw-orbit-label three">MAPPING</i></div><div class="mw-stats"><div><b id="mwModelCount">—</b><span id="motionModelStatLabel">项目角色</span></div><div><b id="mwPackCount">—</b><span>公共动作库</span></div><div><b id="mwActionCount">—</b><span>收录动作版本</span></div></div></div>
  <div class="mw-toolbar"><div id="motionTabs" role="tablist" aria-label="资产分类"></div><div class="mw-search"><select id="motionKind" aria-label="资源类型"><option value="all">全部资源类型</option><option value="characters">角色模型</option><option value="objects">静态模型</option><option value="skeletons">骨架与节点</option><option value="curves">独立曲线</option></select><input id="motionSearch" type="search" aria-label="搜索资产" placeholder="搜索名称或版本…"><button id="motionRefresh" class="mw-close" aria-label="刷新资产中心">↻</button></div></div>
  <div class="mw-content"><section class="mw-collection"><div class="mw-collection-heading"><div><h2 id="motionCollectionTitle">角色与模型</h2><p id="motionCollectionSubtitle"></p></div><span class="mw-collection-mark">YOUR COLLECTION</span></div><p id="motionWorkspaceMessage" class="mw-message" role="status"></p><div id="motionAssetGrid" class="mw-grid"></div></section><aside id="motionInspector" class="mw-inspector" aria-label="资产详情与操作"></aside></div>
