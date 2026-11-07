@@ -53,3 +53,10 @@ test('compact studio is revision-aware, selects bounded current summaries and pr
   await atomic(resolve(work,'jobs',jobs[119].id,'job.json'),{...jobs[119],request:'外部工具更新'});const updated=await get('/api/studio?compact=1&since='+compact.revision);assert.equal(updated.unchanged,undefined);assert.notEqual(updated.revision,compact.revision);
  }finally{if(server)await new Promise(r=>server.close(r));await rm(work,{recursive:true,force:true});}
 });
+test('automatic workers leave current-chat tasks queued for their intended consumer',async()=>{
+ const {work,jobs}=await fixture(3);try{
+  const chat={...jobs[1],delivery:'chat'};await atomic(resolve(work,'jobs',chat.id,'job.json'),chat);
+  assert.equal((await listQueuedJobSummaries(work)).length,0);assert.equal((await readJobIndex(work)).rows.find(j=>j.id===chat.id).delivery,'chat');
+  await atomic(resolve(work,'jobs',chat.id,'job.json'),{...chat,delivery:'worker'});assert.equal((await listQueuedJobSummaries(work))[0].id,chat.id);
+ }finally{await rm(work,{recursive:true,force:true});}
+});

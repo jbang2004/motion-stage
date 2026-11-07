@@ -73,7 +73,7 @@ test('candidate display failure retains the complete task result without a false
 });
 
 test('a poll which starts loading geometry cannot adopt a newer foreground mutation after its await',async()=>{
- const h=harness(),reply=deferred();h.state.jobs=[queued];h.pollGates.push(reply);h.ctx.refreshModels=async()=>{h.view.markLoaded(h.view.beginLoad(),'A');h.view.beginMutation();h.state.submitting=true;return {};};
+ const h=harness(),reply=deferred();h.state.jobs=[queued];h.state.panelMode='task';h.state.selectedJob=queued.id;h.pollGates.push(reply);h.ctx.refreshModels=async()=>{h.view.markLoaded(h.view.beginLoad(),'A');h.view.beginMutation();h.state.submitting=true;return {};};
  const pending=h.poll();reply.resolve({project:{activeAssetId:'A',slots:{baseline:asset(),candidate:asset('A','edited')}},jobs:[complete]});await pending;assert.equal(h.shown.length,0);assert.equal(h.toasts.length,0);assert.equal(h.state.submitting,true);
 });
 
@@ -111,7 +111,7 @@ test('a delayed ordinary submit cannot clear a newly selected model draft or con
 });
 
 for(const failure of ['geometry','detail'])test('compact poll retries the complete response after '+failure+' application fails',async()=>{
- const h=harness();h.state.jobs=[queued];let attempts=0;
+ const h=harness();h.state.jobs=[queued];h.state.panelMode='task';h.state.selectedJob=queued.id;let attempts=0;
  h.ctx.ensureJobDetail=async()=>{attempts++;if(failure==='detail'&&attempts===1)throw Error('Detail unavailable');return complete;};
  const goodRefresh=h.ctx.refreshModels;let geometry=0;h.ctx.refreshModels=async()=>{if(failure==='geometry'&&geometry++===0)throw Error('Geometry unavailable');return goodRefresh();};
  const result={version:3,revision:'revision-1',jobsRevision:'jobs-1',jobCounts:{A:{total:1}},totalJobs:1,project:{activeAssetId:'A',slots:{baseline:asset(),candidate:asset('A','edited')}},jobs:[{...complete,summaryOnly:true,detailRevision:'detail-1'}]};
@@ -122,7 +122,7 @@ for(const failure of ['geometry','detail'])test('compact poll retries the comple
  assert.equal(h.requests.filter(r=>r.path==='/api/studio')[1].request.since,null);
 });
 test('a foreground mutation during complete-detail loading prevents automatic candidate display',async()=>{
- const h=harness(),detail=deferred();h.state.jobs=[queued];h.ctx.ensureJobDetail=()=>detail.promise;
+ const h=harness(),detail=deferred();h.state.jobs=[queued];h.state.panelMode='task';h.state.selectedJob=queued.id;h.ctx.ensureJobDetail=()=>detail.promise;
  const response=deferred();h.pollGates.push(response);const pending=h.poll();response.resolve({version:3,revision:'r1',project:{activeAssetId:'A',slots:{baseline:asset(),candidate:asset('A','edited')}},jobs:[{...complete,summaryOnly:true,detailRevision:'d1'}]});await tick();h.view.beginMutation();detail.resolve(complete);await pending;
  assert.equal(h.shown.length,0);assert.notEqual(h.state.studioRevision,'r1');
 });

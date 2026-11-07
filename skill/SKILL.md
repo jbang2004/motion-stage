@@ -1,121 +1,91 @@
 ---
 name: motion-stage
-description: Local 3D character animation studio for game projects with GLB/FBX assets. Browse a project's characters and every action each rig can play (rendered thumbnails, compatible actions auto-matched across the project), try another file's action on a character, compare candidates, and fix or tweak animations through a reviewed agent task loop. Use for 3D character models, rigs and animations, e.g. 动作库, 角色动作预览, 这个角色能做哪些动作, 给角色找动作, 试试别的角色的动作, 修动作, 动作不自然, 脚底打滑, 摆臂太大, 手臂穿模, 对比修改前后, motion packs and bone-name mappings, or previewing with the game's shading. Not for general video editing, generating or auto-rigging new 3D models (use tripo-character), or downloading new mocap (use mixamo-motion).
+description: Browse, inspect and improve 3D character models, rigs and animations in a project-linked local studio. Use for character action libraries, GLB/FBX motion preview, animation or deformation repair, candidate comparison, motion packs, and integrating approved edits into a game. Preserves frozen task context, drafts, source ownership and user decisions. Not for video editing, generating new models or automatic rigging.
 ---
 
 # MotionStage · 动作台
 
-3D 角色动作工作台 · 3D character animation studio
+A local character-animation studio with a version-bound task loop. Find the character and action, freeze the observation, build an isolated candidate, compare it with the actual input, and record the user's decision. Game integration is a separate requested action.
 
-A local browser studio plus an agent task loop. The studio plays every action on the real rig, captures each request with exact seconds, camera, selection and screenshot, and compares candidate with original. You read that frozen evidence, diagnose the responsible layer and author the repair in an isolated job directory. The user decides. A preview, even an accepted one, is not game integration.
+## Start and choose a route
 
-## Quick start
-
-Resolve `SKILL_DIR` to this folder.
+Resolve `SKILL_DIR` to this folder. Reuse the workspace printed by the start command; do not create a fresh workspace to avoid an existing task or failed check.
 
 ```sh
-node "$SKILL_DIR/scripts/start.mjs" --project "/absolute/path/game"       # creates/reuses <project>/.motion-studio/
-node "$SKILL_DIR/scripts/start.mjs" --workspace "/absolute/path/review"  # loose files, outside the installed skill
-# add --no-open to print the URL instead of opening a browser
-node "$SKILL_DIR/scripts/motion-feedback.mjs" add --workspace "$WORKSPACE" --slot baseline --file "$MODEL" --new-model  # import GLB/FBX/JSON
+node "$SKILL_DIR/scripts/start.mjs" --project "/absolute/path/game" --caller "$CALLER" --session "$SESSION"
+node "$SKILL_DIR/scripts/start.mjs" --workspace "/absolute/path/review" --caller "$CALLER" --session "$SESSION" --no-open
 ```
 
-Loopback server on a free port; only a new workspace gets the teaching scene. Users can double-click `Open MotionStage.command` / `.cmd`. Needs Node.js 22+ and WebGL2 (sampled curves fall back to Canvas2D). Optional: Blender 4.2+ for FBX, a logged-in Codex CLI for the automatic worker. No npm install or model key. `$WORKSPACE` is the workspace the start command prints.
+Before launching, set `CALLER` to the actual invoking client (`codex`, `claude`, `workbuddy`, or another lowercase client slug), and `SESSION` to its current conversation identifier. If the host exposes no identifier, generate a dedicated routing ID once and retain it in this conversation; reuse it when reopening. Do not ask the user to supply these internals or infer the client from a model brand. A DeepSeek-backed WorkBuddy session uses `--caller workbuddy`; optional `--caller-model` records a known model without selecting or changing it. Omit the binding only when the client cannot be identified; the UI then says 当前对话. Do not reuse another conversation's bound server URL.
 
-## Route the request
+`--project` reuses `<project>/.motion-studio/`. A new standalone workspace includes the original teaching character. Runtime: Node.js 22+, WebGL2 for spatial previews; sampled curves also support Canvas2D. No npm install or model key. Blender 4.2+ is optional for FBX conversion; a configured Codex CLI, Claude Code or DeepSeek Harness is optional for background execution. These start independent tasks, not turns in the current chat. Workspaces belong outside the installed skill.
 
-| User wants | Do | Read |
+| Intent | Route | Read only the relevant reference |
 |---|---|---|
-| See a character's actions (看角色动作) | Select it in the 角色 rail, 动作库 mode | [action-library](references/action-library.md) |
-| "Which actions fit X?" (给角色找动作) | CLI `actions --asset-id ID` / MCP `motion_action_catalog` (categorized, read-only) | [action-library](references/action-library.md) |
-| Try a shared or other character's action | Tap its 匹配动作 card; adopt only on request | [action-library](references/action-library.md), [separated-motion](references/separated-motion.md) |
-| Reusable motion packs, name mappings | `motion_register_pack`, `motion_save_rig_mapping` | [separated-motion](references/separated-motion.md) |
-| Declare a character's models and motions | Read the registry read-only, save `character-map.json` | [character-map](references/character-map.md) |
-| Fix or tweak an action (修动作) | Task loop below | [agent-workflow](references/agent-workflow.md) |
-| Put an accepted edit or adopted action into the game (接入游戏) | `integrations`, change and check the game, `integrate` | [game-integration](references/game-integration.md) |
-| Match game shading | Workspace adapter + `appearance-install` | [project-appearance](references/project-appearance.md) |
-| Import GLB / FBX / sampled JSON | **＋导入**, or CLI `add` (Quick start) | [setup](references/setup.md), [asset-library](references/asset-library.md) |
-| Environment, upgrade, recovery, retry | `doctor`, `motion_diagnostics`, **⋯ → 环境检查** | [reliability](references/reliability.md) |
-| Link a project, continue earlier fixes | Project switcher or `--project` | [project-workspace](references/project-workspace.md) |
+| Browse / find / try actions | Select a character → 动作库 → action card; CLI `actions --asset-id ID` or MCP `motion_action_catalog` | [Action library](references/action-library.md) |
+| Fix / tweak / compare | 修改 → frozen task → candidate → user review; follow the task loop below | [Agent workflow](references/agent-workflow.md) |
+| Put an approved result into the game | `integrations` → inspect selected checkpoint/action and game → edit and verify → `integrate` | [Game integration](references/game-integration.md) |
 
-## The studio at a glance
-
-- **Top bar:** project switcher · **动作库** (browse, preview) / **修改** (request changes, follow the task, compare candidate vs original) · **修改记录** · **＋导入** · **⋯** → **版本与来源**, **项目文件**, **环境检查**, **使用帮助**.
-- **角色 rail** (left): project characters as rendered portraits. **全部角色** also lists the project's other skinned models.
-- **动作库 panel** (right): every action the character can play, as cards rendered *on that character* at an automatic key pose. **常用** adopted · **角色自带** embedded + declared · **匹配动作** found across the project (same rest pose and hierarchy, exact duplicates removed). Chips **全部/待机/移动/攻击/技能/防御/受击/跳跃/倒地/表演/其他** come from `assets/viewer/action-taxonomy.mjs`: name-based hints only. Search covers Chinese label, English title, raw clip name. Tap plays, hover previews, **修改这个动作** opens 修改 on it.
-- Thumbnails render in the browser into `$WORKSPACE/cache/thumbnails/` (safe to delete) from read-only curves and register nothing. Only explicit play / adopt / prepare enters preview → adopt → prepare.
-- **视角与显示 → 角色外观** defaults to **中性检查**.
-
-| Endpoint (POST needs `x-motion-token` from `GET /api/session`) | Returns |
-|---|---|
-| `GET /api/cast` | Characters, declared first, with portrait sources |
-| `GET /api/characters/<id>/model` | Main model bytes of a declared GLB character (a `.gltf` is packed to GLB with its `.bin`/textures) |
-| `GET /api/actions?assetId=&slot=&expectedModelSha=` | Matched-action scan state and rows |
-| `POST /api/actions/curves` | Read-only curves for up to 12 matched actions |
-| `GET /api/thumbnails` · `POST /api/thumbnails/<key>` | Thumbnail cache |
-
-Agents read the same catalog without the browser: `node "$SKILL_DIR/scripts/motion-feedback.mjs" actions --workspace "$WORKSPACE" [--asset-id ID] [--category attack] [--query 连招] [--json]`, or MCP `motion_action_catalog` (`wait:true` to finish matching). It lists own and matched actions with category, Chinese label, duration and loop hint, and adopts nothing. Match results persist in `$WORKSPACE/cache/actions/` (safe to delete), so repeat runs return in well under a second. The raw scan stays at `motion_available_actions` / `GET /api/actions`.
+The UI defaults to the invoking client’s conversation: save the task, copy its handoff, then the current agent reads and claims it. Saving does not wake a chat. **本机后台处理** scans known local executors and lets the user choose Codex CLI, Claude Code or DeepSeek Harness. The choice freezes as `job.provider`; each worker consumes only its own tasks. Discovery checks executable/version capabilities, not authentication, quota or tool permissions. Installed apps without a supported adapter stay disabled. Do not silently switch providers after a failed scan or execution. The automatic worker excludes tasks addressed to the current chat. Each chat task freezes `caller.client` and `caller.sessionId`; retries and replies retain that routing. A different client or session cannot claim it accidentally. This is routing metadata, not authentication. Existing tasks without `delivery` retain worker compatibility. Do not start a second consumer for a claimed task.
 
 ## Task loop
 
 ```sh
 CLI="$SKILL_DIR/scripts/motion-feedback.mjs"
-node "$CLI" jobs  --workspace "$WORKSPACE"                  # one summary per task; --full for every field
-node "$CLI" job   --workspace "$WORKSPACE" --job "$ID"
-node "$CLI" claim --workspace "$WORKSPACE" --job "$ID" --owner claude-code   # keep the lease
-node "$CLI" progress --workspace "$WORKSPACE" --job "$ID" --lease "$LEASE" --phase editing --message "正在收小左上臂摆幅，保留其他轨道。"
-node "$CLI" complete --workspace "$WORKSPACE" --job "$ID" --lease "$LEASE" --candidate "$CANDIDATE_GLB" --summary "$SUMMARY"
-node "$CLI" needs-input --workspace "$WORKSPACE" --job "$ID" --lease "$LEASE" --error "具体的问题"   # or fail
+node "$CLI" jobs --workspace "$WORKSPACE"
+node "$CLI" job --workspace "$WORKSPACE" --job "$ID"
+node "$CLI" claim --workspace "$WORKSPACE" --job "$ID" --owner current-chat --caller "$CALLER" --session "$SESSION"
+node "$CLI" progress --workspace "$WORKSPACE" --job "$ID" --lease "$LEASE" --phase editing --message "正在调整左臂，保留腿部轨道。"
+node "$CLI" motion-check --workspace "$WORKSPACE" --job "$ID" --file "$CANDIDATE_GLB"
+node "$CLI" complete --workspace "$WORKSPACE" --job "$ID" --lease "$LEASE" --candidate "$CANDIDATE_GLB" --summary "$SUMMARY" --audit "$AUDIT_JSON"
 ```
 
-1. **Read** `task.md`, `context.json`, `view.png` and the `projectContextFile` that `job` returns. `--owner` only records who claimed.
-2. **Inspect** with `inspect --asset-id` bound to the job's `assetId` and frozen SHA, not the browser selection. Prefer a native authoring source; a GLB lacks IK controls, cloth and engine layers.
-3. **Diagnose** the layer (animation, retargeting, skin, mesh/garment, attachment, timing, camera, runtime). Resolve character-left vs screen-left or clip vs interval via `needs-input`.
-4. **Build** in `executionPaths.outputDirectory`. Swing edits: `editGlb(bytes,{clip,bone,factor,start,end})` and `inspectAsset(bytes)` in `scripts/asset-tools.mjs`. Otherwise Blender or the project pipeline.
-5. **Progress** at real transitions: `reading`, `editing`, `checking`, `exporting`.
-6. **Check** with `motion-check` (input vs candidate) when legs, arms or rotations change.
-7. **Return** with `complete` (optional `--audit FILE`), or `needs-input` / `fail` with a specific `--error`. After `reply`, read the clarification and claim again.
+`job` returns a current-path `claimCommand`; use it only after confirming its caller matches this conversation. MCP `motion_claim_job` accepts `caller: {client, sessionId}`. Do not impersonate another caller to bypass a mismatch. For an unbound legacy task, omit the caller flags. Saving does not send a message or wake a host; claim directly when handling the submitted task in this conversation, otherwise present the copyable handoff. Do not report a live connection until execution actually begins.
 
-Accepting a candidate or adopting an action writes nothing into the game. When the user asks for that, run `integrations`, change and check the game, then `integrate` ([game-integration](references/game-integration.md)).
+`--audit` is optional. Keep the returned lease. MCP (`node "$SKILL_DIR/scripts/mcp.mjs" --workspace "$WORKSPACE"`) exposes the same task operations.
 
-MCP (`node "$SKILL_DIR/scripts/mcp.mjs" --workspace "$WORKSPACE"`) mirrors this: `motion_list_jobs`, `motion_get_job`, `motion_claim_job`, `motion_inspect_asset`, `motion_report_progress`, `motion_check_motion`, `motion_complete_job`, `motion_fail_job`, `motion_reply_job`, and for game integration `motion_integration_status`, `motion_export_action`, `motion_record_integration`. Optional worker: **连接 Codex 并开始修改** or `worker --workspace PATH [--once]` runs the user's logged-in Codex CLI per job on their own account. Neither is required.
+1. **Read the frozen evidence.** Read `task.md`, `context.json`, `view.png`, and `projectContextFile` returned by `job`. Use current `executionPaths` after a project move. Bind to `assetId`, the selected input slot and its SHA; the browser's current selection is irrelevant.
+2. **Diagnose the responsible layer.** Animation, retargeting, skin, mesh/garment, attachment, timing, camera or runtime need different repairs. Inspect channels, hierarchy and native source; a screenshot or clicked influence alone is not a diagnosis. Use seconds, not assumed authoring frames.
+3. **Resolve material ambiguity.** Character-left versus screen-left, conflicting preserve requirements or an unknown clip owner can require one specific question. Use `needs-input --error TEXT`; after `reply`, read the answer and claim again. Do not ask users for internal bone IDs or hashes.
+4. **Build an isolated candidate.** Write into `executionPaths.outputDirectory`; preserve original bytes, other clips and out-of-scope data. Prefer the native authoring source when appropriate. Explicit swing-amplitude edits can use `editGlb` from `scripts/asset-tools.mjs`; it is a parameter transform, not a universal naturalness fix.
+5. **Check proportionally.** Check the requested pose, meaningful extrema, interval/loop boundaries and protected data. For leg, arm or rotation edits, use job-bound `motion-check` above. It compares against this task's actual frozen input, including a previous candidate. Investigate **new and worsened** warnings; report improvements, skipped checks and limitations. Attach its result as `audit.motionChecks` (or the audit itself).
+6. **Return and review.** Report real transitions (`reading`, `editing`, `checking`, `exporting`), then `complete`, `needs-input` or `fail`. Technical completion is distinct from user approval. While the user is following the task, the studio restores the frozen view; browsing or editing another draft is not interrupted. Side-by-side shows **修改前 on the left**, **修改后 on the right**. The user chooses **采用这版**, **继续调整**, or **不用这版**.
 
-## Guardrails
+If requested to integrate a chosen result, continue through the integration route using its checkpoint/action ID. **接入游戏…** shows status and a concrete copyable handoff. Preserve the distinction between accepted preview and verified game integration; do not claim the latter without checking the game and recording it.
 
-- Never execute unknown project code during discovery, context or appearance review; read registries read-only; add no project-specific scanner rules.
-- Embedded clips belong to their model. Names or bone-name matches never make an external motion a character's; only the project registry or the user does.
-- Incompatible rigs need an explicit retargeting task. Name mapping is not retargeting; conversion fixes no skeleton. A skeleton-only FBX shows no deformation: ask for a With Skin download or a retarget task.
-- A clicked influence is a hint. Within a frozen SHA `target.nodeIndex` is the node; duplicate names never redirect to another rig.
-- Trial playback is transient, never a task input. `motion_adopt_action` only on explicit user adoption; `motion_prepare_action` only when the user wants to edit. Keep `source.motionBinding`. Publish to a public pack only if asked.
-- Preserve source/version identities, clip provenance and frozen dependencies. Only **载入源文件新版本** adopts source changes. A new head revision or confirmed source change invalidates a task; browsing does not. Never borrow another model's history for matching bytes.
-- Build only in the job directory. Never edit project files until the user asks for game integration. Then integrate only what they asked for and record it with `integrate`. A recorded integration is not approval and does not prove the game was checked.
-- Completion refuses stale identities: never override. A clarification cannot adopt changed sources; start a fresh task.
-- No fake percentages, reasoning or raw output in progress. Never call an unchanged copy an improvement. Never run `practice` on private models.
-- Carry earlier preserve clauses; completed goals and AI summaries are background; the current explicit request wins; ask about conflicts. Candidate evidence is not a confirmed mapping; older sources may need edits replayed. Use current `executionPaths` after a move.
-- The user decides keep, revise or accept. Only user decisions create checkpoints; completion is never artistic approval.
-- Never infer game appearance from a GLB alone or alter source textures for preview lighting. Game-specific code stays in the workspace, never in this skill.
-- Keep teaching assets, private test assets and historical cases distinct.
-- Tool detection proves no login, quota or GPU. Keep pending transaction logs. Stop older studio versions before upgrading a workspace.
+## Return, stop and undo
 
-## Verify and report
+- **返回上一动作** restores the previous clip and observation in this browser session. **结束试播** restores the pre-trial clip, camera, time and playback state. Neither changes content history.
+- **返回** keeps the edit draft. **取消排队 / 停止生成** cancels the task and invalidates its lease; late output cannot replace the current version. Never automatically restart a stopped task.
+- **采用这版 / 继续调整 / 不用这版** are the three review choices. Keep game integration separate. **移出常用** removes only the saved choice, preserving sources.
+- The fixed **撤销 / 重做** controls name the affected operation. Cmd/Ctrl+Z and Shift+Cmd/Ctrl+Z apply outside text fields; text fields retain native undo. Toast undo is an additional shortcut, never the only entry.
+- Content history is per model, stored in `undo/<assetId>.json` (latest 50 operations). Adoption, rejection and common-action changes commit atomically with history. Redo reuses saved bytes, never starts an AI task. Source/head changes and active jobs block stale undo; a new content operation clears redo. A removed choice does not undo already integrated game files.
+- When the user asks the agent to undo: read `undo-state --workspace PATH --asset-id ID`, verify its label matches the requested operation, then use `undo|redo --workspace PATH --asset-id ID --expected-revision N --entry ID`. MCP equivalents are `motion_undo_status` and `motion_undo`; do not skip later operations to reach an older choice. A mismatch needs clarification, not a guessed rollback.
 
-- Check proportionally: requested pose, extrema, scope and loop boundaries, protected data. No routine sweeps of thousands of poses. Parent changes move descendants in world space; root locking and normalisation must not hide root-motion or scale defects.
-- Run `motion-check` on input and candidate together; report `new` findings. Evidence, not a gate.
-- Reuse the studio for playback: no extra renderer, video, player or importer for routine GLB edits. Bake or fresh-import only when export risk warrants it or the user asks.
-- Record a failed optional check once and return the candidate; no retries or substitutes. Missing required tools or failed necessary checks still block.
-- Numbers prove neither naturalness nor collision freedom. A GLB cannot validate DQ, cloth, gameplay transitions, terrain IK or custom shaders; inspect the game when asked.
-- Report the local URL, candidate and evidence paths, source identity, task addressed, checks run and remaining limits. Ask the user to compare in 修改 mode and decide.
+## Invariants and recovery
 
-## References
+- Read unknown project code and registries without executing them. Keep scanner rules project-neutral.
+- Embedded clips belong to their model; external ownership requires registry or user evidence. Bone-name mapping is not retargeting. A skeleton-only FBX cannot demonstrate mesh deformation.
+- `target.nodeIndex` identifies a node only within the frozen SHA; duplicate names must never redirect an edit. Composite characters require the selected clip's frozen owner/dependency.
+- Trial playback is transient. Adopt only on user intent; prepare a separate working model when the user asks to edit a matched action. Preserve `source.motionBinding`. Publish shared packs only when requested.
+- Keep version, source and parent task identities. A changed model revision/source invalidates a task; browsing does not. Same bytes do not establish lineage or permission to borrow another character's history. Preserve inherited constraints; completed historical goals are context.
+- The completion gate checks lease, versions, file validity and retained clips. Never bypass it, overwrite source inputs, publish an unfinished candidate, or call an unchanged copy an improvement.
+- Parent motion affects descendants in world space. Root locking and normalization must not hide root travel or scale defects. Reuse the studio for routine playback; extra rendering/import is justified by actual export risk or an explicit request.
+- Optional check failure: record the limitation; allow **one** targeted retry only for a diagnosed transient failure with a concrete correction. Missing tools, denied access or unsupported formats do not justify repeated attempts or building another verification pipeline. Required authoring tools and failed necessary checks still block completion.
+- Joint measurements do not prove naturalness, mesh collision freedom, cloth, runtime IK or gameplay blending. Say precisely what was checked and what remains.
+- Drafts live in `drafts/<assetId>.json`, survive new ports and move with the workspace. Local browser storage is fallback. Concurrent edits require an explicit conflict choice; do not overwrite another window silently. Stale loading responses cannot replace the current model or its draft.
 
-- [action-library](references/action-library.md): 动作库, discovery, categories, thumbnails, "what can X do?"
-- [agent-workflow](references/agent-workflow.md): task loop in depth, motion checks, completion gate, compare and decide
-- [separated-motion](references/separated-motion.md): packs, mappings, preview → adopt → prepare contract
-- [game-integration](references/game-integration.md): accepted or adopted → game files, export, in-game check, integration record
-- [character-map](references/character-map.md): declaring characters, ownership, composite previews
-- [asset-library](references/asset-library.md): scanning, formats, capabilities, identities
-- [project-workspace](references/project-workspace.md): project linking, layout, context packets, continuity
-- [project-appearance](references/project-appearance.md): game-shading adapters
-- [setup](references/setup.md): install, import formats, user troubleshooting
-- [reliability](references/reliability.md): diagnostics, recovery, interrupt/retry/restore, validation scope
-- [agent-case](references/agent-case.md) / [real-case](references/real-case.md): measured round trips; a real rejected edit and rollback
+Delivery: give the local URL, addressed task and candidate/evidence paths, what changed, checks and remaining limits. When editing this skill's UI, regression-test affected contracts and inspect actual desktop and narrow-screen layouts; a source review alone is not visual acceptance.
+
+## Supporting references
+
+| Need | Reference |
+|---|---|
+| Packs, mappings, preview → adopt → prepare | [Separated motion](references/separated-motion.md) |
+| Character declarations and clip ownership | [Character map](references/character-map.md) |
+| Import formats, capabilities, identity | [Asset library](references/asset-library.md) |
+| Project linking, context, history continuity | [Project workspace](references/project-workspace.md) |
+| Game shading adapters | [Project appearance](references/project-appearance.md) |
+| Install and user troubleshooting | [Setup](references/setup.md) |
+| Diagnostics, interrupted tasks, retry and restore | [Reliability](references/reliability.md) |
+| Recorded case studies | [Agent case](references/agent-case.md), [Real case](references/real-case.md) |

@@ -79,3 +79,24 @@ test('missing feet and bad options are reported, not guessed',()=>{
  const r=checkMotion(encodeGlb(a.doc,a.bin));assert(r.limitations.some(l=>/没有找到名称像脚/.test(l)));assert.deepEqual(r.checks.footSlip,[]);
  assert.throws(()=>checkMotion(demo),/--clip/);assert.throws(()=>checkMotion(demo,{clip:'Run',fps:0}),/帧率/);assert.throws(()=>checkMotion(demo,{clip:'Run',feet:['Nope']}),/找不到节点/);
 });
+
+test('existing defects report severity, magnitude and duration regressions',()=>{
+ const finding=slide=>({kind:'foot_slip',nodeIndex:4,severity:'warning',time:[0,1],slide});
+ const report=slide=>({sha256:String(slide),findings:[finding(slide)],summary:{warnings:1}});
+ const worse=compareMotionChecks(report(.02),report(2));assert.equal(worse.findings[0].status,'worsened');assert.equal(worse.summary.worsenedWarnings,1);assert.equal(worse.findings[0].metrics.slide.before,.02);
+ assert.equal(compareMotionChecks(report(2),report(.02)).findings[0].status,'improved');
+ assert.equal(compareMotionChecks(report(.02),report(.02001)).findings[0].status,'existing');
+ const longer=report(.02);longer.findings[0].time=[0,2];assert.equal(compareMotionChecks(report(.02),longer).findings[0].status,'worsened');
+});
+test('a skipped check is unverified rather than resolved',()=>{
+ const before={sha256:'a',findings:[{kind:'foot_slip',nodeIndex:4,severity:'warning',time:[0,1],slide:.1}]};
+ const after={sha256:'b',findings:[],checks:{rotationFlips:{checkedChannels:1}},summary:{warnings:0}};
+ const result=compareMotionChecks(before,after);assert.equal(result.resolved.length,0);assert.equal(result.unverified.length,1);assert.equal(result.summary.unverifiedWarnings,1);
+});
+test('different sampling rates or removed rotation channels cannot claim a resolved defect',()=>{
+ const f={kind:'fast_turn',nodeIndex:4,severity:'warning',time:[.2,.3],degrees:100};
+ const before={sha256:'a',fps:30,findings:[f],checks:{rotationFlips:{checkedChannels:1,checkedNodes:[4]}}};
+ const after={sha256:'b',fps:60,findings:[{...f,degrees:120}],checks:{rotationFlips:{checkedChannels:1,checkedNodes:[4]}},summary:{warnings:1}};
+ assert.equal(compareMotionChecks(before,after).findings[0].status,'unverified');
+ after.fps=30;after.findings=[];after.checks.rotationFlips.checkedNodes=[3];const result=compareMotionChecks(before,after);assert.equal(result.resolved.length,0);assert.equal(result.unverified.length,1);
+});

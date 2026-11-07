@@ -8,6 +8,7 @@ import {relative,sep,isAbsolute} from 'node:path';
 import {inside,readProject,modelSlots,withWorkspaceLock,readWorkspaceJSON,commitWorkspace} from './core.mjs';
 import {getProjectLink} from './project-context.mjs';
 import {readJobIndex} from './job-index.mjs';
+import {jobAncestors} from './job-lineage.mjs';
 import {readTaskContext} from './task-context.mjs';
 import {readMotionLibrary,findAdoptedAction,exportAdoptedAction} from './motion-library.mjs';
 
@@ -49,10 +50,6 @@ function candidateHint(e){
  return notes.join('');
 }
 async function candidateEntries(work,link,cfg,records,index){
- const byCandidate=new Map();
- for(const row of index.rows)if(row.candidate?.sha256&&!byCandidate.has(row.candidate.sha256))byCandidate.set(row.candidate.sha256,row);
- // Every version a candidate was built from, back to the first upload.
- const lineage=start=>{const seen=new Set();for(let at=start;at&&!seen.has(at)&&seen.size<1000;){seen.add(at);const row=byCandidate.get(at);at=row?.inputs?.[row.slot]?.sha256;}return seen;};
  const entries=[];
  for(const row of index.rows){
   if(!row.review)continue;
@@ -63,14 +60,14 @@ async function candidateEntries(work,link,cfg,records,index){
   const game={modelFile:source?.projectRelativePath||null,format:source?.format||null,composite:Boolean(source?.assembly),clipOwner:source?.assembly?(owner?.file||source.projectRelativePath):null,file:source?.assembly||source?.format!=='glb'?null:await gameFile(link,source?.projectRelativePath,{original:source?.sha256,candidate:point.asset.sha256})};
   const mine=records.filter(r=>r.kind==='candidate'&&r.jobId===j.id),recorded=mine.flatMap(r=>r.files).filter(f=>f.path===game.modelFile).at(-1);
   entries.push({kind:'candidate',checkpointId:point.id,jobId:j.id,assetId:point.assetId,model:cfg.models[point.assetId]?.name||null,clip:point.clip,scope:point.scope,request:j.request,acceptedAt:point.acceptedAt,
-   candidate:{file:await inside(work,point.asset.file),sha256:point.asset.sha256,label:point.asset.label},withdrawn:j.reviews.at(-1)?.decision!=='accept-candidate',lineage:lineage(point.asset.sha256),
+   candidate:{file:await inside(work,point.asset.file),sha256:point.asset.sha256,label:point.asset.label},withdrawn:j.reviews.at(-1)?.decision!=='accept-candidate',lineage:jobAncestors(index.rows,j),
    activeJobs:index.counts[point.assetId]?.active||0,game,references:await references(work,j),projectContextFile:j.projectContextFile?await inside(work,j.projectContextFile):null,integrations:mine.map(brief),changedSinceIntegration:Boolean(recorded&&game.file?.sha256&&recorded.sha256!==game.file.sha256)});
  }
  const peers=e=>entries.filter(x=>x!==e&&x.assetId===e.assetId&&!x.withdrawn);
- for(const e of entries){const newer=peers(e).find(x=>x.lineage.has(e.candidate.sha256));if(newer)e.supersededBy=newer.checkpointId;}
+ for(const e of entries){const newer=peers(e).find(x=>x.lineage.has(e.jobId));if(newer)e.supersededBy=newer.checkpointId;}
  for(const e of entries){
   e.status=e.withdrawn?'withdrawn':e.supersededBy?'superseded':e.integrations.length?'integrated':'pending';
-  e.otherBranches=e.withdrawn||e.supersededBy?[]:peers(e).filter(x=>!x.supersededBy&&!x.lineage.has(e.candidate.sha256)&&!e.lineage.has(x.candidate.sha256)).map(x=>x.checkpointId);
+  e.otherBranches=e.withdrawn||e.supersededBy?[]:peers(e).filter(x=>!x.supersededBy&&!x.lineage.has(e.jobId)&&!e.lineage.has(x.jobId)).map(x=>x.checkpointId);
  }
  for(const e of entries){e.hint=candidateHint(e);delete e.withdrawn;delete e.lineage;}
  return entries;

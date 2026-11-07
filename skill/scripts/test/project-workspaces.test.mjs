@@ -5,6 +5,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {initializeWorkspace,prepareProject,projectStatus,recentProjects} from '../project-workspaces.mjs';
 import {createJob,getJob,claimJob,cancelJob,localEditJob,reviewJob,getJobProjectContext,completeJob} from '../jobs.mjs';
+import {readDraft,saveDraft} from '../drafts.mjs';
 import {json,sha,atomic} from '../core.mjs';
 import {parseGlb,encodeGlb} from '../asset-tools.mjs';
 import {serve} from '../server.mjs';
@@ -14,7 +15,8 @@ async function enqueue(w,{slot='baseline',parentJobId,...rest}={}){const p=await
 
 test('project association copies owned history atomically, reuses existing data and survives project move',()=>fixture(async({base,work,root,settingsPath})=>{
  const before=await readFile(join(work,'project.json'));const j=await enqueue(work);await cancelJob(work,j.id);
- const r=await prepareProject(work,root,{settingsPath});assert.equal(r.migrated,true);assert.equal(r.workspace,join(root,'.motion-studio'));assert.deepEqual(await readFile(join(work,'project.json')),before);assert.equal((await getJob(r.workspace,j.id)).state,'cancelled');
+ await saveDraft(work,j.assetId,{expectedRevision:0,draft:{assetId:j.assetId,context:{assetId:j.assetId},request:'随项目迁移的草稿',preserve:''}});
+ const r=await prepareProject(work,root,{settingsPath});assert.equal(r.migrated,true);assert.equal((await readDraft(r.workspace,j.assetId)).draft.request,'随项目迁移的草稿');assert.equal(r.workspace,join(root,'.motion-studio'));assert.deepEqual(await readFile(join(work,'project.json')),before);assert.equal((await getJob(r.workspace,j.id)).state,'cancelled');
  const original=await json(join(work,'project.json')),copied=await json(join(r.workspace,'project.json'));assert.equal(copied.slots.baseline.sha256,original.slots.baseline.sha256);assert.ok(await readFile(join(r.workspace,original.slots.baseline.file)));
  const again=await prepareProject(work,root,{settingsPath});assert.equal(again.reused,true);assert.equal(again.migrated,false);assert.deepEqual(await readFile(join(r.workspace,'project.json')),before);
  const moved=join(base,'Moved Game');await cp(root,moved,{recursive:true});const status=await projectStatus(join(moved,'.motion-studio'),{settingsPath});assert.equal(status.status,'linked');assert.equal(status.project.id,r.project.id);assert.equal(status.project.root,moved);assert.equal((await getJob(join(moved,'.motion-studio'),j.id)).taskPath.startsWith(moved),true);

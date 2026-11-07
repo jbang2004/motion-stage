@@ -91,3 +91,11 @@ test('recording needs a linked game project',async()=>{
   await assert.rejects(recordIntegration(w,{actionId:'x',files:['a.glb'],summary:'x'}),/关联可用的游戏项目/);
  }finally{await rm(w,{recursive:true,force:true});}
 });
+
+test('returning to earlier candidate bytes leaves the latest accepted task pending',()=>linked(async({w,edit,accept})=>{
+ const a=await variant(1),b=await variant(2);
+ const first=await accept(await edit('baseline',a)),second=await accept(await edit('candidate',b)),latest=await accept(await edit('candidate',a));
+ const status=await integrationStatus(w),byId=Object.fromEntries(status.candidates.map(e=>[e.checkpointId,e]));
+ assert.equal(status.pending,1);assert.equal(byId[latest].status,'pending');
+ assert.equal(byId[first].status,'superseded');assert.equal(byId[second].status,'superseded');assert.deepEqual(byId[latest].otherBranches,[]);
+}));

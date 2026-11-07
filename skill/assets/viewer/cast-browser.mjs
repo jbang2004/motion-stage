@@ -664,13 +664,6 @@ export function createCastBrowser({
     clearTimeout(searchTimer);
     searchTimer = setTimeout(() => { query = event.target.value; pages = {}; draw(); }, 90);
   });
-  documentRef.addEventListener('keydown', event => {
-    if (event.key !== '/' || event.metaKey || event.ctrlKey) return;
-    const tag = documentRef.activeElement?.tagName;
-    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || body.dataset.mode !== 'library') return;
-    event.preventDefault();
-    $('abSearch')?.focus();
-  });
   $('editThisAction')?.addEventListener('click', () => onEdit?.());
 
   const initialMode = readStored(MODE_KEY);

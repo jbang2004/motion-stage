@@ -1,6 +1,11 @@
+import {scanProviders,probeProvider,providerInfo} from './agent-providers.mjs';
+import {normalizeCaller,callerKey} from '../assets/viewer/caller.mjs';
 import {discoverCharacterActions,previewCharacterAction,characterActionCurves,stopCharacterActionDiscovery} from './character-actions.mjs';
 import {listThumbnails,saveThumbnail,thumbnailPath} from './thumbnails.mjs';
-import {motionLibrary,registerMotionPack,saveMotionMapping,previewMotion,adoptMotion,materializeMotion,motionRigOptions} from './motion-library.mjs';
+import {undoStatus,applyUndo} from './undo.mjs';
+import {readDraft,saveDraft} from './drafts.mjs';
+import {integrationStatus} from './game-integration.mjs';
+import {motionLibrary,registerMotionPack,saveMotionMapping,previewMotion,adoptMotion,removeMotion,materializeMotion,motionRigOptions} from './motion-library.mjs';
 import {createServer} from 'node:http';
 import {readFile,stat,realpath} from 'node:fs/promises';
 import {extname} from 'node:path';
@@ -21,7 +26,8 @@ const MIME={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=u
 const workspaceServers=new Map();
 async function body(req,limit){let size=0;const chunks=[];for await(const b of req){size+=b.length;if(size>limit)throw Error('文件过大');chunks.push(b);}return Buffer.concat(chunks);}
 export async function serve(work,port=5178,options={}){
- work=await realpath(work);const children=new Set();
+ const caller=normalizeCaller(options.caller);options={...options,caller};
+ work=await realpath(work);const serverKey=JSON.stringify([work,callerKey(caller)]);const children=new Set();
  let serverCloseCleanup=()=>{};
  const diagnose=options.diagnoseRuntime||diagnoseRuntime;
  let runtime=await diagnose({workspace:work,programs:[]});
@@ -30,6 +36,7 @@ export async function serve(work,port=5178,options={}){
  await readProject(work);await reconcileExecutions(work);
  const token=randomBytes(24).toString('hex');let queue=Promise.resolve();
  let agent={connected:false,active:false,state:'disconnected',provider:'codex',error:null},workerAbort=null,workerGeneration=0,connecting=null,workerRun=null;
+ const ensureAgentIdle=()=>{if(agent.active&&(agent.jobId||agent.state==='claiming'))throw Object.assign(Error(providerInfo(agent.provider).label+' 正在处理任务，完成后即可切换。'),{code:'AGENT_BUSY'});};
  const capabilityView=runtime=>({codex:runtime.codex,localEdit:runtime.features.localEdit,fbxImport:runtime.features.fbxConversion,mcp:true,automaticAgent:agent.connected,runtime});
  const getCaps=()=>capabilityView(runtime);
  let checking;
@@ -42,7 +49,12 @@ export async function serve(work,port=5178,options={}){
    const host=req.headers.host||'';if(!/^127\.0\.0\.1:\d+$/.test(host))return send(403,{error:'只接受本机连接'});
    const origin='http://'+host;if(req.headers.origin&&req.headers.origin!==origin)return send(403,{error:'Origin mismatch'});
    const url=new URL(req.url,origin),p=decodeURIComponent(url.pathname);
-   if(p==='/api/session'&&req.method==='GET')return send(200,{token,paths:{workspace:work,cli:ROOT+'/scripts/motion-feedback.mjs'},project:projectView(await readProject(work),url.searchParams.get('assetId')||undefined),feedback:await json(await inside(work,'feedback.json')),marks:await readMarks(work)});
+   const draftRoute=p.match(/^\/api\/drafts\/([a-zA-Z0-9_-]{1,80})$/);
+   if(draftRoute&&req.method==='GET')return send(200,await readDraft(work,draftRoute[1]));
+   if(p==='/api/undo'&&req.method==='GET')return send(200,await undoStatus(work,url.searchParams.get('assetId')));
+   if(p==='/api/integrations'&&req.method==='GET')return send(200,await integrationStatus(work));
+   if(p==='/api/session'&&req.method==='GET')return send(200,{token,caller,paths:{workspace:work,cli:ROOT+'/scripts/motion-feedback.mjs'},project:projectView(await readProject(work),url.searchParams.get('assetId')||undefined),feedback:await json(await inside(work,'feedback.json')),marks:await readMarks(work)});
+   if(p==='/api/agents'&&req.method==='GET')return send(200,await scanProviders());
    if(p==='/api/doctor'&&req.method==='GET')return send(200,url.searchParams.get('cached')==='1'?runtime:await recheck());
    if(p==='/api/actions'&&req.method==='GET')return send(200,await discoverCharacterActions(work,Object.fromEntries(url.searchParams)));
    if(p==='/api/motions'&&req.method==='GET')return send(200,await motionLibrary(work));
@@ -77,13 +89,15 @@ export async function serve(work,port=5178,options={}){
    if(p.startsWith('/api/')&&req.method!=='GET'){
     if(req.headers['x-motion-token']!==token)return send(403,{error:'请刷新页面后重试'});
     const data=await body(req,p.startsWith('/api/assets/')?200*1024*1024:12*1024*1024);
+    if(draftRoute&&req.method==='POST')return send(200,await saveDraft(work,draftRoute[1],JSON.parse(data)));
+    if(p==='/api/undo'&&req.method==='POST')return send(200,await applyUndo(work,JSON.parse(data)));
     // Cache writes and read-only curve reads skip the mutation queue so
     // thumbnails never wait behind character assembly or task commits.
     const thumbnailKey=p.match(/^\/api\/thumbnails\/([a-z0-9-]+)$/);
     if(thumbnailKey&&req.method==='POST')return send(200,await saveThumbnail(work,thumbnailKey[1],data));
     if(p==='/api/actions/curves'&&req.method==='POST')return send(200,await characterActionCurves(work,JSON.parse(data)));
     if(p==='/api/actions/preview'&&req.method==='POST')return send(200,await previewCharacterAction(work,JSON.parse(data)));
-    if(p.startsWith('/api/motions/')&&req.method==='POST'){const action=p.slice('/api/motions/'.length),input=JSON.parse(data),fn={register:registerMotionPack,mapping:saveMotionMapping,rigs:motionRigOptions,preview:previewMotion,adopt:adoptMotion,prepare:materializeMotion}[action];if(fn)return send(200,await fn(work,input));}
+    if(p.startsWith('/api/motions/')&&req.method==='POST'){const action=p.slice('/api/motions/'.length),input=JSON.parse(data),fn={register:registerMotionPack,mapping:saveMotionMapping,rigs:motionRigOptions,preview:previewMotion,adopt:adoptMotion,remove:removeMotion,prepare:materializeMotion}[action];if(fn)return send(200,await fn(work,input));}
     if(p==='/api/catalog/scan'&&req.method==='POST')return send(200,await startCatalogScan(work,{force:true}));
     const modelName=p.match(/^\/api\/models\/([a-zA-Z0-9_-]{1,80})\/name$/);if(modelName&&req.method==='POST')return send(200,await withWorkspaceLock(work,async()=>{const input=JSON.parse(data),cfg=await readProject(work),m=cfg.models[modelName[1]];if(!m||typeof input.name!=='string'||!input.name.trim()||input.name.length>160)throw Error('模型名称需为 1–160 个字符');if(input.expectedHeadRevision!==m.headRevision||input.expectedName!==m.name)throw Error('模型版本已变化，请刷新后重试');m.name=input.name.trim();cfg.revision=(cfg.revision||0)+1;await atomic(await inside(work,'project.json'),cfg);return {project:projectView(cfg,m.id)};}));
     const storedOpen=p.match(/^\/api\/models\/([a-zA-Z0-9_-]{1,80})\/open$/);if(storedOpen&&req.method==='POST')return send(200,{project:await activateModel(work,storedOpen[1])});
@@ -97,32 +111,48 @@ export async function serve(work,port=5178,options={}){
     if(p==='/api/project/preview'&&req.method==='POST')return send(200,await previewProjectContext(work,JSON.parse(data)));
     if(p==='/api/project/open'&&req.method==='POST'){
      const input=JSON.parse(data),result=await prepareProject(work,input.path,{adoptCurrent:input.adoptCurrent!==false,settingsPath:options.settingsPath});
-     const key=await realpath(result.workspace);let target=workspaceServers.get(key);
+     const key=await realpath(result.workspace);let target=workspaceServers.get(JSON.stringify([key,callerKey(caller)]));
      if(!target||!target.listening){target=await serve(key,0,options);children.add(target);}
      return send(200,{...result,url:'http://127.0.0.1:'+target.address().port+'/'});
     }
-    if(p==='/api/jobs'&&req.method==='POST')return send(200,await createJob(work,JSON.parse(data)));
+    if(p==='/api/jobs'&&req.method==='POST')return send(200,await createJob(work,{...JSON.parse(data),caller}));
     const lifecycle=p.match(/^\/api\/jobs\/([a-f0-9-]{36})\/(retry|restore|interrupt)$/);
     if(lifecycle&&req.method==='POST'){const input=data.length?JSON.parse(data):{};return send(200,await (lifecycle[2]==='retry'?retryJob(work,lifecycle[1]):lifecycle[2]==='restore'?restoreJob(work,lifecycle[1],input):interruptJob(work,lifecycle[1])));}
     const jm=p.match(/^\/api\/jobs\/([a-f0-9-]{36})\/(cancel|local-edit|review|reply|progress)$/);
     if(jm&&req.method==='POST'){const options=data.length?JSON.parse(data):{};return send(200,await (jm[2]==='cancel'?cancelJob(work,jm[1]):jm[2]==='reply'?replyJob(work,jm[1],options):jm[2]==='progress'?updateJobProgress(work,jm[1],options):jm[2]==='review'?reviewJob(work,jm[1],options):localEditJob(work,jm[1],options)));}
     if(p==='/api/agent/connect'&&req.method==='POST'){
-     const input=JSON.parse(data);if(input.provider!=='codex')throw Error('仅支持明确连接本机 Codex；其他 Agent 可通过 MCP 或任务命令领取');
-     if(agent.active)return send(200,agent);
-     if(connecting)return send(200,await connecting);
-     const generation=++workerGeneration;
+     const input=JSON.parse(data);providerInfo(input.provider);const provider=input.provider;
+     if(connecting){
+      if(connecting.provider!==provider)throw Error('另一个执行器正在连接，请稍后重试');
+      return send(200,await connecting.pending);
+     }
+     if(agent.active&&agent.provider===provider)return send(200,agent);
+     ensureAgentIdle();
+     const previousGeneration=workerGeneration;
      const pending=(async()=>{
-      const module=options.agentWorker||await import('./agent-worker.mjs'),probe=await module.probeCodex();
-      if(generation!==workerGeneration)return agent;
-      if(!probe.available)throw Error(probe.error||'本机未找到 Codex CLI');
-      workerAbort=new AbortController();agent={connected:true,active:true,state:'connected',provider:'codex',error:null};
+      const module=options.agentWorker||await import('./agent-worker.mjs');
+      const probe=provider==='codex'?await module.probeCodex():await (options.probeProvider||probeProvider)(provider);
+      if(previousGeneration!==workerGeneration)return agent;
+      if(!probe.available)throw Error(probe.error||'本机无法连接 '+providerInfo(provider).label);
+      // The old worker may have started claiming a task during the probe.
+      ensureAgentIdle();
+      const generation=++workerGeneration,previousRun=workerRun;
+      workerAbort?.abort();
+      workerAbort=new AbortController();agent={connected:true,active:true,state:'connected',provider,error:null};
       const signal=workerAbort.signal;
-      workerRun=Promise.resolve().then(()=>{if(generation!==workerGeneration)return;return module.startWorker(work,{signal,onState:state=>{if(generation!==workerGeneration)return;agent={...agent,...state,connected:!['failed','disconnected'].includes(state.state),active:state.state!=='disconnected'};}});}).then(()=>{if(generation!==workerGeneration)return;agent={...agent,connected:false,active:false,state:'disconnected'};}).catch(e=>{if(generation!==workerGeneration)return;agent={...agent,connected:false,active:false,state:'failed',error:e.message};});
+      workerRun=Promise.resolve(previousRun).then(()=>{if(generation!==workerGeneration)return;return module.startWorker(work,{signal,provider,onState:state=>{if(generation!==workerGeneration)return;agent={...agent,...state,connected:!['failed','disconnected'].includes(state.state),active:state.state!=='disconnected'};}});}).then(()=>{if(generation!==workerGeneration)return;agent={...agent,connected:false,active:false,state:'disconnected'};}).catch(e=>{if(generation!==workerGeneration)return;agent={...agent,connected:false,active:false,state:'failed',error:e.message};});
       return agent;
      })();
-     connecting=pending;try{return send(200,await pending);}finally{if(connecting===pending)connecting=null;}
+     const connection={provider,pending};
+     connecting=connection;try{return send(200,await pending);}finally{if(connecting===connection)connecting=null;}
     }
-    if(p==='/api/agent/disconnect'&&req.method==='POST'){workerGeneration++;connecting=null;workerAbort?.abort();if(agent.jobId){try{await interruptJob(work,agent.jobId);}catch{}}agent={...agent,connected:false,active:false,state:'disconnected',jobId:null,activity:null,startedAt:null};return send(200,agent);}
+    if(p==='/api/agent/disconnect'&&req.method==='POST'){
+     workerGeneration++;connecting=null;workerAbort?.abort();
+     const jobId=agent.jobId,disconnected={...agent,connected:false,active:false,state:'disconnected',jobId:null,activity:null,startedAt:null};
+     agent=disconnected;
+     if(jobId){try{await interruptJob(work,jobId);}catch{}}
+     return send(200,disconnected);
+    }
     if(p.startsWith('/api/assets/')&&req.method==='POST'){
      const cfg=await readProject(work),assetId=url.searchParams.get('assetId')||cfg.activeAssetId;
      return send(200,await importBytes(work,p.split('/').pop(),data,url.searchParams.get('name')||'model.glb',{assetId,newModel:url.searchParams.get('newModel')==='true'}));
@@ -181,12 +211,12 @@ export async function serve(work,port=5178,options={}){
    else return send(404,{error:'Not found'});
    const file=await inside(root,name),s=await stat(file);if(!s.isFile())return send(404,{error:'Not found'});
    const bytes=await readFile(file);res.writeHead(200,{'Content-Type':MIME[extname(file)]||'application/octet-stream','Content-Length':bytes.length,'Cache-Control':name.startsWith('cache/thumbnails/')?'private, max-age=31536000, immutable':'no-store','X-Content-Type-Options':'nosniff'});res.end(req.method==='HEAD'?undefined:bytes);
-  }catch(e){if(!res.headersSent)send(e.code==='ENOENT'?404:e.code==='MODEL_JOB_ACTIVE'?409:400,{error:e.message,...(e.code?{code:e.code}:{}),...(e.jobId?{jobId:e.jobId}:{})});else res.end();}
+  }catch(e){if(!res.headersSent)send(e.code==='ENOENT'?404:['MODEL_JOB_ACTIVE','AGENT_BUSY'].includes(e.code)?409:400,{error:e.message,...(e.code?{code:e.code}:{}),...(e.jobId?{jobId:e.jobId}:{})});else res.end();}
  });
- server.once('close',()=>{if(workspaceServers.get(work)===server)workspaceServers.delete(work);serverCloseCleanup();});
+ server.once('close',()=>{if(workspaceServers.get(serverKey)===server)workspaceServers.delete(serverKey);serverCloseCleanup();});
  const close=server.close.bind(server);server.close=callback=>{workerGeneration++;connecting=null;workerAbort?.abort();Promise.all([workerRun,stopCharacterActionDiscovery(work),stopCatalogScan(work),...[...children].filter(c=>c.listening).map(c=>new Promise(r=>c.close(r)))]).catch(()=>{}).finally(()=>close(callback));return server;};
  try{await new Promise((ok,no)=>{server.once('error',no);server.listen(port,'127.0.0.1',ok);});}
  catch(error){throw Object.assign(Error(error.code==='EADDRINUSE'?'本地服务端口已被占用，请关闭旧服务或使用 --port 0 自动选择端口。':'本地服务无法启动，请检查本机网络权限后重试。',{cause:error}),{code:error.code});}
- runtime.server={status:'ready',host:'127.0.0.1',port:server.address().port};workspaceServers.set(work,server);
+ runtime.server={status:'ready',host:'127.0.0.1',port:server.address().port};workspaceServers.set(serverKey,server);
  await startCatalogScan(work,{force:true}).catch(()=>{});return server;
 }

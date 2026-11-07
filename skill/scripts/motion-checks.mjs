@@ -93,9 +93,9 @@ function guessFeet(doc){
 
 // ---- checks ----
 export function rotationFlips(doc,clip,{fps=30,maxStepDegrees=90}={}){
- const nodes=doc.nodes||[],findings=[],times=sampleTimes(clip,fps);let checked=0;
+ const nodes=doc.nodes||[],findings=[],checkedNodes=[],times=sampleTimes(clip,fps);let checked=0;
  for(const ch of clip.channels.filter(c=>c.path==='rotation')){
-  checked++;const node=nameOf(nodes,ch.node),keys=ch.interpolation==='CUBICSPLINE'?ch.times.map((_,i)=>ch.values[i*3+1]):ch.values;
+  checked++;checkedNodes.push(ch.node);const node=nameOf(nodes,ch.node),keys=ch.interpolation==='CUBICSPLINE'?ch.times.map((_,i)=>ch.values[i*3+1]):ch.values;
   for(let i=1;i<keys.length;i++){
    const a=qnorm(keys[i-1]),b=qnorm(keys[i]),deg=qangle(a,b)*DEG;
    if(deg>=170)findings.push({kind:'ambiguous_segment',severity:'warning',node,nodeIndex:ch.node,time:[round(ch.times[i-1]),round(ch.times[i])],degrees:round(deg,1),note:'相邻关键帧相差接近 180°，插值方向不确定，不同引擎可能转向不同方向。'});
@@ -107,7 +107,7 @@ export function rotationFlips(doc,clip,{fps=30,maxStepDegrees=90}={}){
    if(deg>maxStepDegrees){if(run){run.t1=times[i];run.max=Math.max(run.max,deg);}else run={t0:times[i-1],t1:times[i],max:deg};}else flush();prev=q;}
   flush();
  }
- return{checkedChannels:checked,maxStepDegrees,findings};
+ return{checkedChannels:checked,checkedNodes,maxStepDegrees,findings};
 }
 
 function chainFor(doc,end,given){
@@ -181,7 +181,31 @@ export function checkMotion(bytes,{clip,fps=30,feet,chains,checks=CHECK_NAMES,ma
 export function compareMotionChecks(baseline,candidate){
  const key=f=>[f.kind,f.nodeIndex??f.node??'',(f.chain||[]).join('>')].join('|');
  const near=(a,b)=>!a.time||!b.time||(a.time[0]<=b.time[1]+.05&&b.time[0]<=a.time[1]+.05);
- const used=new Set(),marked=candidate.findings.map(f=>{const i=baseline.findings.findIndex((b,j)=>!used.has(j)&&key(b)===key(f)&&near(b,f));if(i>=0)used.add(i);return{...f,status:i>=0?'existing':'new'};});
- const resolved=baseline.findings.filter((_,j)=>!used.has(j)).map(f=>({...f,status:'resolved'}));
- return{...candidate,baselineSha256:baseline.sha256,findings:marked,resolved,summary:{...candidate.summary,newWarnings:marked.filter(f=>f.status==='new'&&f.severity==='warning').length,resolvedWarnings:resolved.filter(f=>f.severity==='warning').length}};
+ const metrics=f=>Object.fromEntries([
+  ['slide',f.slide],['degrees',f.degrees],['extension',Number.isFinite(f.maxRatio)?Math.max(0,f.maxRatio-1):undefined],
+  ['duration',f.time?Math.max(0,f.time[1]-f.time[0]):undefined],
+  ['speedSpread',f.speeds?.length?(Math.max(...f.speeds.map(x=>x.speed))-Math.min(...f.speeds.map(x=>x.speed)))/Math.max(1e-8,...f.speeds.map(x=>x.speed)):undefined]
+ ].filter(([,v])=>Number.isFinite(v)));
+ const trend=(a,b)=>{
+  const before=metrics(a),after=metrics(b),delta={};let up=a.severity==='info'&&b.severity==='warning',down=a.severity==='warning'&&b.severity==='info';
+  for(const k of Object.keys(after))if(before[k]!==undefined){const difference=after[k]-before[k],epsilon=Math.max(k==='duration'?.05:1e-4,Math.abs(before[k])*.05);delta[k]={before:before[k],after:after[k],difference:round(difference)};if(difference>epsilon)up=true;else if(difference< -epsilon)down=true;}
+  return {status:up?'worsened':down?'improved':'existing',previousSeverity:a.severity,metrics:delta};
+ };
+ const covered=(f,report)=>{
+  if(baseline.fps&&candidate.fps&&baseline.fps!==candidate.fps)return false;
+  if(report.timeRange&&f.time&&(f.time[0]<report.timeRange[0]-.001||f.time[1]>report.timeRange[1]+.001))return false;
+  if(!report.checks)return true; // Compatibility with older evidence packets.
+  if(f.kind.startsWith('foot_'))return report.checks.footSlip?.some(x=>x.nodeIndex===f.nodeIndex)??false;
+  if(f.kind.startsWith('limb_'))return report.checks.limbExtension?.some(x=>x.chain.join('>')===(f.chain||[]).join('>'))??false;
+  if(f.kind==='treadmill_speed_mismatch')return (report.checks.footSlip?.length||0)>=2;
+  const rotation=report.checks.rotationFlips;return rotation?.checkedNodes?rotation.checkedNodes.includes(f.nodeIndex):(rotation?.checkedChannels||0)>0;
+ };
+ const used=new Set(),marked=candidate.findings.map(f=>{
+  const i=baseline.findings.findIndex((b,j)=>!used.has(j)&&key(b)===key(f)&&near(b,f));
+  if(i>=0){used.add(i);return {...f,...(covered(f,baseline)&&covered(baseline.findings[i],candidate)?trend(baseline.findings[i],f):{status:'unverified'})};}
+  return {...f,status:covered(f,baseline)?'new':'unverified'};
+ });
+ const missing=baseline.findings.filter((_,j)=>!used.has(j)),resolved=missing.filter(f=>covered(f,candidate)).map(f=>({...f,status:'resolved'})),unverified=missing.filter(f=>!covered(f,candidate)).map(f=>({...f,status:'unverified'}));
+ const count=status=>marked.filter(f=>f.status===status&&(f.severity==='warning'||f.previousSeverity==='warning')).length;
+ return{...candidate,baselineSha256:baseline.sha256,findings:marked,resolved,unverified,summary:{...candidate.summary,newWarnings:count('new'),worsenedWarnings:count('worsened'),improvedWarnings:count('improved'),unverifiedWarnings:count('unverified')+unverified.filter(f=>f.severity==='warning').length,resolvedWarnings:resolved.filter(f=>f.severity==='warning').length}};
 }

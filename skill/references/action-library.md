@@ -60,7 +60,7 @@ Implementation: `scripts/character-actions.mjs`. Discovery is read-only. It neve
 6. **Preset variants.** A matched row with the same name as one of the character's own clips but different curves gets `presetVariant: true`. A shared name never stands in for shared content.
 7. **Deadline.** Each scan has 120 s. After that its state becomes `partial` and the rows matched so far are kept. The scan yields between sources, so playback stays responsive. Each source's fingerprint (device, inode, size, mtime, ctime) is checked around the read; a file that changes mid-read is skipped and counted as an error.
 8. **Speed and cache.** Each source's sampler data is read in one span when it sits together (most exporters), and up to four sources are read ahead while results still merge in inventory order, so labels and duplicate winners do not depend on timing. Per-source results are kept in `<workspace>/cache/actions/<target model SHA-256>.json`, keyed by source path, fingerprint and rig mapping. Restarts and one-shot CLI runs reuse them, and a changed file is matched again. A complete scan rewrites the file with only the sources it saw. The cache is git-ignored and always safe to delete.
-8. **States.** `scanning` → `ready` | `partial` | `failed`. A scan restarts when the inventory changes, or on request with `refresh=1`. Stopping the server stops the scan.
+9. **States.** `scanning` → `ready` | `partial` | `failed`. A scan restarts when the inventory changes, or on request with `refresh=1`. Stopping the server stops the scan.
 
 `GET /api/actions?assetId=&slot=&expectedModelSha=[&refresh=1]` and MCP `motion_available_actions` return the same shape: `state`, `checked` / `total`, `incompatible`, `duplicates`, `error`, `characters`, `saved`, and `actions[]` with `id`, `name`, `duration`, `sourceName`, `sourceCount`, `origin`, `presetVariant`. Poll while `state` is `scanning`.
 
@@ -118,3 +118,14 @@ All POSTs need the `x-motion-token` header from `GET /api/session`.
 3. Run `actions --workspace "$WORKSPACE" --asset-id ID` (MCP `motion_action_catalog {assetId, wait:true}`). It returns own and matched actions in one list with `origin`, `category`, Chinese `label`, `duration`, `loop` and, for matched rows, the `id` that `motion_preview_available_action` takes. Narrow with `--category attack` or `--query 连招`; add `--json` for the full object. The CLI waits for matching to finish (`--no-wait` lists own clips at once). Over MCP without `wait`, a `scanning` state means matching is still running in the server: read `scan.checked / scan.total` and ask again. The raw discovery rows stay at `GET /api/actions?assetId=ID` / MCP `motion_available_actions`.
 4. Report counts per section (常用 / 角色自带 / 匹配动作) and group them by category, saying the categories are name-based. Mention a `partial` scan, the `incompatible` count (those clips need retargeting) and any preset variants.
 5. Do not claim that the game uses a matched action, that it looks natural on X's proportions, or that it is adopted. "Compatible" means the bindings and rest pose match, nothing more.
+
+
+## Advanced sources and keyboard navigation
+
+**⋯ → 版本与来源** opens the current model's versions and selects the current slot. Its compact header retains the model context; 已收录动作、公共动作包、骨架映射 and 素材来源 are secondary tabs. The everyday 动作库 remains the entry for browsing actions.
+
+`/` focuses the action search in 动作库 and opens the clip search in 修改. Inputs, IME and open dialogs own their keys. Arrow/Home/End keys navigate focused tablists before any frame-stepping shortcut. Narrow layouts expose 预览 / 动作 / 任务 / 记录 in a fixed navigation bar. 专注预览 expands the stage; Escape exits it.
+
+## 返回与常用恢复
+
+切换内置动作后用“返回上一动作”恢复观察；外部动作使用“结束试播”回到试播前。加入常用后，试播栏显示“移出常用”；素材详情的已收录动作也提供此入口。加入与移出均可在固定撤销栏或短暂提示中撤销，来源文件保留。

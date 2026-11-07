@@ -91,6 +91,61 @@ test('simultaneous server connections share one probe and worker; disconnect dur
  }finally{await new Promise(r=>server.close(r));}
 }));
 
+test('client switching preserves a busy worker and waits for an idle worker to exit before starting the new one',()=>setup(async(w,input)=>{
+ const workers=[],events=[];
+ let finishProbe;
+ const agentWorker={
+  probeCodex:async()=>({available:true}),
+  startWorker:async(_,{signal,provider,onState})=>{
+   events.push('start '+provider);
+   workers.push({signal,onState});
+   if(!signal.aborted)await new Promise(resolve=>signal.addEventListener('abort',resolve,{once:true}));
+   await wait(25);
+   events.push('exit '+provider);
+  },
+ };
+ const server=await serve(w,0,{agentWorker,probeProvider:()=>new Promise(resolve=>{finishProbe=resolve;})});
+ const url='http://127.0.0.1:'+server.address().port;
+ const session=await (await fetch(url+'/api/session')).json();
+ const connect=provider=>fetch(url+'/api/agent/connect',{method:'POST',headers:{'x-motion-token':session.token},body:JSON.stringify({provider})});
+ try{
+  assert.equal((await connect('codex')).status,200);
+  const [old]=await until(()=>workers.length&&workers);
+  const queued=await createJob(w,{...await input(),delivery:'worker',provider:'claude'});
+  old.onState({state:'running',jobId:'old-task'});
+  const busy=await connect('claude');
+  assert.equal(busy.status,409);
+  assert.equal((await busy.json()).code,'AGENT_BUSY');
+  assert.equal(finishProbe,undefined);
+  old.onState({state:'connected',jobId:null});
+
+  const racing=connect('claude');
+  await until(()=>finishProbe);
+  old.onState({state:'claiming'});
+  finishProbe({available:true});
+  assert.equal((await racing).status,409);
+  assert.equal(old.signal.aborted,false);
+  assert.equal((await getJob(w,queued.id)).state,'queued');
+  old.onState({state:'connected'});
+
+  finishProbe=null;
+  const unavailable=connect('claude');
+  await until(()=>finishProbe);
+  finishProbe({available:false,error:'test unavailable'});
+  assert.equal((await unavailable).status,400);
+  assert.equal(old.signal.aborted,false);
+  finishProbe=null;
+  const switching=connect('claude');
+  await until(()=>finishProbe);
+  finishProbe({available:true});
+  const switched=await switching;
+  assert.equal(switched.status,200);
+  assert.equal((await switched.json()).provider,'claude');
+  await until(()=>workers.length===2);
+  assert.deepEqual(events,['start codex','exit codex','start claude']);
+ }finally{await new Promise(resolve=>server.close(resolve));}
+}));
+
 test('ended execution is fenced at completion without a preceding recovery read',()=>setup(async(w,input)=>{
  const execution=await createExecution(w),j=await createJob(w,await input()),claim=await claimJob(w,j.id,{execution:execution.record});await execution.close();const file=join(w,'candidate.glb');await writeFile(file,await buildDemo(true));
  await assert.rejects(completeJob(w,j.id,{lease:claim.lease,candidatePath:file,summary:'late ended worker'}),/租约/);assert.equal((await getJob(w,j.id)).state,'interrupted');assert.equal((await readProject(w)).slots.candidate.sha256,j.inputs.candidate.sha256);

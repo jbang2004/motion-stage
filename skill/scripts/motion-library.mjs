@@ -1,7 +1,8 @@
+import {undoGuard,appendUndo} from './undo.mjs';
 import {projectCharacterProfiles} from './character-library.mjs';
 import {readFile,stat} from 'node:fs/promises';
 import {randomUUID} from 'node:crypto';
-import {readProject,modelSlots,inside,sha,atomic,withWorkspaceLock,readWorkspaceJSON,glbInfo,importAsset,projectView} from './core.mjs';
+import {readProject,modelSlots,inside,sha,atomic,withWorkspaceLock,readWorkspaceJSON,glbInfo,importAsset,projectView,commitWorkspace} from './core.mjs';
 import {readCatalog,readProjectModel} from './asset-catalog.mjs';
 import {getProjectLink} from './project-context.mjs';
 import {parseGlb} from './asset-tools.mjs';
@@ -69,7 +70,13 @@ export async function adoptMotion(work,input={}){return withWorkspaceLock(work,a
  const lib=await readLibrary(work);checkRevision(lib,input.expectedRevision);const r=await resolve(work,lib,await readProject(work),input);
  requireValue(input.previewId===r.recipe.id,'试播组合已变化，请重新试播后收录');const actions=lib.characters[r.target.id]??=[];
  const existing=actions.find(a=>a.recipe.id===r.recipe.id);if(existing)return {action:existing,revision:lib.revision,reused:true};
- const name=label(input.name,input.clip),previous=actions.filter(a=>a.name===name),action={id:randomUUID(),name,number:previous.length+1,recipe:r.recipe,createdAt:new Date().toISOString(),parentId:previous.at(-1)?.id||null};actions.push(action);await save(work,lib);return {action,revision:lib.revision};
+ const beforeGuard=await undoGuard(work,r.target.id),before=structuredClone(actions);
+ const name=label(input.name,input.clip),previous=actions.filter(a=>a.name===name),action={id:randomUUID(),name,number:previous.length+1,recipe:r.recipe,createdAt:new Date().toISOString(),parentId:previous.at(-1)?.id||null};actions.push(action);lib.revision++;const changes={[FILE]:lib};await appendUndo(work,changes,{assetId:r.target.id,beforeGuard,kind:'actions',label:'加入常用',before,after:structuredClone(actions)});await commitWorkspace(work,changes);return {action,revision:lib.revision};
+});}
+export async function removeMotion(work,{assetId,actionId,expectedRevision}={}){return withWorkspaceLock(work,async()=>{
+ const lib=await readLibrary(work);checkRevision(lib,expectedRevision);const actions=lib.characters[assetId]||[],action=actions.find(a=>a.id===actionId);requireValue(action,'常用动作已变化，请刷新后重试');
+ const beforeGuard=await undoGuard(work,assetId),before=structuredClone(actions);lib.characters[assetId]=actions.filter(a=>a.id!==actionId);lib.revision++;
+ const changes={[FILE]:lib};await appendUndo(work,changes,{assetId,beforeGuard,kind:'actions',label:'移出常用',before,after:structuredClone(lib.characters[assetId])});await commitWorkspace(work,changes);return {assetId,action,revision:lib.revision};
 });}
 async function assemble(r){const result=await assembleCharacter(r.model,[{file:r.version.file,format:'glb',bytes:r.source,...r.options,replace:true}]);requireValue(result.sources[0]?.status==='ready',result.sources[0]?.error);return result;}
 export const readMotionLibrary=work=>withWorkspaceLock(work,()=>readLibrary(work));

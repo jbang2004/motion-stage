@@ -7,7 +7,7 @@ import {spawnSync,spawn} from 'node:child_process';
 import {parseGlb,encodeGlb} from '../asset-tools.mjs';
 import {ROOT,atomic,json,importAsset,sha,withWorkspaceLock} from '../core.mjs';
 import {buildDemo} from '../practice.mjs';
-import {createJob,claimJob,completeJob,getJob,listJobs,cancelJob,failJob,localEditJob,reviewJob,inspectSlot} from '../jobs.mjs';
+import {createJob,claimJob,completeJob,getJob,listJobs,cancelJob,failJob,localEditJob,reviewJob,inspectSlot,checkMotionSlot} from '../jobs.mjs';
 import {serve} from '../server.mjs';
 async function setup(){const w=await mkdtemp(resolve(tmpdir(),'motion-jobs-'));await atomic(resolve(w,'project.json'),{version:2,title:'Test',slots:{}});await atomic(resolve(w,'feedback.json'),{version:1,notes:[]});const b=await buildDemo(false);await importAsset(w,'baseline',b,'base.glb');await importAsset(w,'candidate',b,'candidate.glb');return w;}
 async function input(w,changes={}){const p=await json(resolve(w,'project.json'));return {request:'左臂摆动收小三成，保留其他动作',preserve:'模型、其他肢体和时长',target:{bone:'LeftArm'},scope:{start:0,end:1,wholeClip:true},context:{slot:'baseline',asset:p.slots.baseline,clip:'Run',time:.25,fps:30,frame:8,view:'front',mode:'elapsed',rootLocked:true,slots:Object.fromEntries(Object.entries(p.slots).map(([k,v])=>[k,{...v,clip:'Run',time:.25}]))},...changes};}
@@ -106,5 +106,25 @@ test('a request naming the other side than the picked bone is recorded for the a
   const task=await readFile(conflict.taskPath,'utf8');assert.match(task,/左右提示：要求写的是右侧，页面选中的却是角色左侧的 LeftArm（由点击位置推断）/);assert.match(task,/needs-input/);
   await cancelJob(w,conflict.id);
   const clean=await createJob(w,await input(w,{request:'左右手都收一点',target:{bone:'LeftArm'}}));assert.equal(clean.sideConflict,undefined);assert.doesNotMatch(await readFile(clean.taskPath,'utf8'),/左右提示/);
+ }finally{await rm(w,{recursive:true,force:true});}
+});
+
+
+test('job-bound motion check uses the frozen candidate input across later head changes',async()=>{
+ const w=await setup();try{
+  const first=await createJob(w,await input(w));await localEditJob(w,first.id,{bone:'LeftShoulder',factor:.7});
+  const p=await json(resolve(w,'project.json')),j=await createJob(w,await input(w,{slot:'candidate',parentJobId:first.id,context:{slot:'candidate',asset:p.slots.candidate,clip:'Run',time:.2}}));
+  const file=resolve(w,'next.glb');await writeFile(file,await buildDemo(false));
+  const report=await checkMotionSlot(w,{jobId:j.id,file});assert.equal(report.jobId,j.id);assert.equal(report.baselineSha256,j.inputs.candidate.sha256);assert.notEqual(report.baselineSha256,j.inputs.baseline.sha256);
+  await assert.rejects(checkMotionSlot(w,{jobId:j.id,file,baselineSlot:'baseline'}),/固定本轮输入/);await assert.rejects(checkMotionSlot(w,{jobId:j.id,file,assetId:'other'}),/模型与任务不一致/);await assert.rejects(checkMotionSlot(w,{jobId:j.id,file,clip:'Salute'}),/动作与任务不一致/);
+  await importAsset(w,'candidate',await buildDemo(false),'new-head.glb');assert.equal((await checkMotionSlot(w,{jobId:j.id,file})).baselineSha256,j.inputs.candidate.sha256);
+ }finally{await rm(w,{recursive:true,force:true});}
+});
+
+test('whole-clip local edit accepts a rotation track shorter than the animation',async()=>{
+ const w=await setup();try{
+  const {readAccessor}=await import('../asset-tools.mjs'),parsed=parseGlb(await buildDemo(false)),d=parsed.doc,a=d.animations.find(a=>a.name==='Run'),node=d.nodes.findIndex(n=>n.name==='LeftShoulder'),channel=a.channels.find(c=>c.target.node===node&&c.target.path==='rotation'),sampler=a.samplers[channel.sampler];
+  for(const [key,width]of [['input',4],['output',16]]){const accessor=structuredClone(d.accessors[sampler[key]]);accessor.byteOffset=(accessor.byteOffset||0)+width;accessor.count-=2;delete accessor.min;delete accessor.max;sampler[key]=d.accessors.push(accessor)-1;}
+  const times=readAccessor(d,parsed.bin,sampler.input).flat();d.accessors[sampler.input].min=[times[0]];d.accessors[sampler.input].max=[times.at(-1)];assert.ok(times[0]>0);await importAsset(w,'baseline',encodeGlb(d,parsed.bin),'short-track.glb');const j=await createJob(w,await input(w,{target:{bone:'LeftShoulder'}}));const result=await localEditJob(w,j.id,{bone:'LeftShoulder',factor:.9});assert.equal(result.state,'complete');assert.equal(result.audit.preserved.otherChannels,true);
  }finally{await rm(w,{recursive:true,force:true});}
 });

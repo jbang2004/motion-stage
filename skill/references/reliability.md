@@ -44,9 +44,17 @@ Windows 深层目录中的原生 Blender 文件读写使用 `asset-tools.mjs` �
 
 已认可检查点可通过 CLI `restore --workspace PATH --job ID --expected-revision N [--checkpoint ID]`、MCP `motion_restore_checkpoint` 或 `POST /api/jobs/ID/restore` 恢复为当前候选。请求中的 `expectedRevision` 是项目视图的 `revision`，`checkpointId` 是认可决定的 ID；缺省选择该任务最近的认可检查点。恢复拒绝同模型尚未结束的任务、变化的项目版本，以及后来已有否决或修改决定的候选。恢复将模型 head 和任务恢复记录一起事务提交，只改工作区预览，不安装正式游戏项目。
 
+## 撤销与重做
+
+固定入口保留最近 50 次本角色的内容操作，退出或刷新后仍可恢复；浏览动作和镜头不进入此记录。`undo/<assetId>.json` 与决定、模型 head 或常用清单在同一事务中提交，并随工作区迁移。撤销采用会恢复本轮实际输入；重做直接使用已保存候选。所有决定与检查点保持不可变，恢复操作追加新决定，不抹除历史。
+
+HTTP `GET /api/undo?assetId=ID` 返回记录的 `revision`、下一条 `undo/redo` 的 ID 和禁用原因；`POST /api/undo` 要求 `assetId`、`direction`、`expectedRevision`、`entryId`。CLI 使用 `undo-state` 后调用 `undo/redo`，MCP 使用 `motion_undo_status` 与 `motion_undo`。发生并发修改、源版本变化或本模型存在活动任务时拒绝恢复，不覆盖新状态。停止任务不会写入可重做的生成操作。
+
+`motion-remove --file PARAMS.json`、MCP `motion_remove_action` 或 `POST /api/motions/remove` 接收 `assetId`、`actionId`、动作库 `expectedRevision`；仅移出常用，保留源文件并创建可撤销记录。撤销不回滚正式游戏文件。
+
 ## 草稿与源更新
 
-模型切换、载入和截图期间暂停自动保存。草稿与成功载入的模型身份绑定，并先保留会话内快照；浏览器存储满额或被禁用时仍能在本页面内回退，但页面关闭后无法保证持久化。旧请求和旧加载结果不能覆盖新选择。
+模型切换、载入和截图期间暂停自动保存。草稿按成功载入的模型身份写入工作区 `drafts/<assetId>.json`，使用版本号防止多窗口静默覆盖；冲突时明确选择本窗口或其他窗口。重新启动换端口、关联或移动项目后仍可恢复。浏览器存储和会话内快照作为离线后备；页面显示同步状态，未同步时关闭页面仍可能丢失内容。单纯播放不触发持续写入。旧请求和旧加载结果不能覆盖新选择。
 
 预览先完整下载模型，检查字节数、GLB 头和 SHA-256，再解析几何与动画。文件损坏或与记录身份不一致时不会显示为该版本；应恢复完整备份或明确载入有效源文件。原版和候选可以共享同一版本的在途下载，但分别构建场景，下载结束即释放读取缓存。
 
