@@ -1,7 +1,7 @@
 {
   "name": "motion-stage",
   "version": "4.2.0",
-  "createdAt": "2026-11-07T14:31:14.768543+00:00",
+  "createdAt": "2026-11-07T16:10:08.981931+00:00",
   "runtime": "Node.js >=22 / Canvas2D curves; WebGL2 spatial previews",
   "externalRuntimeDependencies": {
     "base": [],
@@ -38,8 +38,8 @@
     },
     {
       "path": "SKILL.md",
-      "bytes": 12641,
-      "sha256": "3f6453a2eec48aa0b7ed4f87b38cad9ce02bd8d462bd8c8cc66d59a87c46f5e3"
+      "bytes": 14065,
+      "sha256": "d65ee830ff4ac3197908cf0e7dd0f8e15420252475d799f6d3ca60d6ab4fa361"
     },
     {
       "path": "THIRD_PARTY.md",
@@ -233,8 +233,8 @@
     },
     {
       "path": "assets/viewer/app.js",
-      "bytes": 148852,
-      "sha256": "636437310b23caca928bd09c2c897cdb66be3f18d1c852f3857aede30d35f728"
+      "bytes": 164382,
+      "sha256": "009b0b07a6a05e1d821ff83e739e30ba4ee44bf4b74eaa3029cb57af81a8ff8f"
     },
     {
       "path": "assets/viewer/asset-loader.mjs",
@@ -272,6 +272,11 @@
       "sha256": "ecef02bee781c4925e4143d1d18037477b4830f8f16ddbfef80316cffdfb40b7"
     },
     {
+      "path": "assets/viewer/feedback-points.mjs",
+      "bytes": 4534,
+      "sha256": "b12b742211254a8e730ea2955dc8c48431135eeb6d67044eb5d1953bdece8dbe"
+    },
+    {
       "path": "assets/viewer/gltf-loader.mjs",
       "bytes": 716,
       "sha256": "00c9247ea7df8143df53374fb27f1f8ad1aabe660ead69edc48c13f2aa0cc6a2"
@@ -288,8 +293,8 @@
     },
     {
       "path": "assets/viewer/index.html",
-      "bytes": 35255,
-      "sha256": "3d9c9aa7deb521aafb7f53dea3a01d9d54d04ee8adb867026b186a78210a00c8"
+      "bytes": 38612,
+      "sha256": "24f697c19a5372c3c2aa3568440ad0de324536501a2dda3dff09a5d3472444d1"
     },
     {
       "path": "assets/viewer/joint-targets.mjs",
@@ -298,8 +303,8 @@
     },
     {
       "path": "assets/viewer/library.css",
-      "bytes": 50393,
-      "sha256": "c48fd1a979b64248a3ce7e50d2d174d86c5a7ad869b4011c7a8008cab02546df"
+      "bytes": 52628,
+      "sha256": "71ea1380822a04ea2fd77638d3b69ad79c3ce2f487026af3d19d3678d6df79e7"
     },
     {
       "path": "assets/viewer/model-catalog.mjs",
@@ -363,8 +368,13 @@
     },
     {
       "path": "assets/viewer/result-evidence.mjs",
-      "bytes": 5282,
-      "sha256": "848fb70958b3498d3bd526c1c21b10af375bdf60994fd535e15605856bae5aaa"
+      "bytes": 9106,
+      "sha256": "eebad3444fd59bd93471e4d2569d2a736cfb393da270fb09ecbfa19e5e4f7501"
+    },
+    {
+      "path": "assets/viewer/rotation-edit.mjs",
+      "bytes": 4035,
+      "sha256": "36ccee5de0c3456c7c6a367dad36c833f7c518740cbc62e4fa028246479632c5"
     },
     {
       "path": "assets/viewer/shortcuts.mjs",
@@ -373,8 +383,8 @@
     },
     {
       "path": "assets/viewer/style.css",
-      "bytes": 64260,
-      "sha256": "3a79c6cba181ed196cc5a439a05f217c8c8b522de1b0ea619ea7974208f36b4f"
+      "bytes": 64968,
+      "sha256": "9bd10297b4f324faa209769b934c5bd9718de1909e31296a9417dffb231a347f"
     },
     {
       "path": "assets/viewer/thumbnail-studio.mjs",
@@ -483,13 +493,18 @@
     },
     {
       "path": "scripts/asset-tools.mjs",
-      "bytes": 27441,
-      "sha256": "c9817fb6da6d556d51ffcc1d7ded3c32b06cc5191248ed27b4730f679129a31b"
+      "bytes": 25184,
+      "sha256": "6635dc9b55b95b1cef768c0323b2fab1b48e312e04ff5ec636c3340ef19a5bc9"
     },
     {
       "path": "scripts/blender/convert_fbx.py",
       "bytes": 14171,
       "sha256": "6087cc083f75a8931762194553b51484ebfb5018fd4f4e9f6429c75f1610123c"
+    },
+    {
+      "path": "scripts/candidate-diff.mjs",
+      "bytes": 7084,
+      "sha256": "3a9d385730098c530882f91a12053a614cec214dbe569701253f9976d7b611f1"
     },
     {
       "path": "scripts/candidate-validation.mjs",
@@ -538,8 +553,8 @@
     },
     {
       "path": "scripts/drafts.mjs",
-      "bytes": 1521,
-      "sha256": "79238a99036c01d815e2e7c47e31d70f5d81dcf87350fe4ee9dec96ae59eb247"
+      "bytes": 1713,
+      "sha256": "7988d88a9d74e3ae4c0d07233853379bc2a28356fb4d5c408ffa0fd407b06a72"
     },
     {
       "path": "scripts/execution-runtime.mjs",
@@ -563,8 +578,8 @@
     },
     {
       "path": "scripts/jobs.mjs",
-      "bytes": 44904,
-      "sha256": "cfcdf65165a46c37f509920144a302aa38a06430f23ad292b93eaced31f6a9a8"
+      "bytes": 47013,
+      "sha256": "90837d1ad4141e49f377926bbe8783dee62c89386c335169aaa62d19922d376b"
     },
     {
       "path": "scripts/mcp.mjs",
@@ -583,8 +598,8 @@
     },
     {
       "path": "scripts/motion-feedback.mjs",
-      "bytes": 18825,
-      "sha256": "68003b02acf7944a72976c16831208219d0871b0ee8c0e19f03581762addfa6d"
+      "bytes": 19262,
+      "sha256": "c8b6710c834d70b3711879b7b7e0bb7188b3fdeacb240f9a5e7f8e3ba3d87960"
     },
     {
       "path": "scripts/motion-library.mjs",
@@ -643,8 +658,8 @@
     },
     {
       "path": "scripts/task-context.mjs",
-      "bytes": 11970,
-      "sha256": "ae3fe73e281a94ec24efbba5f8502dd2790d6cf50286584d412b78386746a316"
+      "bytes": 12056,
+      "sha256": "600cba1401a07698b84b7d15c38f4aff67f119e92baaad07991e3ba5ac135c7d"
     },
     {
       "path": "scripts/test/action-library.test.mjs",
@@ -688,8 +703,8 @@
     },
     {
       "path": "scripts/test/asset-tools.test.mjs",
-      "bytes": 4263,
-      "sha256": "32d8d17275385bb4cf739dedcd210142c2bf80c3be7e1e5a578ed60e49d740fe"
+      "bytes": 6052,
+      "sha256": "0ef6a9124537ede3196b5a2460b367cabf6fe066e8e9e5fd5535ed6d057a6bb6"
     },
     {
       "path": "scripts/test/blender-capabilities.py",
@@ -705,6 +720,11 @@
       "path": "scripts/test/caller.test.mjs",
       "bytes": 7078,
       "sha256": "9c6e27384ac3697da7b56c3819aee0b9ee73e9b58419210f13008e530a6d04ee"
+    },
+    {
+      "path": "scripts/test/candidate-diff.test.mjs",
+      "bytes": 2673,
+      "sha256": "b92677733a23ead21d6e959d4da60592ecc4ef7c0073005d5fd7a8a7af35e507"
     },
     {
       "path": "scripts/test/candidate-validation.test.mjs",
@@ -788,8 +808,8 @@
     },
     {
       "path": "scripts/test/jobs.test.mjs",
-      "bytes": 16299,
-      "sha256": "3fc33f7ef0cbe5b0a61fd1a48c425fc9aa7a34920f2d171cf144dc8c11059920"
+      "bytes": 21267,
+      "sha256": "c35da4dcc29756529ef60db22cd1d5f3bd4576dacc8b80c02bf7ba0ee1b1df79"
     },
     {
       "path": "scripts/test/joint-targets.test.mjs",
@@ -903,8 +923,8 @@
     },
     {
       "path": "scripts/test/view-operations.test.mjs",
-      "bytes": 15084,
-      "sha256": "b7d58bf88563a4ebd67a8e722ad17c835f550c9a42ae82becb0f3f5893276c37"
+      "bytes": 15375,
+      "sha256": "1921cef282712c92ce6f18df794f6a316218ae9c78bd07b4a00e10e6a3262fc1"
     },
     {
       "path": "scripts/test/view-state.test.mjs",

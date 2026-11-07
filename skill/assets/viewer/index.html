@@ -84,6 +84,7 @@
         <div id="candidateLabel" class="view-label candidate-label"><i></i><span>修改后<small id="candidateFile">—</small></span></div>
         <div id="baselineLabel" class="view-label baseline-label"><i></i><span>修改前<small id="baselineFile">—</small></span></div>
         <div id="stageDivider"></div>
+        <div id="localPreviewBadge" class="stage-local-preview" hidden>微调试播</div>
         <div class="stage-corner bottom-left"><span id="stageHint">拖动旋转 · 滚轮缩放 · 点击选部位</span></div>
         <div class="viewport-views" role="group" aria-label="快速切换视角"><button data-view="front" class="active">正面</button><button data-view="side">侧面</button><button data-view="back">背面</button><button data-view="top">俯视</button></div>
         <div class="stage-corner bottom-right"><span data-icon="cube"></span><span id="viewName">正面</span></div>
@@ -98,7 +99,10 @@
           <div class="play-controls"><button id="prev" class="icon-button" title="上一帧 ←" aria-label="上一帧" data-icon="previous"></button><button id="play" class="play-button" disabled aria-label="播放" data-icon="play"></button><button id="next" class="icon-button" title="下一帧 →" aria-label="下一帧" data-icon="next"></button></div>
           <output id="clock">0.000 <span>/ 0.000 s</span></output>
           <select id="speed" aria-label="播放速度"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="1.5">1.5×</option></select>
-          <button id="openScope" class="text-button" data-icon="range">选一段修改</button>
+          <div class="transport-edit">
+            <button id="quickFeedbackPoint" type="button" class="text-button studio-only" aria-label="在时间轴标记当前画面" hidden>＋ 标记</button>
+            <button id="openScope" class="text-button" data-icon="range">选一段修改</button>
+          </div>
         </div>
       </section>
       <p id="observationConditions" class="observation-conditions studio-only" role="status"></p>
@@ -124,16 +128,37 @@
           <p id="composeIntro" class="panel-intro">描述你想要的变化，<br>让 Agent 处理余下的细节。</p>
           <form id="requestForm">
             <div class="request-label-line"><label for="request">修改要求</label><span data-icon="sparkles"></span></div>
-            <textarea id="request" maxlength="12000" rows="4" placeholder="比如，左手摆得太大，收一点。脚步和另一只手保持原样。" required></textarea>
+            <textarea id="request" maxlength="12000" rows="4" placeholder="比如，左手摆得太大，收一点。脚步和另一只手保持原样。"></textarea>
             <div class="draft-status" id="draftStatus" role="status">草稿保存在工作区</div><div id="draftConflict" class="draft-conflict" hidden><button id="draftUseRemote" type="button">载入其他窗口草稿</button><button id="draftKeepLocal" type="button">保存本窗口草稿</button></div>
             <div class="prompt-suggestions"><button type="button" data-prompt="这段动作的左臂摆动收小一些，其他部位和节奏保持。" data-icon="motion">收一点摆臂</button><button type="button" data-prompt="请检查这段动作脚底是否滑动，先解释原因，再给修改候选。" data-icon="target">检查脚底滑动</button></div>
             <div class="context-chips" id="contextCard"><button type="button" id="openTarget" class="context-chip"><span class="context-chip-icon" data-icon="target"></span><span class="context-chip-copy"><small>修改部位</small><b id="targetText">整个角色</b></span><span data-icon="chevron"></span></button><button type="button" id="scopeChip" class="context-chip"><span class="context-chip-icon" data-icon="range"></span><span class="context-chip-copy"><small>时间范围</small><b id="scopeText">整个动作</b></span><span data-icon="chevron"></span></button></div>
             <div id="sideWarning" class="side-warning" role="status" hidden><p id="sideWarningText"></p><button type="button" id="sideFix" class="text-button" hidden></button></div>
             <p class="context-auto"><span data-icon="camera">已带上当前画面</span><span id="contextTime">0.000s</span><span id="contextClip" hidden>动作</span></p>
+            <section id="feedbackPoints" class="feedback-points" aria-labelledby="feedbackPointsTitle" hidden>
+              <div class="feedback-points-heading"><h3 id="feedbackPointsTitle">反馈标记</h3><button id="addFeedbackPoint" type="button" class="text-button"><span aria-hidden="true">＋</span> 标记当前画面</button></div>
+              <p id="feedbackPointsHint" class="feedback-points-hint">有几处要改？逐处标记，一起提交。</p>
+              <div id="feedbackPointList"></div>
+              <details id="otherFeedbackPoints" hidden><summary id="otherFeedbackSummary"></summary><div id="otherFeedbackList"></div></details>
+            </section>
             <details id="projectContextDetails" class="project-context-details"><summary id="projectContextSummary">关联项目，自动找到相关素材与要求</summary><div id="projectContextBody"><p>关联一次，自动找到相关代码、制作源与历史要求。</p><button type="button" id="linkProjectInline" class="text-button">关联游戏项目 →</button></div></details>
-            <details class="preserve-details"><summary>还有哪些必须保持？<span>可选</span></summary><textarea id="preserve" rows="2" placeholder="例如：右臂、腿部、根运动和总时长保持不变。"></textarea></details>
+            <details class="preserve-details"><summary>还有哪些必须保持？<span>可选</span></summary><label class="clip-lock" id="clipLockOption" hidden><input id="lockOtherClips" type="checkbox" aria-describedby="clipLockHint"><span>锁定其他动作<small id="clipLockHint">采用前须验证其他动作的轨道保持一致。</small></span></label><textarea id="preserve" rows="2" placeholder="例如：右臂、腿部、根运动和总时长保持不变。"></textarea></details>
           </form>
-          <details id="localTools" class="local-tools"><summary>先试一次本地微调 <span>无需 AI</span></summary><p>选择身体部位，直接调整旋转摆幅，快速比较效果。</p><button id="localTarget" class="text-button">选择修改部位 ↗</button><label class="field-label" for="swingFactor">摆动幅度 <output id="factorLabel">70%</output></label><input id="swingFactor" type="range" min="0.2" max="1.5" step=".05" value=".7" aria-label="摆动幅度倍率"><button id="localEdit" class="secondary-button" disabled>生成本地微调候选</button><small>数值工具，不调用 AI。其他骨骼与时长保留。</small></details>
+          <details id="localTools" class="local-tools">
+            <summary>本地微调 <span>无需 AI</span></summary>
+            <p>选一个部位，再调摆幅或绕自身轴转一点。</p>
+            <div class="local-edit-links"><button id="localTarget" type="button" class="text-button">选择修改部位 ↗</button><button id="localScope" type="button" class="text-button">时间范围 · 整段</button></div>
+            <label class="field-label" for="localEditMode">调整方式</label>
+            <select id="localEditMode"><option value="swing">摆动幅度</option><option value="offset">旋转偏移</option></select>
+            <div id="localSwingFields"><label class="field-label" for="swingFactor">摆动幅度 <output id="factorLabel">70%</output></label><input id="swingFactor" type="range" min="0.2" max="1.5" step=".05" value=".7" aria-label="摆动幅度倍率"></div>
+            <div id="localOffsetFields" hidden>
+              <label class="field-label" for="localAxis">部位自身的旋转轴</label>
+              <select id="localAxis"><option value="x">X 轴</option><option value="y">Y 轴</option><option value="z">Z 轴</option></select>
+              <label class="field-label" for="localAngle">旋转角度 <output id="localAngleLabel">+10°</output></label>
+              <input id="localAngle" type="range" min="-90" max="90" step="1" value="10">
+            </div>
+            <p id="localPreviewStatus" class="local-preview-status" role="status" hidden></p>
+            <div class="local-edit-actions"><button id="localPreview" type="button" class="secondary-button" aria-pressed="false">试播调整</button><button id="localEdit" type="button" class="secondary-button" disabled>生成本地微调候选</button></div>
+          </details>
         </section>
         <section id="motionTrialInspector" class="mw-trial-inspector" hidden><span class="mw-overline">动作试播</span><h2>直接试播，再决定。</h2><p>这是其他来源的兼容动作。可继续点选旁边的动作，或将当前版本加入常用。</p><div class="mw-trial-note">原有动作保留。<br>试播满意后，再保存选择。</div><button id="trialBrowse" class="secondary-button">查看动作来源与版本 ↗</button></section>
         <section id="latestJob" class="task-state" hidden aria-live="polite"></section>
@@ -436,14 +461,14 @@
 <b>02</b>
 <div>
 <h3>说出你想要的变化</h3>
-<p>一句自然的话就可以。默认修改整个动作；只想修改一小段时，再展开时间范围。</p>
+<p>一句自然的话就可以。要改几个地方时，逐处暂停并点“标记当前画面”，最后一起提交。只想改一小段时，再展开时间范围。</p>
 </div>
 </div>
 <div class="guide-step">
 <b>03</b>
 <div>
 <h3>用同一个镜头看结果</h3>
-<p>Agent 完成后，候选会回到动作台。并排检查、逐帧比较，保留原版或继续提出意见。</p>
+<p>候选返回后，可以并排检查、逐帧比较，也可以点反馈标记回到当时的时刻和镜头。</p>
 </div>
 </div>
 <div class="help-footnote">初始角色是原创教学人偶。可以用“先试一次本地微调”完成第一轮，无需连接 AI。三维预览不包含游戏中的自定义衣料、IK 和战斗逻辑。</div>
@@ -466,6 +491,16 @@
 </div>
 <img id="snapshotImage" alt="当前姿态的正面、侧面、背面和俯视图">
 <button id="downloadSnapshot" class="secondary-button">下载四视图</button>
+</dialog>
+<dialog id="feedbackPointDialog" class="compact-dialog" aria-labelledby="feedbackPointTitle">
+  <div class="dialog-heading"><h2 id="feedbackPointTitle">标记当前画面</h2><button type="button" data-close class="icon-button" aria-label="关闭反馈标记">×</button></div>
+  <p id="feedbackPointAnchor" class="feedback-points-hint"></p>
+  <form id="feedbackPointForm" class="feedback-point-form">
+    <label for="feedbackPointNote">这处想怎么改？</label>
+    <textarea id="feedbackPointNote" maxlength="600" rows="4" placeholder="例如，抬手到这里时，手肘再收近身体一点。" required autofocus></textarea>
+    <p id="feedbackPointError" class="error-copy" role="status" hidden></p>
+    <div class="feedback-point-actions"><button id="cancelFeedbackPoint" type="button" class="secondary-button">取消</button><button type="submit" class="primary-button">保存标记</button></div>
+  </form>
 </dialog>
 <div id="toast" role="status" hidden>
 </div>

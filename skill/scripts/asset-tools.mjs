@@ -1,3 +1,4 @@
+import {editRotationTrack} from '../assets/viewer/rotation-edit.mjs';
 import {resourceCapabilities,curveDescriptor,curveClips,meshoptExtension} from '../assets/viewer/resource-capabilities.mjs';
 import {createHash} from 'node:crypto';
 import {readFile,writeFile,mkdir,lstat,stat,realpath,mkdtemp,symlink,unlink,rmdir} from 'node:fs/promises';
@@ -9,8 +10,8 @@ const digest=b=>createHash('sha256').update(b).digest('hex');
 const sizes={SCALAR:1,VEC2:2,VEC3:3,VEC4:4,MAT2:4,MAT3:9,MAT4:16};
 const components={5120:[1,'readInt8'],5121:[1,'readUInt8'],5122:[2,'readInt16LE'],5123:[2,'readUInt16LE'],5125:[4,'readUInt32LE'],5126:[4,'readFloatLE']};
 const bounds=values=>values.reduce(([lo,hi],v)=>[Math.min(lo,v),Math.max(hi,v)],[Infinity,-Infinity]);
-export function parseGlb(input){
- const bytes=Buffer.from(input);
+export function parseGlb(input,{copy=true}={}){
+ const bytes=!copy&&Buffer.isBuffer(input)?input:Buffer.from(input);
  if(bytes.length<20||bytes.readUInt32LE(0)!==0x46546c67||bytes.readUInt32LE(4)!==2||bytes.readUInt32LE(8)!==bytes.length)throw Error('需要完整的 glTF 2.0 GLB 文件。');
  let doc,bin=Buffer.alloc(0),offset=12;const extra=[];
  while(offset<bytes.length){if(offset+8>bytes.length)throw Error('GLB 数据块头不完整。');const n=bytes.readUInt32LE(offset),type=bytes.readUInt32LE(offset+4);offset+=8;if(n%4||offset+n>bytes.length)throw Error('GLB 数据块长度或对齐无效。');const data=bytes.subarray(offset,offset+n);if(type===0x4e4f534a){if(doc)throw Error('GLB JSON 重复。');doc=JSON.parse(data.toString('utf8').trim());}else if(type===0x004e4942)bin=data;else extra.push({type,data});offset+=n;}
@@ -125,48 +126,28 @@ export function inspectAsset(bytes){
  if(!jointSkins.size&&meshes.some(m=>m.hasWeights===false))limitations.push('未发现蒙皮骨架。动画节点可能是分段角色或刚体，不代表已完成自动绑定。');
  return{version:1,kind:resourceCapabilities(d).kind,capabilities:resourceCapabilities(d),curveResource:curveDescriptor(d),sha256:digest(bytes),bytes:bytes.length,generator:d.asset?.generator||null,bones,meshes,clips,nodes:nodes.map((n,nodeIndex)=>({name:n.name||'node_'+nodeIndex,nodeIndex,parentIndex:parents.get(nodeIndex)??null,children:n.children||[],translation:n.translation||[0,0,0],rotation:n.rotation||[0,0,0,1],scale:n.scale||[1,1,1],matrix:n.matrix||null})),rigs:(d.skins||[]).map((s,index)=>{let inverseBindMatrices=null;try{if(s.inverseBindMatrices!==undefined)inverseBindMatrices=readAccessor(d,bin,s.inverseBindMatrices);}catch(e){limitations.push(e.message);}return{index,name:s.name||'skin_'+index,joints:s.joints||[],skeletonRoot:s.skeleton??null,inverseBindMatricesAccessor:s.inverseBindMatrices??null,inverseBindMatrices};}),materials:(d.materials||[]).map((m,index)=>({index,name:m.name||'material_'+index})),sourceCoordinates:{up:'Y',units:'meter',rotation:'xyzw'},limitations:[...new Set(limitations)],extensions:d.extensionsUsed||[]};
 }
-const norm=q=>{const n=Math.hypot(...q);if(n<1e-10||!Number.isFinite(n))throw Error('动画中存在无效旋转四元数。');return q.map(v=>v/n);};
-const dot=(a,b)=>a.reduce((v,n,i)=>v+n*b[i],0);
-function slerp(a,b,t){let c=dot(a,b);if(c<0){b=b.map(v=>-v);c=-c;}if(c>.9995)return norm(a.map((v,i)=>v+(b[i]-v)*t));const angle=Math.acos(Math.min(1,c)),s=Math.sin(angle);return norm(a.map((v,i)=>(v*Math.sin((1-t)*angle)+b[i]*Math.sin(t*angle))/s));}
-const angle=(a,b)=>2*Math.acos(Math.min(1,Math.abs(dot(a,b))));
-export function editGlb(input,{clip,bone,factor=.7,start,end}={}){
+export function editGlb(input,{clip,bone,factor=.7,offset,start,end}={}){
  const original=Buffer.from(input),{doc:d,bin,extra}=parseGlb(original);
- if(!Number.isFinite(factor)||factor<0||factor>2)throw Error('摆动系数需要在 0 到 2 之间；0.7 表示约保留七成摆动。');
  const matches=(d.nodes||[]).map((n,i)=>({n,i})).filter(({n,i})=>typeof bone==='number'?i===bone:(n.name||'node_'+i)===bone);
  if(matches.length!==1)throw Error(matches.length?'骨骼名称重复，请使用明确的节点索引。':'找不到指定骨骼，请先在角色上选择身体部位。');
  const nodeIndex=matches[0].i,nodeName=matches[0].n.name||'node_'+nodeIndex;
  const ai=(d.animations||[]).findIndex((a,i)=>(a.name||'animation_'+i)===clip);if(ai<0)throw Error('找不到指定动作，请重新选择动作。');
  const a=d.animations[ai],channels=a.channels.filter(c=>c.target.node===nodeIndex&&c.target.path==='rotation');
- if(channels.length!==1)throw Error('所选部位没有唯一的旋转动画轨道，无法使用摆动微调。可交给 Agent 进行更完整的修改。');
- const channel=channels[0],sampler=a.samplers[channel.sampler];if((sampler.interpolation||'LINEAR')!=='LINEAR')throw Error('本地摆动微调只支持 LINEAR 旋转轨道；STEP 或 CUBICSPLINE 请交给 Blender 处理。');
+ if(channels.length!==1)throw Error('所选部位没有唯一的旋转动画轨道，无法使用本地微调。可交给 Agent 进行更完整的修改。');
+ const channel=channels[0],sampler=a.samplers[channel.sampler];if((sampler.interpolation||'LINEAR')!=='LINEAR')throw Error('本地微调只支持 LINEAR 旋转轨道；STEP 或 CUBICSPLINE 请交给 Blender 处理。');
  const ta=d.accessors[sampler.input],oa=d.accessors[sampler.output];if(ta?.type!=='SCALAR'||oa?.type!=='VEC4'||oa.componentType!==5126)throw Error('动画轨道不是标准浮点旋转轨道。');
- const times=readAccessor(d,bin,sampler.input).flat(),rawQs=readAccessor(d,bin,sampler.output);
- if(times.length!==rawQs.length||times.length<2||times.length>200000||times.some((t,i)=>t<0||i&&t<=times[i-1]))throw Error('动画时间必须严格递增且与旋转关键帧一一对应；本地微调最多处理 20 万个关键帧。');
- const first=times[0],last=times.at(-1),lo=start===undefined?first:start,hi=end===undefined?last:end;
- if(!Number.isFinite(lo)||!Number.isFinite(hi)||lo<first-1e-5||hi>last+1e-5||hi<=lo)throw Error('修改时间段需要落在当前动作内，并且结束时间大于开始时间。');
- const full=lo<=first+1e-5&&hi>=last-1e-5;let inserted=0;
- if(!full)for(const boundary of [lo,hi]){
-  if(times.some(t=>Math.abs(t-boundary)<1e-7))continue;
-  const i=times.findIndex(t=>t>boundary);if(i<1)continue;
-  const q=slerp(norm(rawQs[i-1]),norm(rawQs[i]),(boundary-times[i-1])/(times[i]-times[i-1]));times.splice(i,0,boundary);rawQs.splice(i,0,q);inserted++;
- }
- const qs=rawQs.map(norm),chosen=qs.filter((q,i)=>times[i]>=lo-1e-7&&times[i]<=hi+1e-7);if(chosen.length<2)throw Error('所选时间段不足两个旋转关键帧，请扩大范围或交给 Agent。');
- const ref=chosen[0],aligned=chosen.map(q=>dot(ref,q)<0?q.map(v=>-v):q),mean=norm(aligned.reduce((sum,q)=>sum.map((v,i)=>v+q[i]),[0,0,0,0]));
- const ramp=(hi-lo)*.2;let changed=0;
- const output=qs.map((q,i)=>{
-  const t=times[i];if(t<lo||t>hi)return rawQs[i];
-  let w=1;if(!full){const x=Math.max(0,Math.min(1,(t-lo)/ramp,(hi-t)/ramp));w=x*x*(3-2*x);}
-  if(w===0)return rawQs[i];const next=slerp(mean,q,1+(factor-1)*w);if(angle(q,next)>1e-7)changed++;return next;
- });
- if(!changed)throw Error('这次参数没有产生可见的旋转变化，请调整摆动系数或时间范围。');
+ if(ta.count!==oa.count||ta.count>200000)throw Error('动画时间与旋转关键帧需要一一对应，本地微调最多处理 20 万个关键帧。');
+ const sourceTimes=readAccessor(d,bin,sampler.input).flat(),sourceValues=readAccessor(d,bin,sampler.output);
+ const {times,output,report}=editRotationTrack(sourceTimes,sourceValues,{factor,offset,start,end});
+ const inserted=report.insertedBoundaryKeyframes,first=times[0],last=times.at(-1);
  const bytes=Buffer.alloc(output.length*16);output.forEach((q,i)=>q.forEach((v,j)=>bytes.writeFloatLE(v,i*16+j*4)));
  const byteOffset=bin.length+(4-bin.length%4)%4,timeBytes=inserted?Buffer.alloc(times.length*4):Buffer.alloc(0);times.forEach((t,i)=>{if(inserted)timeBytes.writeFloatLE(t,i*4);});const newBin=Buffer.concat([bin,Buffer.alloc(byteOffset-bin.length),bytes,timeBytes]);
  d.bufferViews??=[];d.accessors??=[];const view=d.bufferViews.push({buffer:0,byteOffset,byteLength:bytes.length})-1,accessor=d.accessors.push({bufferView:view,componentType:5126,count:output.length,type:'VEC4'})-1;
  // Append and redirect only this channel. Existing shared accessors and samplers remain untouched.
  let inputAccessor=sampler.input;if(inserted){const timeView=d.bufferViews.push({buffer:0,byteOffset:byteOffset+bytes.length,byteLength:timeBytes.length})-1;inputAccessor=d.accessors.push({bufferView:timeView,componentType:5126,count:times.length,type:'SCALAR',min:[first],max:[last]})-1;}
  channel.sampler=a.samplers.push({...sampler,input:inputAccessor,output:accessor})-1;d.buffers[0].byteLength=newBin.length;
- const encoded=encodeGlb(d,newBin,extra),degrees=180/Math.PI;
- return{bytes:encoded,report:{kind:'deterministic-local-edit',agentGenerated:false,method:'quaternion-slerp-about-mean',sourceSha256:digest(original),candidateSha256:digest(encoded),clip,bone:nodeName,nodeIndex,factor,timeRange:[lo,hi],edgeBlend:full?'whole-clip':'smoothstep-20-percent',insertedBoundaryKeyframes:inserted,changedKeyframes:changed,totalKeyframes:times.length,beforeMaxDegrees:chosen.reduce((v,q)=>Math.max(v,angle(mean,q)),0)*degrees,afterMaxDegrees:output.reduce((v,q,i)=>times[i]>=lo&&times[i]<=hi?Math.max(v,angle(mean,q)):v,0)*degrees,preserved:{sourceBytes:true,geometry:true,skinWeights:true,materials:true,restPose:true,otherChannels:true,otherClips:true,inputTimes:!inserted},limitations:['Only the selected local rotation channel changes; descendant world poses follow the edited parent.','This is a parameterized tool, not an AI artistic judgment.','No proof of collision-free motion, contact retention or engine integration.'],artisticAcceptance:'pending-user-review'}};
+ const encoded=encodeGlb(d,newBin,extra);
+ return{bytes:encoded,report:{kind:'deterministic-local-edit',agentGenerated:false,...report,sourceSha256:digest(original),candidateSha256:digest(encoded),clip,bone:nodeName,nodeIndex,preserved:{sourceBytes:true,geometry:true,skinWeights:true,materials:true,restPose:true,otherChannels:true,otherClips:true,inputTimes:!inserted},limitations:['Only the selected local rotation channel changes; descendant world poses follow the edited parent.','This is a parameterized tool, not an AI artistic judgment.','No proof of collision-free motion, contact retention or engine integration.'],artisticAcceptance:'pending-user-review'}};
 }
 export async function findBlender(explicit){
  return blenderExecutable({explicit});

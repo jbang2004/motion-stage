@@ -4,13 +4,49 @@ import {mkdtemp,readFile,writeFile,rm,symlink} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {resolve} from 'node:path';
 import {spawnSync,spawn} from 'node:child_process';
-import {parseGlb,encodeGlb} from '../asset-tools.mjs';
-import {ROOT,atomic,json,importAsset,sha,withWorkspaceLock} from '../core.mjs';
+import {parseGlb,encodeGlb,editGlb} from '../asset-tools.mjs';
+import {ROOT,atomic,json,importAsset,sha,withWorkspaceLock,readProject,modelSlots} from '../core.mjs';
 import {buildDemo} from '../practice.mjs';
 import {createJob,claimJob,completeJob,getJob,listJobs,cancelJob,failJob,localEditJob,reviewJob,inspectSlot,checkMotionSlot} from '../jobs.mjs';
 import {serve} from '../server.mjs';
+import {saveDraft,readDraft} from '../drafts.mjs';
+import {feedbackObservation,pointsForClip} from '../../assets/viewer/feedback-points.mjs';
+import {planObservationRestore,restoredTransportTime} from '../../assets/viewer/observation-state.mjs';
 async function setup(){const w=await mkdtemp(resolve(tmpdir(),'motion-jobs-'));await atomic(resolve(w,'project.json'),{version:2,title:'Test',slots:{}});await atomic(resolve(w,'feedback.json'),{version:1,notes:[]});const b=await buildDemo(false);await importAsset(w,'baseline',b,'base.glb');await importAsset(w,'candidate',b,'candidate.glb');return w;}
 async function input(w,changes={}){const p=await json(resolve(w,'project.json'));return {request:'左臂摆动收小三成，保留其他动作',preserve:'模型、其他肢体和时长',target:{bone:'LeftArm'},scope:{start:0,end:1,wholeClip:true},context:{slot:'baseline',asset:p.slots.baseline,clip:'Run',time:.25,fps:30,frame:8,view:'front',mode:'elapsed',rootLocked:true,slots:Object.fromEntries(Object.entries(p.slots).map(([k,v])=>[k,{...v,clip:'Run',time:.25}]))},...changes};}
+
+test('feedback markers persist as separate clip drafts and freeze together as one reviewable task',async()=>{
+ const w=await setup();try{
+  const payload=await input(w,{request:''}),asset=payload.context.asset,assetId=(await readProject(w)).activeAssetId;
+  const one={id:'one',assetSha256:asset.sha256,clip:'Run',time:.22,note:'收小左肩摆幅',target:{bone:'LeftShoulder',nodeIndex:9},camera:{position:[0,2,4],target:[0,1,0],fov:35},view:'front',rootLocked:true,scaleMode:'shared',normalization:{scale:2,restOffset:[0,0,0]}};
+  const two={...one,id:'two',time:.65,note:'右肩后摆收一点',target:{bone:'RightShoulder'},camera:{position:[4,2,0],target:[0,1,0],fov:39},view:'side'};
+  const other={...one,id:'other',clip:'Salute'};
+  await saveDraft(w,assetId,{expectedRevision:0,draft:{assetId,context:{assetId},request:'',preserve:'',feedbackPoints:[one,two,other]}});
+  const stored=(await readDraft(w,assetId)).draft.feedbackPoints;
+  assert.deepEqual(stored,[one,two,other]);
+  await assert.rejects(createJob(w,{...payload,feedbackPoints:[one,other]}),/不匹配/);
+  await assert.rejects(createJob(w,{...payload,feedbackPoints:[{...one,assetSha256:'f'.repeat(64)}]}),/不匹配/);
+  await assert.rejects(createJob(w,{...payload,feedbackPoints:[one,two],scope:{start:.5,end:1,wholeClip:false}}),/超出/);
+  await assert.rejects(createJob(w,{...payload,feedbackPoints:[one,one]}),/无效|缺少/);
+  await assert.rejects(createJob(w,{...payload,feedbackPoints:[one],executor:'local'}),/本地微调/);
+  await assert.rejects(createJob(w,payload),/不能为空/);
+  const j=await createJob(w,{...payload,feedbackPoints:pointsForClip(stored,asset.sha256,'Run')});
+  assert.equal(j.pointOnly,true);assert.deepEqual(j.target,{});assert.deepEqual(j.feedbackPoints,[one,two]);
+  assert.deepEqual((await json(resolve(w,'jobs',j.id,'context.json'))).feedbackPoints,[one,two]);
+  assert.match(await readFile(j.taskPath,'utf8'),/1\. 0\.220 秒 · LeftShoulder\n   收小左肩摆幅\n2\. 0\.650 秒 · RightShoulder\n   右肩后摆收一点/);
+  assert.equal((await listJobs(w)).length,1);
+  const models={baseline:{clips:[{name:'Run'}],duration:1},candidate:{clips:[{name:'Run'}],duration:2}};
+  for(const mark of j.feedbackPoints){
+   const ctx=feedbackObservation({...j.context,mode:'progress'},mark,'candidate',{comparison:true});
+   const plan=planObservationRestore(ctx,models,{inputSlot:'candidate'});
+   assert.equal(plan.display,'split');assert.equal(plan.settings.mode,'elapsed');assert.equal(plan.settings.view,mark.view);
+   assert.deepEqual(plan.cameras,{baseline:mark.camera,candidate:mark.camera});
+   assert.deepEqual(plan.clips,{baseline:'Run',candidate:'Run'});
+   assert.deepEqual(plan.normalization,mark.normalization);
+   assert.equal(restoredTransportTime(plan,models),mark.time);
+  }
+ }finally{await rm(w,{recursive:true,force:true});}
+});
 
 test('job persists observation, accepts one owner, returns distinct candidate and records human review',async()=>{
  const w=await setup();try{
@@ -29,6 +65,31 @@ test('stale completion and cancelled execution never replace current preview',as
   const p=resolve(w,'output.glb');await writeFile(p,b);await assert.rejects(completeJob(w,j.id,{lease:claim.lease,candidatePath:p,summary:'old worker'}),/过期/);assert.equal((await getJob(w,j.id)).state,'stale');assert.deepEqual((await json(resolve(w,'project.json'))).slots.candidate,current);
   const k=await createJob(w,await input(w)),c=await claimJob(w,k.id);await cancelJob(w,k.id);await assert.rejects(completeJob(w,k.id,{lease:c.lease,candidatePath:p,summary:'late'}),/租约/);assert.equal((await getJob(w,k.id)).state,'cancelled');
   const n=await createJob(w,await input(w)),nc=await claimJob(w,n.id);await failJob(w,n.id,{lease:nc.lease,state:'needs-input',error:'请确认改整个动作还是片段'});assert.equal((await getJob(w,n.id)).state,'needs-input');assert.equal((await claimJob(w,n.id)).state,'running');
+ }finally{await rm(w,{recursive:true,force:true});}
+});
+
+test('the frozen clip lock allows preview but blocks adoption when other animation tracks changed',async()=>{
+ const w=await setup();try{
+  const payload=await input(w,{lockOtherClips:true});
+  const job=await createJob(w,payload),claim=await claimJob(w,job.id);
+  const original=await readFile(resolve(w,job.inputs.baseline.file)),path=resolve(w,'diff-candidate.glb');
+  assert.equal((await json(resolve(w,'jobs',job.id,'context.json'))).lockOtherClips,true);
+  const altered=editGlb(original,{clip:'Salute',bone:'RightShoulder',factor:.6});
+  await writeFile(path,altered.bytes);
+  const result=await completeJob(w,job.id,{lease:claim.lease,candidatePath:path,summary:'test'});
+  assert.equal(result.candidateDiff.protection,'violated');
+  assert.equal(result.candidateDiff.outside,1);
+  await assert.rejects(reviewJob(w,job.id,{decision:'accept-candidate'}),/锁定的其他动作/);
+  assert.equal((await getJob(w,job.id)).review,undefined);
+  await reviewJob(w,job.id,{decision:'keep-baseline'});
+  const current=modelSlots(await readProject(w),job.assetId);
+  const next=await createJob(w,{assetId:job.assetId,request:'缩小左肩摆幅',slot:'candidate',lockOtherClips:true,context:{slot:'candidate',asset:current.candidate,clip:'Run',time:.25}});
+  const nextClaim=await claimJob(w,next.id);
+  await writeFile(path,editGlb(original,{clip:'Run',bone:'LeftShoulder',factor:.6}).bytes);
+  const done=await completeJob(w,next.id,{lease:nextClaim.lease,candidatePath:path,summary:'test'});
+  assert.equal(done.candidateDiff.protection,'verified');
+  assert.deepEqual(done.candidateDiff.tracks,{unchanged:15,changed:1,added:0,removed:0,unverified:0});
+  assert.equal((await reviewJob(w,next.id,{decision:'accept-candidate'})).artisticDecision,'accept-candidate');
  }finally{await rm(w,{recursive:true,force:true});}
 });
 

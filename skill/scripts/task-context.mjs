@@ -55,7 +55,7 @@ async function ownedAuthoringSources(work,job,packet,{preview=false}={}){
 }
 export async function assembleTaskContext(work,job,options={}){
  const continuity=await buildContinuity(work,job),effective=await effectiveJobSource(work,job,continuity);
- const request=[job.request,...(job.clarifications||[]).map(c=>c.message)].filter(Boolean).join('\n');
+ const request=[job.request,...(job.feedbackPoints||[]).map(p=>[p.target?.bone,p.note].filter(Boolean).join(' ')),...(job.clarifications||[]).map(c=>c.message)].filter(Boolean).join('\n');
  const projectContext=await buildProjectContext(work,{...effective,request},options);await ownedAuthoringSources(work,effective,projectContext,options);
  if(effective.source?.nativeSourceSynchronized===false&&projectContext.project&&(projectContext.code.length||projectContext.sources.length)){projectContext.task.sourceProvenance={selectedSha256:job.inputs?.[job.slot]?.sha256,upstreamAssetSha256:effective.source.nativeSourceAtAssetSha256||effective.source.previewSha256||null,upstreamOnly:true};projectContext.warnings.push('关联工程文件或制作源对应上游版本；本次以选定候选为基础衔接历史修改，不代表已将该候选安装到正式工程。');}
  return{version:1,createdAt:new Date().toISOString(),source:{assetId:job.assetId||null,slot:job.slot,sha256:job.inputs?.[job.slot]?.sha256,clip:job.clip},projectContext,continuity};

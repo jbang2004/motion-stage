@@ -2,6 +2,7 @@ import {providerInfo} from './agent-providers.mjs';
 import {normalizeCaller,assertCaller,callerLabel} from '../assets/viewer/caller.mjs';
 import {readFile,readdir,mkdir,stat,lstat} from 'node:fs/promises';
 import {resolve,basename,relative,sep,isAbsolute} from 'node:path';
+import {isDeepStrictEqual} from 'node:util';
 import {randomUUID} from 'node:crypto';
 import {ROOT,json,atomic,inside,withWorkspaceLock,glbInfo,importAsset,sha,readProject,modelSlots,setModelSlots,stageAsset,commitWorkspace,readWorkspaceJSON,projectView} from './core.mjs';
 import {freezeTaskContext,readTaskContext,contextDrift,assembleTaskContext} from './task-context.mjs';
@@ -9,10 +10,12 @@ import {getProjectLink} from './project-context.mjs';
 import {sourceForTask} from './source-dependencies.mjs';
 import {createCurveResource} from './curve-resources.mjs';
 import {validateCandidate} from './candidate-validation.mjs';
+import {compareCandidate} from './candidate-diff.mjs';
 import {executionHealth} from './execution-runtime.mjs';
 import {readJobIndex} from './job-index.mjs';
 import {undoGuard,appendUndo,advanceUndo} from './undo.mjs';
 import {sideConflict,SIDE_NAMES} from '../assets/viewer/body-side.mjs';
+import {validateFeedbackPoints} from '../assets/viewer/feedback-points.mjs';
 
 const ID=/^[a-f0-9-]{36}$/;
 const finalStates=new Set(['complete','failed','cancelled','stale']);
@@ -47,13 +50,13 @@ export async function updateJobActivity(work,id,{lease,message}={}){return withW
  j.activity={message:text(message,'活动说明',500),at:new Date().toISOString(),source:'system'};j.lastActivityAt=j.activity.at;
  await saveJob(work,j);return clean(j);
 });}
-async function verifyInputs(work,j){
+async function verifyInputs(work,j,onSource){
  const cfg=await readProject(work),heads=modelSlots(cfg,j.assetId||cfg.legacyAssetId);
  if(j.modelRevision!==undefined&&j.modelRevision!==(cfg.models[j.assetId||cfg.legacyAssetId]?.headRevision||0))return false;
  for(const slot of ['baseline','candidate']){
   const frozen=j.inputs[slot],current=heads[slot];
   if((frozen?.sha256||null)!==(current?.sha256||null))return false;
-  if(frozen){const b=await readFile(await inside(work,frozen.file));if(sha(b)!==frozen.sha256)throw Error('任务源文件已损坏：'+slot);}
+  if(frozen){const b=await readFile(await inside(work,frozen.file));if(sha(b)!==frozen.sha256)throw Error('任务源文件已损坏：'+slot);if(slot===j.slot)onSource?.(b);}
  }
  return true;
 }
@@ -142,7 +145,9 @@ export async function validateJobs(work){
   const info=await asset(j.inputs?.[j.slot]),clip=info.clips.find(c=>c.name===j.clip);
   if(info.clips.length&&!clip)throw Error('任务动作不属于冻结源文件：'+j.id);
   if(!j.scope||!Number.isFinite(j.scope.start)||!Number.isFinite(j.scope.end)||j.scope.start<0||j.scope.end<j.scope.start||j.scope.end>(clip?.duration||0)+.001)throw Error('任务时间范围无效：'+j.id);
-  await readFile(await inside(work,j.taskFile));await json(await inside(work,'jobs/'+j.id+'/context.json'));
+  await readFile(await inside(work,j.taskFile));const context=await json(await inside(work,'jobs/'+j.id+'/context.json'));
+  const points=validateFeedbackPoints(j.feedbackPoints,{sha:j.inputs[j.slot].sha256,clip:j.clip,duration:clip?.duration||0,scope:j.scope});
+  if(!isDeepStrictEqual(points,context.feedbackPoints??[]))throw Error('任务反馈标记与冻结现场不一致：'+j.id);
   if(j.projectContextFile)await readTaskContext(work,j);
   if(j.screenshot){const b=await readFile(await inside(work,j.screenshot));if(b.subarray(0,8).toString('hex')!=='89504e470d0a1a0a')throw Error('任务截图无效：'+j.id);}
   if(j.state==='complete'){await asset(j.candidate);text(j.summary,'完成说明');}
@@ -181,7 +186,13 @@ export async function checkMotionSlot(work,{slot='baseline',assetId,file,baselin
  return compareMotionChecks(checkMotion(await load(baselineSlot,baselineFile),options),result);
 }
 const sideNote=c=>`左右提示：要求写的是${SIDE_NAMES[c.requested]}侧，页面选中的却是角色${SIDE_NAMES[c.picked]}侧的 ${c.bone}${c.inferred?'（由点击位置推断）':''}。左右按角色自身朝向；用户可能按画面方向描述。先结合截图与文字确定是哪一侧；仍不确定时用 needs-input 询问，不要两侧都改。`;
-function makeTask(j,work){return `# 动作修改任务 ${j.id}\n\n路径说明：绝对路径记录创建时的位置。工程搬迁后，以 CLI job 返回的 executionPaths 为当前入口，相对资产路径仍以当前工作区为根。\n\n处理来源：${callerLabel(j.caller)}${j.caller?'；会话 '+j.caller.sessionId+'；仅路由绑定，不代表已唤醒客户端。':''}\n\n用户要求：\n${j.request}\n\n${j.clarifications?.length?"补充说明：\n"+j.clarifications.map(c=>"- "+c.message).join("\n")+"\n\n":""}保留条件：\n${j.preserve||'用户未额外指定；保留任务范围外的数据，先判断责任层。'}\n\n冻结源文件：${resolve(work,j.inputs[j.slot].file)}\n源文件 SHA-256：${j.inputs[j.slot].sha256}\n模型 ID：${j.assetId||'legacy'}\n模型版本修订：${j.modelRevision??'旧任务'}\n版本槽：${j.slot}\n动作：${j.clip||'静态模型'}\n查看时刻：${j.context.time??0} 秒。审阅帧号仅为 UI 步进单位，不是源 Blender 帧号。\n预览外观：${j.context?.appearance?.mode==='project'?'项目适配包 '+j.context.appearance.bundle:'中性检查'}\n范围：${JSON.stringify(j.scope)}\n目标：${JSON.stringify(j.target)}\n${j.sideConflict?sideNote(j.sideConflict)+'\n':''}上下文：${resolve(work,'jobs',j.id,'context.json')}\n${j.projectContextFile?'项目与连续修改上下文：'+resolve(work,j.projectContextFile)+'\n说明：'+resolve(work,j.projectContextMarkdown)+'\n':''}${j.screenshot?'观察截图：'+resolve(work,j.screenshot)+'\n':''}\n此任务由页面中的明确提交产生。界面选区本身不扩大修改授权。观察截图、来源映射、身体部位、时间和镜头必须结合起来解释；屏幕点不等于已确认骨骼。\n\n## 执行与回传\n\n先读取本 Skill 的 SKILL.md 和任务 context.json。检查源资产内部骨架、静止姿势、权重、动作曲线或制作源；选择实际负责的层。先 claim，保留返回的 lease。所有候选和脚本放在 claim 返回的 executionPaths.outputDirectory 中；每次执行目录独立，保留原始资产及旧产物。无法唯一确定意图时标记 needs-input，并给用户一个具体问题。\n\nCLI：\n${claimCommand(work,j)} --owner agent\n（--owner 可换成你的 Agent 名称，例如 claude-code、codex；只用于记录谁领取了任务。）\n\n修改完成后验证目标变化和保护范围，另存自包含 candidate.glb。回传：\nnode ${quote(resolve(ROOT,'scripts/motion-feedback.mjs'))} complete --workspace ${quote(work)} --job ${j.id} --lease CLAIM_RETURNED_LEASE --candidate /absolute/path/candidate.glb --summary '实际修改和验证范围'\n\n只在实际执行并检查后标记完成。若已由 worker claim，使用它给出的租约，不重复 claim。技术检查不代表用户艺术认可；回传候选不安装正式游戏。\n`;
+function feedbackSection(points){
+ if(!points?.length)return '';
+ return '本轮反馈标记（按编号逐条处理；每条的镜头与部位见 context.json）：\n'+points.map((p,i)=>
+  (i+1)+'. '+p.time.toFixed(3)+' 秒 · '+(p.target?.bone||p.target?.mesh||'整个动作')+'\n   '+p.note.replaceAll('\n','\n   ')
+ ).join('\n')+'\n\n';
+}
+function makeTask(j,work){return `# 动作修改任务 ${j.id}\n\n路径说明：绝对路径记录创建时的位置。工程搬迁后，以 CLI job 返回的 executionPaths 为当前入口，相对资产路径仍以当前工作区为根。\n\n处理来源：${callerLabel(j.caller)}${j.caller?'；会话 '+j.caller.sessionId+'；仅路由绑定，不代表已唤醒客户端。':''}\n\n用户要求：\n${j.request}\n\n${feedbackSection(j.feedbackPoints)}${j.clarifications?.length?"补充说明：\n"+j.clarifications.map(c=>"- "+c.message).join("\n")+"\n\n":""}${j.lockOtherClips?'保护范围：仅允许修改当前动作。其他动作不得新增、删除或修改轨道。\n':''}保留条件：\n${j.preserve||'用户未额外指定；保留任务范围外的数据，先判断责任层。'}\n\n冻结源文件：${resolve(work,j.inputs[j.slot].file)}\n源文件 SHA-256：${j.inputs[j.slot].sha256}\n模型 ID：${j.assetId||'legacy'}\n模型版本修订：${j.modelRevision??'旧任务'}\n版本槽：${j.slot}\n动作：${j.clip||'静态模型'}\n查看时刻：${j.context.time??0} 秒。审阅帧号仅为 UI 步进单位，不是源 Blender 帧号。\n预览外观：${j.context?.appearance?.mode==='project'?'项目适配包 '+j.context.appearance.bundle:'中性检查'}\n范围：${JSON.stringify(j.scope)}\n目标：${JSON.stringify(j.target)}\n${j.sideConflict?sideNote(j.sideConflict)+'\n':''}上下文：${resolve(work,'jobs',j.id,'context.json')}\n${j.projectContextFile?'项目与连续修改上下文：'+resolve(work,j.projectContextFile)+'\n说明：'+resolve(work,j.projectContextMarkdown)+'\n':''}${j.screenshot?'观察截图：'+resolve(work,j.screenshot)+'\n':''}\n此任务由页面中的明确提交产生。界面选区本身不扩大修改授权。观察截图、来源映射、身体部位、时间和镜头必须结合起来解释；屏幕点不等于已确认骨骼。\n\n## 执行与回传\n\n先读取本 Skill 的 SKILL.md 和任务 context.json。检查源资产内部骨架、静止姿势、权重、动作曲线或制作源；选择实际负责的层。先 claim，保留返回的 lease。所有候选和脚本放在 claim 返回的 executionPaths.outputDirectory 中；每次执行目录独立，保留原始资产及旧产物。无法唯一确定意图时标记 needs-input，并给用户一个具体问题。\n\nCLI：\n${claimCommand(work,j)} --owner agent\n（--owner 可换成你的 Agent 名称，例如 claude-code、codex；只用于记录谁领取了任务。）\n\n修改完成后验证目标变化和保护范围，另存自包含 candidate.glb。回传：\nnode ${quote(resolve(ROOT,'scripts/motion-feedback.mjs'))} complete --workspace ${quote(work)} --job ${j.id} --lease CLAIM_RETURNED_LEASE --candidate /absolute/path/candidate.glb --summary '实际修改和验证范围'\n\n只在实际执行并检查后标记完成。若已由 worker claim，使用它给出的租约，不重复 claim。技术检查不代表用户艺术认可；回传候选不安装正式游戏。\n`;
 }
 export async function createJob(work,input){return withWorkspaceLock(work,async()=>{
  const cfg=await readProject(work),ctx=structuredClone(input.context||{}),assetId=input.assetId||ctx.assetId||cfg.activeAssetId,heads=modelSlots(cfg,assetId),slot=input.slot||ctx.slot||(ctx.displayMode==='comparison'?'candidate':'baseline'),a=heads[slot];
@@ -192,13 +203,19 @@ export async function createJob(work,input){return withWorkspaceLock(work,async(
  if(!asset||asset.sha256!==a.sha256||asset.file!==a.file)throw Error('反馈的资产版本已变化，请刷新并重新定位');
  const clip=ctx.clip??ctx.slots?.[slot]?.clip??'';const c=a.clips.find(x=>x.name===clip);
  if(a.clips.length&&!c)throw Error('动作不属于当前版本');
+ if(input.lockOtherClips!==undefined&&typeof input.lockOtherClips!=='boolean')throw Error('锁定其他动作的设置无效');
+ if(input.lockOtherClips&&!c)throw Error('请先选择本轮要修改的动作');
  const time=Number(ctx.time??ctx.slots?.[slot]?.time??0);if(!Number.isFinite(time)||time<0||time>(c?.duration||0)+.001)throw Error('无效反馈时刻');
  if(ctx.slots)for(const s of ['baseline','candidate']){const seen=ctx.slots[s],cur=heads[s];if(seen&&(!cur||cur.sha256!==seen.sha256||cur.file!==seen.file))throw Error('对照版本已变化，请刷新');}
  if(ctx.fps!==undefined&&(!Number.isFinite(ctx.fps)||ctx.fps<1||ctx.fps>240))throw Error('无效审阅帧率');
  if(JSON.stringify(ctx).length>150000)throw Error('反馈上下文过大，请使用截图附件');
  const scope={start:0,end:c?.duration||0,wholeClip:true,...input.scope};
  if(!Number.isFinite(scope.start)||!Number.isFinite(scope.end)||scope.start<0||scope.end<scope.start||scope.end>(c?.duration||0)+.001)throw Error('时间范围无效');
- const target=structuredClone(input.target||ctx.selection||{});
+ const feedbackPoints=validateFeedbackPoints(input.feedbackPoints,{sha:a.sha256,clip,duration:c?.duration||0,scope});
+ if(feedbackPoints.length&&input.executor==='local')throw Error('本地微调只处理一个数值调整，请单独提交反馈标记。');
+ const pointOnly=feedbackPoints.length>0&&(input.request===undefined||typeof input.request==='string'&&!input.request.trim());
+ const request=pointOnly?'按本轮的 '+feedbackPoints.length+' 条反馈标记调整动作。':text(input.request,'修改要求');
+ const target=pointOnly?{}:structuredClone(input.target||ctx.selection||{});
  if(target.nodeIndex!==undefined&&(!Number.isSafeInteger(target.nodeIndex)||target.nodeIndex<0||target.nodeIndex>=100000))throw Error('目标节点索引无效');
  if(target.bone&&typeof target.bone!=='string'||target.mesh&&typeof target.mesh!=='string')throw Error('目标格式无效');
  if(JSON.stringify(target).length>10000)throw Error('目标上下文过大');
@@ -207,8 +224,10 @@ export async function createJob(work,input){return withWorkspaceLock(work,async(
  const inputs=structuredClone(heads);for(const head of Object.values(inputs))if(head.source)head.source=sourceForTask(head.source);
  const caller=input.executor!=='local'&&input.delivery==='chat'?normalizeCaller(input.caller):null;
  const provider=input.delivery==='chat'||input.executor==='local'?null:providerInfo(input.provider||'codex').id;
- const now=new Date().toISOString(),j={version:2,id,assetId,caller,provider,modelRevision:cfg.models[assetId]?.headRevision||0,state:'queued',executor:input.executor==='local'?'local':'agent',delivery:input.delivery==='chat'?'chat':'worker',request:text(input.request,'修改要求'),preserve:typeof input.preserve==='string'?input.preserve.slice(0,12000):'',slot,clip,time,target,scope,context:{...ctx,assetId,time},inputs,source:sourceForTask(a.source)||null,createdAt:now,updatedAt:now,events:[],artisticDecision:null,parentJobId:input.parentJobId||null};
+ const now=new Date().toISOString(),j={version:2,id,assetId,caller,provider,modelRevision:cfg.models[assetId]?.headRevision||0,state:'queued',executor:input.executor==='local'?'local':'agent',delivery:input.delivery==='chat'?'chat':'worker',request,preserve:typeof input.preserve==='string'?input.preserve.slice(0,12000):'',slot,clip,time,target,scope,context:{...ctx,assetId,time},inputs,source:sourceForTask(a.source)||null,createdAt:now,updatedAt:now,events:[],artisticDecision:null,parentJobId:input.parentJobId||null};
+ if(feedbackPoints.length){j.feedbackPoints=feedbackPoints;j.pointOnly=pointOnly;}
  j.claimCommand=claimCommand(work,j);
+ if(input.lockOtherClips)j.lockOtherClips=true;
  if(j.parentJobId&&!ID.test(j.parentJobId))throw Error('无效的父任务标识');
  const side=target.bone?sideConflict(j.request,target.bone):null;if(side)j.sideConflict={requested:side.requested,picked:side.picked,bone:side.bone,inferred:Boolean(target.inferred)};
  event(j,'queued','已记录；等待已连接的 Agent 或手动领取');j.taskFile='jobs/'+id+'/task.md';j.taskPath=resolve(work,j.taskFile);j.agentCommand=`node ${quote(resolve(ROOT,'scripts/motion-feedback.mjs'))} job --workspace ${quote(work)} --job ${id}`;
@@ -218,7 +237,7 @@ export async function createJob(work,input){return withWorkspaceLock(work,async(
   j.screenshot='jobs/'+id+'/view.png';await atomic(await inside(work,j.screenshot),bytes);
  }
  await freezeTaskContext(work,j);
- await atomic(resolve(dir,'context.json'),{version:2,jobId:id,assetId:j.assetId,caller:j.caller,request:j.request,target,scope,context:j.context,inputs:j.inputs,source:j.source,screenshot:j.screenshot||null,projectContextFile:j.projectContextFile,projectContextSha256:j.projectContextSha256});
+ await atomic(resolve(dir,'context.json'),{version:2,jobId:id,assetId:j.assetId,caller:j.caller,request:j.request,target,scope,...(feedbackPoints.length?{feedbackPoints}:{}),lockOtherClips:j.lockOtherClips===true,context:j.context,inputs:j.inputs,source:j.source,screenshot:j.screenshot||null,projectContextFile:j.projectContextFile,projectContextSha256:j.projectContextSha256});
  await atomic(j.taskPath,makeTask(j,work));await saveJob(work,j);return clean(j);
 });}
 export async function claimJob(work,id,{owner='agent',execution,caller}={}){return withWorkspaceLock(work,async()=>{
@@ -243,12 +262,14 @@ export async function completeJob(work,id,{lease,candidatePath,summary,audit=nul
   return clean(j);
  }
  if(j.state!=='running'||!lease||lease!==j.lease)throw Error('任务状态或执行租约不匹配');
- if(!await verifyInputs(work,j)){event(j,'stale','执行期间版本已变化，候选保留但未替换当前预览');await saveJob(work,j);throw Error('任务已过期，未替换候选');}
+ let sourceBytes;
+ if(!await verifyInputs(work,j,bytes=>{sourceBytes=bytes;})){event(j,'stale','执行期间版本已变化，候选保留但未替换当前预览');await saveJob(work,j);throw Error('任务已过期，未替换候选');}
  const drift=await contextDrift(work,j);if(drift.status==='changed'){j.contextDrift=drift;event(j,'stale','关联的制作源或代码已变化，候选保留在任务输出，未替换当前预览');await saveJob(work,j);throw Error('项目上下文已变化，需要重新核验');}
  const candidateStat=await stat(resolve(candidatePath));if(!candidateStat.isFile()||candidateStat.size>200*1024*1024)throw Error('候选需要是不超过 200 MB 的普通 GLB 文件');
  const bytes=await readFile(resolve(candidatePath));text(summary,'完成说明');
  const validation=validateCandidate(bytes,j.inputs[j.slot].clips||[],j.inputs[j.slot].capabilities),info=glbInfo(bytes);
  if(info.sha256===j.inputs[j.slot].sha256)throw Error('没有生成修改后的候选：文件与源版本完全相同');
+ j.candidateDiff=compareCandidate(sourceBytes,bytes,{clip:j.clip,lockOtherClips:j.lockOtherClips});
  const beforeUndo=await undoGuard(work,j.assetId||'legacy');
  const upstream=j.source||j.inputs[j.slot].source;
  const staged=await stageAsset(work,'candidate',bytes,basename(candidatePath),{assetId:j.assetId||(await readProject(work)).legacyAssetId,activate:false,...(upstream?{source:{...upstream,derivedFromAssetSha256:j.inputs[j.slot].sha256,nativeSourceAtAssetSha256:upstream.nativeSourceAtAssetSha256||upstream.previewSha256||j.inputs[j.slot].sha256,nativeSourceSynchronized:false,derivedByJobId:j.id}}:{})});
@@ -284,7 +305,10 @@ async function restoreReviewAsset(work,cfg,assetId,source){
 export async function reviewJob(work,id,{decision,outcome='',decisionId}={},internal={}){return withWorkspaceLock(work,async()=>{
  const j=await rawJob(work,id);if(j.state!=='complete')throw Error('尚无完成的候选');if(!['accept-candidate','keep-baseline','revise'].includes(decision))throw Error('无效评审决定');
  if(decisionId){jobId(decisionId);const prior=j.reviews?.find(r=>r.id===decisionId);if(prior){if(prior.decision!==decision||prior.outcome!==String(outcome).slice(0,8000))throw Error('相同决定 ID 不能用于不同评审');return clean(j);}}
- if(decision==='accept-candidate'){const d=await contextDrift(work,j);if(d.status==='changed')throw Error('关联制作源或代码已变化，请重新核验后再接受候选');}
+ if(decision==='accept-candidate'){
+  if(j.lockOtherClips&&j.candidateDiff?.protection!=='verified')throw Error(j.candidateDiff?.protection==='violated'?'候选改动了锁定的其他动作，不能采用这版。':'锁定的其他动作尚未验证，不能采用这版。');
+  const d=await contextDrift(work,j);if(d.status==='changed')throw Error('关联制作源或代码已变化，请重新核验后再接受候选');
+ }
  const cfgBefore=await readProject(work),assetId=j.assetId||cfgBefore.legacyAssetId,headsBefore=modelSlots(cfgBefore,assetId),beforeGuard=await undoGuard(work,assetId),priorDecision=j.reviews?.at(-1)?.decision||'revise';
  const ownsHead=headsBefore.baseline?.sha256===j.inputs.baseline?.sha256&&[j.candidate.sha256,j.restoredSource?.sha256].includes(headsBefore.candidate?.sha256);
  const beforeAsset=ownsHead&&decision==='accept-candidate'&&priorDecision!=='accept-candidate'?j.inputs[j.slot]:headsBefore.candidate;
@@ -310,18 +334,21 @@ export async function reviewJob(work,id,{decision,outcome='',decisionId}={},inte
  await commitWorkspace(work,changes);return clean(j);
 });}
 
-export async function localEditJob(work,id,{bone,factor=.7,start,end}={}){
+export async function localEditJob(work,id,{bone,factor=.7,offset,start,end}={}){
  const existing=await getJob(work,id),claim=await claimJob(work,id,{owner:'local-quaternion-tool'});
  try{
   const {editGlb}=await import('./asset-tools.mjs'),source=existing.inputs[existing.slot];const bytes=await readFile(await inside(work,source.file));
   await updateJobProgress(work,id,{lease:claim.lease,phase:'reading',message:'检查选中骨骼的动画曲线与时间范围。',source:'system'});
   const inspector=(await import('./asset-tools.mjs')).inspectAsset(bytes);const selected=existing.target.nodeIndex!==undefined?inspector.bones.find(b=>b.nodeIndex===existing.target.nodeIndex)?.nodeIndex:undefined;if(existing.target.nodeIndex!==undefined&&selected===undefined)throw Error('所选节点不属于此版本的可编辑骨架，未改用同名骨骼');
-  await updateJobProgress(work,id,{lease:claim.lease,phase:'editing',message:'应用指定的局部旋转摆幅，不改变其他轨道。',source:'system'});
-  const result=editGlb(bytes,{clip:existing.clip,bone:selected??bone??existing.target.bone,factor:Number(factor),start:existing.scope.wholeClip?undefined:start??existing.scope.start,end:existing.scope.wholeClip?undefined:end??existing.scope.end});
+  await updateJobProgress(work,id,{lease:claim.lease,phase:'editing',message:'应用指定的局部旋转调整。',source:'system'});
+  const range=existing.scope.wholeClip?{}:{start:offset?existing.scope.start:start??existing.scope.start,end:offset?existing.scope.end:end??existing.scope.end};
+  const result=editGlb(bytes,{clip:existing.clip,bone:selected??bone??existing.target.bone,factor:Number(factor),offset,...range});
   if(!result.report.changedKeyframes)throw Error('本次参数没有改变关键帧；请选择有摆动的骨骼和有效范围');
   await updateJobProgress(work,id,{lease:claim.lease,phase:'checking',message:'检查关键帧变化和保护范围，准备独立候选。',source:'system'});
   const path=await inside(work,'jobs/'+id+'/local-candidate.glb');await atomic(path,result.bytes);await atomic(await inside(work,'jobs/'+id+'/local-audit.json'),result.report);
-  return await completeJob(work,id,{lease:claim.lease,candidatePath:path,summary:(()=>{const n=String(result.report.bone||selected||bone||existing.target.bone||'');const label=/LeftArm/i.test(n)?'左上臂':/RightArm/i.test(n)?'右上臂':/LeftShoulder/i.test(n)?'左肩':/RightShoulder/i.test(n)?'右肩':/LeftForeArm/i.test(n)?'左前臂':/RightForeArm/i.test(n)?'右前臂':'所选部位';return label+'在'+(existing.scope.wholeClip?'整个动作':'所选区间')+'的摆幅调整为原来的 '+Math.round(result.report.factor*100)+'%。其他动画轨道、模型和时长保持。';})(),audit:result.report});
+  const report=result.report,change=offset?'绕自身 '+report.axis.toUpperCase()+' 轴旋转 '+report.degrees+'°':'摆幅调整为原来的 '+Math.round(report.factor*100)+'%';
+  const summary=report.bone+'在'+(existing.scope.wholeClip?'整个动作':'所选区间')+change+'。';
+  return await completeJob(work,id,{lease:claim.lease,candidatePath:path,summary,audit:report});
  }catch(e){const current=await getJob(work,id);if(current.state==='running')await failJob(work,id,{lease:claim.lease,error:e.message});throw e;}
 }
 export async function importFile(work,slot,path,{label,fps,...options}={}){
