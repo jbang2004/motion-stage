@@ -1,7 +1,7 @@
 {
   "name": "motion-stage",
   "version": "4.0.0",
-  "createdAt": "2026-11-07T00:52:49.149100+00:00",
+  "createdAt": "2026-11-07T01:23:31.012677+00:00",
   "runtime": "Node.js >=22 / Canvas2D curves; WebGL2 spatial previews",
   "externalRuntimeDependencies": {
     "base": [],
@@ -483,8 +483,8 @@
     },
     {
       "path": "scripts/execution-runtime.mjs",
-      "bytes": 3836,
-      "sha256": "67afb3455ffc96a2679ac378d43b8e2ff8e400b12c3f1aa7624fe402eaff8872"
+      "bytes": 4403,
+      "sha256": "5b0220a0997ac927805f1f791bdc08d089451e945e79c4bddb5ffb9c25ca8ee7"
     },
     {
       "path": "scripts/job-index.mjs",

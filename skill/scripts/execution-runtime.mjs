@@ -7,22 +7,29 @@ import {atomic,inside} from './core.mjs';
 
 const exec=promisify(execFile),HOST=hostname();
 export const HEARTBEAT_STALE_MS=30000;
-const identities=new Map();
+// Windows PowerShell can take several seconds to cold-start on a busy machine.
+const PROBE_TIMEOUT_MS=process.platform==='win32'?15000:3000;
+const identities=new Map(),probes=new Map();
+async function readIdentity(pid){
+ if(process.platform==='linux'){
+  const text=await readFile(`/proc/${pid}/stat`,'utf8'),fields=text.slice(text.lastIndexOf(')')+2).split(' ');
+  return fields[0]==='Z'?'dead':'linux:'+fields[19];
+ }
+ if(process.platform==='win32'){
+  const {stdout}=await exec('powershell.exe',['-NoLogo','-NoProfile','-NonInteractive','-Command',`(Get-Process -Id ${pid} -ErrorAction Stop).StartTime.ToUniversalTime().Ticks`],{timeout:PROBE_TIMEOUT_MS,windowsHide:true});
+  return /^\d+$/.test(stdout.trim())?'win:'+stdout.trim():null;
+ }
+ const {stdout}=await exec('/bin/ps',['-p',String(pid),'-o','lstart='],{timeout:PROBE_TIMEOUT_MS});return stdout.trim()?'ps:'+stdout.trim():null;
+}
+// Known identities are cached briefly; a failed or timed-out probe is not, so
+// one slow start cannot hide a reused PID from the next check. Concurrent
+// checks of the same PID share one probe.
 async function processIdentity(pid){
  if(!Number.isSafeInteger(pid)||pid<1)return null;
- if(identities.has(pid)&&Date.now()-identities.get(pid).at<1000)return identities.get(pid).value;
- let value=null;
- try{
-  if(process.platform==='linux'){
-   const text=await readFile(`/proc/${pid}/stat`,'utf8'),fields=text.slice(text.lastIndexOf(')')+2).split(' ');
-   value=fields[0]==='Z'?'dead':'linux:'+fields[19];
-  }else if(process.platform==='win32'){
-   const {stdout}=await exec('powershell.exe',['-NoProfile','-NonInteractive','-Command',`(Get-Process -Id ${pid} -ErrorAction Stop).StartTime.ToUniversalTime().Ticks`],{timeout:3000,windowsHide:true});value='win:'+stdout.trim();
-  }else{
-   const {stdout}=await exec('/bin/ps',['-p',String(pid),'-o','lstart='],{timeout:3000});if(stdout.trim())value='ps:'+stdout.trim();
-  }
- }catch{}
- identities.set(pid,{at:Date.now(),value});return value;
+ const hit=identities.get(pid);if(hit&&Date.now()-hit.at<1000)return hit.value;
+ if(probes.has(pid))return probes.get(pid);
+ const probe=readIdentity(pid).catch(()=>null).then(value=>{probes.delete(pid);if(value)identities.set(pid,{at:Date.now(),value});return value;});
+ probes.set(pid,probe);return probe;
 }
 function alive(pid){try{process.kill(pid,0);return true;}catch(e){return e.code!=='ESRCH';}}
 function executionPath(id){if(!/^[a-f0-9-]{36}$/.test(id||''))throw Error('无效执行实例');return 'executions/'+id+'.json';}
