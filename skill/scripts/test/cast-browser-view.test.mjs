@@ -165,3 +165,23 @@ test('scanning shows real progress and an unopened stage asks for a character', 
   h.browser.sync();
   assert.match(h.doc.getElementById('abSections').textContent, /选择角色/);
 });
+
+test('a rigged model with no playable actions says so instead of blaming the category', async () => {
+  const h = setup({actions: {state: 'ready', checked: 9, total: 9, incompatible: 83, saved: [], actions: []}});
+  h.stage.value = {...h.stage.value, ownClips: []};
+  h.browser.sync();
+  await settle();
+  const text = h.doc.getElementById('abSections').textContent;
+  assert.match(text, /这个角色还没有可播放的动作/);
+  assert.match(text, /83 段动作骨架或参考姿势不同/);
+  assert.doesNotMatch(text, /换个类别/);
+});
+
+test('saved actions without a recorded length show no 0s badge', async () => {
+  const h = setup({actions: {...MATCHED, saved: [{id: 's1', name: 'run_wide_arms', number: 1, recipe: {clip: 'run_wide_arms'}}]}});
+  h.browser.sync();
+  await settle();
+  const card = h.cards().find(node => node.dataset.id === 'saved:s1');
+  assert.ok(card);
+  assert.equal(card.querySelector('.ac-duration'), null);
+});

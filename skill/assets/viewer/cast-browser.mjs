@@ -445,6 +445,15 @@ export function createCastBrowser({
       return;
     }
     if (!sections.length) {
+      const settled = scan && scan.state !== 'scanning';
+      if (!query && !own.length && !matched.length && !saved.length && settled) {
+        // Rigged-but-unanimated models (auto-rigged exports) are common; say what is missing.
+        const others = Number(scan.incompatible) || 0;
+        host.replaceChildren(emptyState('这个角色还没有可播放的动作', others
+          ? '模型不带动作；项目里另有 ' + others + ' 段动作骨架或参考姿势不同，需要先重定向，可在“修改”里交给 Agent。'
+          : '模型不带动作，项目里也没有骨架一致的动作。导入同一骨架导出的 GLB 动作，或交给 Agent 重定向。'));
+        return;
+      }
       host.replaceChildren(emptyState(query ? '没有找到“' + query + '”' : '这个类别暂无动作', query ? '试试中文名、英文名或原始动作名。' : '换个类别，或等待匹配完成。'));
       return;
     }
@@ -509,7 +518,8 @@ export function createCastBrowser({
     media.append(image);
     button._image = image;
     button._media = media;
-    media.append(el('span', formatSeconds(row.duration), 'ac-duration'));
+    // Saved recipes carry no duration; an unknown length is omitted, not shown as 0s.
+    if (row.duration > 0) media.append(el('span', formatSeconds(row.duration), 'ac-duration'));
     if (row.info.loop) media.append(icon('loop', 'ac-loop'));
     if (row.kind === 'matched' && row.source.presetVariant) media.append(el('span', '其他版本', 'ac-badge'));
     if (row.kind === 'saved') media.append(el('span', 'v' + row.source.number, 'ac-badge'));
@@ -517,7 +527,7 @@ export function createCastBrowser({
     const text = el('span', undefined, 'ac-text');
     text.append(el('b', row.label), el('small', row.info.title && row.info.title !== row.label ? row.info.title : row.name));
     button.append(media, text);
-    button.title = row.name + ' · ' + categoryLabel(row.info.category) + ' · ' + formatSeconds(row.duration) + (row.source.sourceName ? '\n来源：' + row.source.sourceName : '');
+    button.title = row.name + ' · ' + categoryLabel(row.info.category) + (row.duration > 0 ? ' · ' + formatSeconds(row.duration) : '') + (row.source.sourceName ? '\n来源：' + row.source.sourceName : '');
     button.onclick = () => choose(row);
     if (hoverCapable) {
       button.onpointerenter = () => scheduleHover(button, row);

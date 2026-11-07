@@ -8,7 +8,7 @@ import {linkProject} from '../project-context.mjs';
 import {parseGlb,encodeGlb,editGlb} from '../asset-tools.mjs';
 import {readProject,modelSlots,importAsset,sha} from '../core.mjs';
 import {startCatalogScan,waitForCatalogScan,stopCatalogScan,openCatalogAsset,catalogPage} from '../asset-catalog.mjs';
-import {characterPage,openCharacter,saveCharacterMap,associateCharacterMotion,projectCharacterProfiles} from '../character-library.mjs';
+import {characterPage,openCharacter,saveCharacterMap,associateCharacterMotion,projectCharacterProfiles,castRoster} from '../character-library.mjs';
 import {characterProfileDigest} from '../source-dependencies.mjs';
 import {createJob,claimJob,cancelJob,getJob} from '../jobs.mjs';
 import {serve} from '../server.mjs';
@@ -21,6 +21,13 @@ async function fixture(fn){const base=await realpath(await mkdtemp(join(tmpdir()
  await startCatalogScan(work,{force:true});await waitForCatalogScan(work);
  try{await fn({base,root,work});}finally{await stopCatalogScan(work);await rm(base,{recursive:true,force:true});}}
 async function enqueue(work,id){const cfg=await readProject(work),heads=modelSlots(cfg,id);return createJob(work,{assetId:id,request:'Synthetic QA only',slot:'baseline',context:{asset:heads.baseline,clip:'Run',time:.2}});}
+
+test('an undeclared project offers its rigged models as characters, so the automatic open and the rail share one model',()=>fixture(async({work})=>{
+ const page=await characterPage(work,{preferMapped:true});assert.equal(page.kind,'characters');
+ assert.deepEqual(page.entries.map(e=>e.relativePath).sort(),['models/hero.glb','models/old.glb']);assert.ok(page.entries.every(e=>e.character&&!e.confirmed));
+ const first=page.entries[0];await openCharacter(work,first.id);assert.equal((await readProject(work)).activeAssetId,first.id);
+ const rows=(await castRoster(work)).entries.filter(e=>e.relativePath===first.relativePath);assert.deepEqual(rows.map(e=>[e.id,e.kind]),[[first.id,'character']]);
+}));
 
 test('profiles collapse variants and external sources; complete motions are lazy and isolated from raw model history',()=>fixture(async({root,work})=>{
  const raw=(await catalogPage(work)).entries.find(e=>e.relativePath==='models/hero.glb');await openCatalogAsset(work,raw.id);const before=structuredClone(modelSlots(await readProject(work),raw.id));

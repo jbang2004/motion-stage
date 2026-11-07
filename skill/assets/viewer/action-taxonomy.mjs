@@ -19,7 +19,9 @@ const SOURCE_TAGS = ['探索', '导演'];
 const NOISE_WORDS = new Set(['arpg', 'as', 'seq', 'anim', 'x']);
 const LABEL_SKIPPED_WORDS = new Set(['nodachi', 'loop']);
 const ANGLES = new Set(['0', '45', '90', '135', '180', '225', '270', '315']);
-const DIRECTION_WORDS = { forward: 'F', fwd: 'F', backward: 'B', back: 'B', left: 'L', right: 'R' };
+const DIRECTION_WORDS = {
+  forward: 'F', forwards: 'F', fwd: 'F', front: 'F', backward: 'B', backwards: 'B', back: 'B', left: 'L', right: 'R',
+};
 const DIRECTION_ZH = { F: '前', B: '后', L: '左', R: '右', FL: '前左', FR: '前右', BL: '后左', BR: '后右' };
 const DIRECTION_TAGS = { F: 'forward', B: 'back', L: 'left', R: 'right' };
 
@@ -58,16 +60,47 @@ const GLOSSARY = new Map(Object.entries({
   // modifiers
   combat: '战斗', fast: '快速', big: '大型', large: '大型', end: '结束', floor: '地面', up: '上', down: '下',
   double: '二段', all: '全部', from: '来自', second: '第二',
+  // Generic English names (Mixamo descriptions, asset packs, auto-rig exports).
+  crawl: '爬行', climb: '攀爬', swim: '游泳', sneak: '潜行', shuffle: '拖步', advance: '推进', hop: '小跳',
+  carry: '搬运', crouch: '蹲', sit: '坐', lie: '躺', ladder: '梯子',
+  shoot: '射击', smash: '猛击', bash: '重击', melee: '近战', throw: '投掷', swipe: '横扫', chop: '劈砍',
+  bite: '撕咬', claw: '爪击', tackle: '冲撞', headbutt: '头槌', reload: '换弹', aim: '瞄准',
+  spell: '法术', magic: '魔法', summon: '召唤', heal: '治疗', duck: '闪躲',
+  react: '受击', reaction: '反应', defeat: '战败', faint: '昏倒', collapse: '倒下',
+  fly: '飞行', glide: '滑翔', hover: '悬停',
+  conversation: '交谈', laugh: '大笑', yell: '喊叫', shout: '喊叫', cry: '哭泣', angry: '生气', sad: '伤心',
+  happy: '开心', terrified: '害怕', scared: '害怕', point: '指向', gesture: '手势', greet: '问候', nod: '点头',
+  shrug: '耸肩', celebrate: '庆祝', pray: '祈祷', battlecry: '战吼', equip: '装备', ask: '询问', question: '提问',
+  spawn: '出场', awaken: '苏醒', withdraw: '拔出',
+  pick: '拾', push: '推', pull: '拉', open: '打开', door: '门', interact: '互动', object: '物体', ground: '地面',
+  enter: '进入', exit: '退出',
+  sword: '剑', shield: '盾', rifle: '步枪', pistol: '手枪', gun: '枪', spear: '长矛', staff: '法杖', dagger: '匕首',
+  arrow: '箭', bayonet: '刺刀', unarmed: '徒手', swordsman: '剑客',
+  quick: '快速', slow: '慢速', small: '小', high: '高', female: '女性', male: '男性', pose: '姿势', mirror: '镜像',
+  executed: '被处决', fire: '火', around: '四周', neutral: '自然', backhand: '反手', foot: '脚', shot: '击', headshot: '爆头',
+  powershot: '强力射击', ready: '预备', standard: '标准', old: '老人', hide: '躲藏', stomach: '俯卧', hilt: '剑柄',
+  unblocked: '未格挡', work: '工作', three: '三',
 }));
 
 // Multi-word phrases are matched before single words.
 const PHRASES = new Map([
   ['double jump', '二段跳'], ['step back', '后撤步'], ['get up', '起身'], ['knock down', '倒地'],
   ['hit from behind', '背后受击'], ['air wave', '空中冲击波'], ['power up', '强化'], ['kip up', '鲤鱼打挺'], ['kneel rise', '跪地起身'], ['kneel up', '跪地起身'], ['kneel down', '跪下'], ['wall hit', '撞墙受击'],
+  ['stand up', '起身'], ['pick up', '拾取'], ['knock out', '击倒'], ['knock over', '撞倒'], ['spell cast', '施法'],
+  ['one hand', '单手'], ['two hand', '双手'], ['hip hop', '街舞'], ['bind pose', '绑定姿势'], ['open door', '开门'],
+  ['fire arrow', '放箭'], ['two hit', '二连击'], ['three hit', '三连击'], ['weight shift', '重心转移'],
 ]);
 
+// English glue words carry no action; they are dropped from labels. "in"/"out"
+// only mean 吸入/呼出 next to breathing, "with" becomes 持 before a weapon.
+const FUNCTION_WORDS = new Set(['a', 'an', 'the', 'and', 'of', 'or', 'while', 'being', 'for', 'his', 'her', 'its', 'it', 'is', 'at', 'on', 'into', 'by', 'from', 'in', 'out', 'with', 'to', 'man', 'receive', 'recieve']);
+const WEAPONS = new Set(['sword', 'shield', 'rifle', 'pistol', 'gun', 'spear', 'staff', 'dagger', 'arrow', 'bayonet', 'axe', 'katana', 'blade', 'bow']);
+const ARCHERY_WORDS = new Set(['arrow', 'quiver', 'aim', 'shoot', 'nock', 'equip']);
+// Posture participles describe how, not what: "Standing Aim Fire" is not idle.
+const STEM_BLOCKED = new Set(['standing']);
+
 // Modifiers move to the front of their segment: "Run Combat Fast" -> 战斗快速奔跑.
-const FRONT_MODIFIERS = new Set(['combat', 'fast', 'air', 'big', 'large']);
+const FRONT_MODIFIERS = new Set(['combat', 'fast', 'air', 'big', 'large', 'quick', 'slow']);
 
 // Named techniques (character moves) that are always skills.
 const TECHNIQUE_WORDS = new Set([
@@ -76,26 +109,65 @@ const TECHNIQUE_WORDS = new Set([
 ]);
 
 const KEYWORDS = {
-  down: ['death', 'die', 'dead', 'knockdown', 'getup', 'kipup', 'kneel'],
-  hit: ['hit', 'damage', 'hurt', 'stagger', 'knockback', 'flinch', 'collide', 'impact', 'stunned', 'launched', 'reel'],
-  skill: ['skill', 'ultimate', 'special', 'cast', 'charge', 'buff', 'powerup'],
-  defense: ['guard', 'block', 'parry', 'dodge', 'evade', 'roll', 'backstep', 'weave'],
+  down: ['death', 'die', 'dead', 'knockdown', 'getup', 'kipup', 'kneel', 'defeat', 'faint', 'collapse', 'executed'],
+  hit: ['hit', 'damage', 'hurt', 'stagger', 'knockback', 'flinch', 'collide', 'impact', 'stunned', 'launched', 'reel', 'react', 'reaction'],
+  skill: ['skill', 'ultimate', 'special', 'cast', 'charge', 'buff', 'powerup', 'spell', 'magic', 'summon', 'heal'],
+  defense: ['guard', 'block', 'parry', 'dodge', 'evade', 'roll', 'backstep', 'weave', 'duck'],
   idle: ['idle', 'breathe', 'stance', 'wait', 'rest', 'stand'],
   attack: ['slash', 'cut', 'attack', 'combo', 'strike', 'punch', 'kick', 'stab', 'thrust', 'swing', 'heavy', 'finisher',
     'execute', 'exec', 'execution', 'iai', 'slam', 'uppercut', 'hook', 'lunge', 'spin', 'stomp', 'cleave', 'flurry',
-    'barrage', 'elbow', 'cross'],
-  air: ['jump', 'air', 'fall', 'land', 'flip', 'leap', 'airborne', 'dive'],
-  emote: ['victory', 'taunt', 'emote', 'dance', 'wave', 'talk', 'story', 'director', 'draw', 'sheathe', 'roar', 'look', 'salute', 'bow', 'cheer', 'clap'],
-  move: ['walk', 'run', 'sprint', 'strafe', 'turn', 'start', 'stop', 'brake', 'step', 'dash', 'lean', 'jog', 'ease'],
+    'barrage', 'elbow', 'cross', 'shoot', 'fire', 'smash', 'bash', 'melee', 'throw', 'swipe', 'chop', 'bite', 'claw',
+    'tackle', 'headbutt'],
+  air: ['jump', 'air', 'fall', 'land', 'flip', 'leap', 'airborne', 'dive', 'fly', 'flying', 'glide', 'hover', 'hop'],
+  emote: ['victory', 'taunt', 'emote', 'dance', 'wave', 'talk', 'story', 'director', 'draw', 'sheathe', 'roar', 'look', 'salute', 'bow', 'cheer', 'clap',
+    'conversation', 'laugh', 'yell', 'shout', 'cry', 'angry', 'terrified', 'scared', 'point', 'gesture', 'greet', 'nod',
+    'shrug', 'celebrate', 'pray', 'battlecry', 'equip', 'ask', 'question', 'spawn', 'awaken', 'withdraw'],
+  move: ['walk', 'run', 'sprint', 'strafe', 'turn', 'start', 'stop', 'brake', 'step', 'dash', 'lean', 'jog', 'ease',
+    'crawl', 'climb', 'swim', 'sneak', 'shuffle', 'advance', 'carry'],
 };
+// Held postures count as idle only when nothing else names the action ("Crouch Walk" moves).
+const POSTURE_WORDS = ['crouch', 'sit', 'lie', 'aim'];
+const KEYWORD_SET = new Set(Object.values(KEYWORDS).flat());
 
-const LOCOMOTION_WORDS = ['walk', 'run', 'sprint', 'strafe', 'jog'];
+const LOCOMOTION_WORDS = ['walk', 'run', 'sprint', 'strafe', 'jog', 'crawl', 'sneak', 'shuffle', 'swim'];
 const ONE_SHOT_CATEGORIES = new Set(['attack', 'skill', 'defense', 'hit', 'down']);
 const TRANSITION_WORDS = ['start', 'stop', 'turn', 'end', 'brake'];
 
 const capitalize = (word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
 const isNumber = (word) => /^\d+$/.test(word);
 const isCjk = (text) => /[一-鿿]/.test(text);
+
+// Every word the taxonomy knows; inflected forms resolve to one of these.
+const VOCAB = new Set([
+  ...GLOSSARY.keys(), ...KEYWORD_SET, ...POSTURE_WORDS, ...WEAPONS, ...ARCHERY_WORDS, ...TECHNIQUE_WORDS,
+  ...[...PHRASES.keys()].flatMap((phrase) => phrase.split(' ')),
+]);
+// English inflections seen in descriptive names: Walking, Knocked, Slashes, Dying, Hits.
+function inflections(word) {
+  const forms = [word];
+  const stem = (base) => {
+    if (base.length < 2) return;
+    forms.push(base, base + 'e');
+    if (/([b-df-hj-np-tv-z])\1$/.test(base)) forms.push(base.slice(0, -1));
+  };
+  if (word.length > 4 && word.endsWith('ing')) {
+    const base = word.slice(0, -3);
+    stem(base);
+    if (base.endsWith('y')) forms.push(base.slice(0, -1) + 'ie');
+  } else if (word.length > 4 && word.endsWith('ied')) forms.push(word.slice(0, -3) + 'y');
+  else if (word.length > 3 && word.endsWith('ed')) stem(word.slice(0, -2));
+  else if (word.length > 3 && word.endsWith('es')) forms.push(word.slice(0, -2), word.slice(0, -1));
+  else if (word.length > 3 && word.endsWith('s') && !word.endsWith('ss')) forms.push(word.slice(0, -1));
+  return forms;
+}
+const canon = (word) => inflections(word).find((form) => VOCAB.has(form)) ?? word;
+// "Walking With Bow", "Bow_Shoot", "Equipping Bow" hold a weapon; a lone "Bow" is a gesture.
+function bowIsWeapon(lex) {
+  const at = lex.indexOf('bow');
+  return at >= 0 && (lex.some((word) => ARCHERY_WORDS.has(word)) || lex[at - 1] === 'with' ||
+    ['and', 'for', 'shoot', 'draw', 'attack', 'idle', 'walk', 'run'].includes(lex[at + 1]));
+}
+const nextContent = (lex, position) => lex.slice(position + 1).find((word) => !FUNCTION_WORDS.has(word));
 
 function stripWrappers(raw) {
   let rest = raw.trim();
@@ -117,7 +189,7 @@ function stripWrappers(raw) {
   const characterPrefix = rest.match(/^([A-Z][a-z]+)_(?=[A-Z][A-Za-z0-9]*$)/);
   if (characterPrefix) {
     const prefix = characterPrefix[1].toLowerCase();
-    if (!GLOSSARY.has(prefix) && !TECHNIQUE_WORDS.has(prefix)) rest = rest.slice(characterPrefix[0].length);
+    if (!VOCAB.has(canon(prefix))) rest = rest.slice(characterPrefix[0].length);
   }
   return { rest, sourceTag, rootMotion };
 }
@@ -165,22 +237,30 @@ function buildTitle(words) {
 
 // Converts words into label pieces: {text, cjk, front, arrow}.
 function labelPieces(words, category) {
-  const lowered = words.map((word) => word.toLowerCase());
+  const lex = words.map((word) => canon(word.toLowerCase()));
+  const breathing = lex.includes('breathe');
+  const bowWeapon = bowIsWeapon(lex);
   const pieces = [];
   for (let position = 0; position < words.length; position += 1) {
-    const word = lowered[position];
+    const word = lex[position];
     if (words.length === 1 && word === 'down') { pieces.push({ text: '倒下', cjk: true }); continue; }
-    const phrase = [3, 2].map((size) => lowered.slice(position, position + size).join(' ')).find((text) => PHRASES.has(text));
+    const phrase = [3, 2].map((size) => lex.slice(position, position + size).join(' ')).find((text) => PHRASES.has(text));
     if (phrase) {
-      pieces.push({ text: PHRASES.get(phrase), cjk: true });
+      pieces.push({ text: PHRASES.get(phrase), cjk: true, keyword: true });
       position += phrase.split(' ').length - 1;
     } else if (isNumber(word) && pieces.at(-1)?.number) pieces.at(-1).text += `-${words[position]}`;
     else if (isNumber(word)) pieces.push({ text: words[position], number: true });
     else if (word === 'to' && pieces.length && position < words.length - 1) pieces.push({ text: '→', arrow: true });
     else if (LABEL_SKIPPED_WORDS.has(word)) continue;
+    else if ((word === 'in' || word === 'out') && breathing) pieces.push({ text: GLOSSARY.get(word), cjk: true });
+    else if ((word === 'with' || word === 'hold') && WEAPONS.has(nextContent(lex, position)) && (nextContent(lex, position) !== 'bow' || bowWeapon)) pieces.push({ text: '持', cjk: true });
+    // A trailing "A" is a variant letter (GuardHitA, Death_A); "A_Pose" is the A-pose.
+    else if ((word === 'a' || word === 'an') && (!lex.slice(position + 1).some((next) => !isNumber(next)) || /pose$/.test(lex[position + 1] ?? ''))) pieces.push({ text: words[position].toUpperCase(), cjk: false });
+    else if (FUNCTION_WORDS.has(word)) continue;
+    else if (word === 'bow' && bowWeapon) pieces.push({ text: '弓', cjk: true });
     else if (word === 'wave' && category !== 'emote') pieces.push({ text: '冲击波', cjk: true });
-    else if (GLOSSARY.has(word)) pieces.push({ text: GLOSSARY.get(word), cjk: true, front: FRONT_MODIFIERS.has(word) });
-    else pieces.push({ text: isCjk(word) ? words[position] : capitalize(words[position]), cjk: isCjk(word) });
+    else if (GLOSSARY.has(word)) pieces.push({ text: GLOSSARY.get(word), cjk: true, front: FRONT_MODIFIERS.has(word), keyword: KEYWORD_SET.has(word) });
+    else pieces.push({ text: isCjk(word) ? words[position] : capitalize(words[position]), cjk: isCjk(word), foreign: !isCjk(word) });
   }
   return pieces;
 }
@@ -207,7 +287,14 @@ function joinPieces(pieces) {
 }
 
 function buildLabel(parsed, category) {
-  const body = joinPieces(hoistModifiers(labelPieces(parsed.words, category)));
+  let pieces = labelPieces(parsed.words, category);
+  // Sentence-like names (generated prompts, long descriptions) keep only the
+  // translated action words: "Facing forward, a man drives a fast deep lunge" -> 快速扑击 · 前.
+  if (parsed.words.length >= 8) {
+    pieces = pieces.filter((piece) => piece.keyword || piece.front || piece.number);
+    if (!pieces.some((piece) => piece.keyword)) return parsed.title || parsed.raw.trim() || '未命名动作';
+  }
+  const body = joinPieces(hoistModifiers(pieces));
   const suffix = [parsed.direction && DIRECTION_ZH[parsed.direction], parsed.angle ? `${parsed.angle}°` : null].filter(Boolean).join(' ');
   const label = suffix ? `${body} · ${suffix}`.replace(/^ · /, '') : body;
   return label || parsed.title || parsed.raw.trim() || '未命名动作';
@@ -219,17 +306,27 @@ function buildLabel(parsed, category) {
 //  6 defense (Roll_Combat_to_Run, Dodge_Air stay defense)  7 idle  8 attack (Combo_Attack_Air stays attack)
 //  9 air (Run_Jump_Land)  10 emote  11 move  12 other
 function pickCategory(parsed) {
-  const words = new Set(parsed.words.map((word) => word.toLowerCase()));
+  const lowered = parsed.words.map((word) => word.toLowerCase());
+  const lex = lowered.map(canon);
+  const bowWeapon = bowIsWeapon(lex);
+  const words = new Set(lex);
+  const keys = new Set(lowered.map((word, index) => (STEM_BLOCKED.has(word) ? word : lex[index]))
+    .filter((word) => !(word === 'bow' && bowWeapon) && !(word === 'hop' && words.has('hip'))));
   const has = (...names) => names.some((name) => words.has(name));
-  const matches = (id) => has(...KEYWORDS[id]);
+  // In a sentence-like description a stance is the setup, not the action.
+  const setup = parsed.words.length >= 8 ? ['stance', 'stand'] : [];
+  const matches = (id) => KEYWORDS[id].some((name) => keys.has(name) && !setup.includes(name));
   const only = parsed.words.filter((word) => !isNumber(word));
   if (parsed.sourceTag === '导演') return 'emote';
   if (has('block', 'guard') && has(...LOCOMOTION_WORDS, 'turn')) return 'move';
   if (has('block', 'guard') && has('hit', 'break')) return 'defense';
-  if (matches('down') || (has('kip') && has('up')) || (has('knock') && has('down')) || (has('get') && has('up')) || (only.length === 1 && has('down'))) return 'down';
+  if (matches('down') || (has('kip') && has('up')) || (has('knock') && has('down', 'out', 'over')) || (has('get', 'stand') && has('up')) || (only.length === 1 && has('down'))) return 'down';
+  if (has('combo') && has('hit') && !has('guard', 'block')) return 'attack';
   if (matches('hit')) return 'hit';
-  if (matches('skill') || (has('power') && has('up')) || parsed.words.some((word) => TECHNIQUE_WORDS.has(word.toLowerCase()))) return 'skill';
+  if (matches('skill') || (has('power') && has('up')) || lowered.some((word) => TECHNIQUE_WORDS.has(word))) return 'skill';
+  if (has('aim') && has(...LOCOMOTION_WORDS)) return 'move';
   for (const id of ['defense', 'idle', 'attack', 'air', 'emote', 'move']) if (matches(id)) return id;
+  if ([...POSTURE_WORDS, ...setup].some((word) => keys.has(word))) return 'idle';
   return 'other';
 }
 
@@ -243,7 +340,7 @@ function detectLoop(parsed, category, words) {
 
 export function classifyAction(rawName, { duration } = {}) {
   const parsed = parseActionName(rawName);
-  const words = parsed.words.map((word) => word.toLowerCase());
+  const words = parsed.words.map((word) => canon(word.toLowerCase()));
   const raw = parsed.raw;
   const category = pickCategory(parsed);
   const pose = Number.isFinite(duration) && duration < 0.1;

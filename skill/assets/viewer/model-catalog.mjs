@@ -267,12 +267,18 @@ export function createModelCatalog({
     if (!requests.isCurrent(result) || data !== result.data) return;
     const current = result.data;
     if (!autoOpened && current.linked && current.scan.state !== 'scanning' && getView().allowAutomaticOpen) {
-      const first = current.entries.find(row =>
-        row.format === 'glb' && row.status === 'available' && row.origin === 'project'
-      );
+      const playable = row => row.format === 'glb' && row.status === 'available' && row.origin === 'project';
+      autoOpened = true;
+      // The file view lists paths alphabetically, where the first GLB may be a prop
+      // or a motion pack. Start with what the 角色 rail shows first instead: declared
+      // characters, else discovered rigged models, opened under the same identity.
+      let first = null;
+      if (mode === 'files') {
+        try { first = (await api('/api/characters?preferMapped=true&query=&offset=0&limit=20')).entries?.find(playable) || null; } catch {}
+      }
+      first ||= current.entries.find(playable);
       // This runs after the request flight releases. onOpen can refresh the
       // catalog itself without waiting on the promise currently invoking it.
-      autoOpened = true;
       if (first) await onOpen(first.id, ...(first.character ? [{character:true}] : []));
       else if (!document.querySelector('dialog[open]')) $('modelCatalogDialog').showModal();
     }
