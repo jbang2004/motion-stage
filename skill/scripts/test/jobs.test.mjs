@@ -15,6 +15,28 @@ import {planObservationRestore,restoredTransportTime} from '../../assets/viewer/
 async function setup(){const w=await mkdtemp(resolve(tmpdir(),'motion-jobs-'));await atomic(resolve(w,'project.json'),{version:2,title:'Test',slots:{}});await atomic(resolve(w,'feedback.json'),{version:1,notes:[]});const b=await buildDemo(false);await importAsset(w,'baseline',b,'base.glb');await importAsset(w,'candidate',b,'candidate.glb');return w;}
 async function input(w,changes={}){const p=await json(resolve(w,'project.json'));return {request:'左臂摆动收小三成，保留其他动作',preserve:'模型、其他肢体和时长',target:{bone:'LeftArm'},scope:{start:0,end:1,wholeClip:true},context:{slot:'baseline',asset:p.slots.baseline,clip:'Run',time:.25,fps:30,frame:8,view:'front',mode:'elapsed',rootLocked:true,slots:Object.fromEntries(Object.entries(p.slots).map(([k,v])=>[k,{...v,clip:'Run',time:.25}]))},...changes};}
 
+test('foot diagnostics compare the displayed frozen pair after the workspace candidate changes',async()=>{
+ const w=await setup();let server;try{
+  const j=await createJob(w,await input(w)),claim=await claimJob(w,j.id),path=resolve(w,'foot-candidate.glb');
+  await writeFile(path,await buildDemo(true));
+  const done=await completeJob(w,j.id,{lease:claim.lease,candidatePath:path,summary:'左肩改动'});
+  await importAsset(w,'candidate',await buildDemo(false),'newer.glb');
+  server=await serve(w,0);const url='http://127.0.0.1:'+server.address().port,session=await(await fetch(url+'/api/session')).json();
+  const post=(data,token=session.token)=>fetch(url+'/api/actions/foot-diagnostics',{method:'POST',headers:{'x-motion-token':token},body:JSON.stringify(data)});
+  const versions={baseline:j.inputs.baseline.sha256,candidate:done.candidate.sha256};
+  const payload={assetId:j.assetId,clip:'Run',versions,jobId:j.id};
+  assert.equal((await post(payload,'wrong')).status,403);
+  assert.equal((await post({...payload,jobId:undefined})).status,400);
+  assert.equal((await post({...payload,clip:'不存在的动作'})).status,400);
+  const response=await post(payload);assert.equal(response.status,200);
+  const result=await response.json();
+  assert.deepEqual(result.reports.map(r=>[r.slot,r.sha256]),Object.entries(versions));
+  assert(result.reports.every(r=>r.fps===30&&r.clip==='Run'&&r.checks.footSlip.length===2&&r.checks.footSlip.every(f=>f.contacts.length)));
+  const single=await post({...payload,jobId:undefined,versions:{baseline:versions.baseline}});
+  assert.deepEqual((await single.json()).reports.map(r=>r.slot),['baseline']);
+ }finally{if(server)await new Promise(r=>server.close(r));await rm(w,{recursive:true,force:true});}
+});
+
 test('feedback markers persist as separate clip drafts and freeze together as one reviewable task',async()=>{
  const w=await setup();try{
   const payload=await input(w,{request:''}),asset=payload.context.asset,assetId=(await readProject(w)).activeAssetId;

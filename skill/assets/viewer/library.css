@@ -349,7 +349,7 @@ body[data-mode="studio"] .library-only { display: none !important; }
 }
 .timeline-wrap input:active::-webkit-slider-thumb { transform: scale(1.25); }
 .timeline-wrap input::-moz-range-thumb { width: 14px; height: 14px; border: 0; border-radius: 50%; background: #fff; box-shadow: 0 2px 6px rgba(0, 0, 0, .2); }
-.transport-row { gap: 12px; padding-top: 2px; }
+.transport-row { gap: 12px; padding-top: 2px; flex-wrap: wrap; }
 .play-controls { gap: 6px; }
 .play-controls .icon-button { width: 32px; min-width: 32px; min-height: 32px; border-radius: 16px; color: var(--ms-label-2); }
 .play-button {
@@ -782,6 +782,21 @@ button.feedback-point-jump:hover, .feedback-point-jump[aria-current] { border-co
 .feedback-point-form textarea { width: 100%; }
 .feedback-point-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 6px; }
 .feedback-point-actions button { justify-content: center; min-height: 44px; }
+.foot-diagnostics { margin: 8px 0 14px; padding: 12px; background: var(--ms-surface); border: 1px solid var(--ms-separator); border-radius: 12px; scroll-margin-top: 60px; }
+.foot-diagnostics h3, .foot-diagnostics h4 { margin: 0; font-size: 13px; }
+.foot-diagnostic-caption { margin: 4px 0 8px; color: var(--ms-label-2); font-size: 12px; line-height: 1.55; }
+.foot-diagnostic-columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(230px, 100%), 1fr)); gap: 10px; }
+.foot-diagnostic-version { min-width: 0; padding: 9px; border-radius: 9px; background: var(--ms-fill-3); }
+.foot-diagnostic-foot { margin-top: 8px; font-size: 12px; overflow-wrap: anywhere; }
+.foot-diagnostic-track { position: relative; height: 5px; margin: 5px 0; background: var(--ms-fill); border-radius: 4px; }
+.foot-diagnostic-track span { position: absolute; height: 100%; min-width: 2px; border-radius: inherit; background: #357f66; }
+.foot-diagnostic-track .slip { background: #b86216; }
+.foot-diagnostic-track .treadmill { background: var(--ms-accent); }
+.foot-diagnostic-list { max-height: 180px; overflow: auto; }
+.foot-diagnostic-run { width: 100%; min-height: 44px; padding: 5px; gap: 4px 8px; flex-wrap: wrap; justify-content: flex-start; text-align: left; font-size: 12px; font-variant-numeric: tabular-nums; }
+.foot-diagnostic-run.slip b { color: #874617; }
+.foot-diagnostic-run[aria-current] { background: var(--ms-accent-soft); border-color: var(--ms-accent-ring); }
+.foot-diagnostic-run small { color: var(--ms-label-2); font-size: 11px; }
 .finding-list { display: grid; gap: 8px; }
 .finding { display: grid; gap: 4px; text-align: left; padding: 10px; border-radius: 8px; background: #fff5ed; color: #874617; width: 100%; }
 .finding strong { font-size: 13px; }.finding span, .finding small { font-size: 12px; }

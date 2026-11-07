@@ -13,7 +13,7 @@ import {randomBytes} from 'node:crypto';
 import {ROOT,json,inside,atomic,validateNote,importAsset,readMarks,sha,withWorkspaceLock,hasClip,readProject,projectView,modelSlots,activateModel} from './core.mjs';
 import {catalogPage,startCatalogScan,openCatalogAsset,stopCatalogScan} from './asset-catalog.mjs';
 import {characterPage,castRoster,characterModelBytes,openCharacter,associateCharacterMotion,saveCharacterMap} from './character-library.mjs';
-import {listJobs,getJob,createJob,cancelJob,localEditJob,reviewJob,inspectSlot,importBytes,replyJob,updateJobProgress,getJobProjectContext,previewProjectContext,retryJob,restoreJob,interruptJob,jobArtifacts,reconcileExecutions} from './jobs.mjs';
+import {listJobs,getJob,createJob,cancelJob,localEditJob,reviewJob,inspectSlot,diagnoseFootSlip,importBytes,replyJob,updateJobProgress,getJobProjectContext,previewProjectContext,retryJob,restoreJob,interruptJob,jobArtifacts,reconcileExecutions} from './jobs.mjs';
 import {projectStatus,prepareProject,chooseProjectFolder,revealWorkspace} from './project-workspaces.mjs';
 import {diagnoseRuntime} from './runtime-diagnostics.mjs';
 import {appearanceStatus,appearanceFile} from './project-appearance.mjs';
@@ -96,6 +96,7 @@ export async function serve(work,port=5178,options={}){
     const thumbnailKey=p.match(/^\/api\/thumbnails\/([a-z0-9-]+)$/);
     if(thumbnailKey&&req.method==='POST')return send(200,await saveThumbnail(work,thumbnailKey[1],data));
     if(p==='/api/actions/curves'&&req.method==='POST')return send(200,await characterActionCurves(work,JSON.parse(data)));
+    if(p==='/api/actions/foot-diagnostics'&&req.method==='POST')return send(200,await diagnoseFootSlip(work,JSON.parse(data)));
     if(p==='/api/actions/preview'&&req.method==='POST')return send(200,await previewCharacterAction(work,JSON.parse(data)));
     if(p.startsWith('/api/motions/')&&req.method==='POST'){const action=p.slice('/api/motions/'.length),input=JSON.parse(data),fn={register:registerMotionPack,mapping:saveMotionMapping,rigs:motionRigOptions,preview:previewMotion,adopt:adoptMotion,remove:removeMotion,prepare:materializeMotion}[action];if(fn)return send(200,await fn(work,input));}
     if(p==='/api/catalog/scan'&&req.method==='POST')return send(200,await startCatalogScan(work,{force:true}));

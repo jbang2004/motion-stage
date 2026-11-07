@@ -163,6 +163,12 @@ export async function inspectSlot(work,slot='baseline',assetId){
 }
 // Measured motion checks on a workspace version or an explicit GLB (for example a candidate
 // still in a job's output directory). With a baseline, findings are marked new/existing/resolved.
+async function verifiedMotionBytes(work,asset){
+ const bytes=await readFile(await inside(work,asset.file));
+ if(sha(bytes)!==asset.sha256)throw Error('资产校验失败');
+ return bytes;
+}
+
 export async function checkMotionSlot(work,{slot='baseline',assetId,file,baselineSlot,baselineFile,jobId,...options}={}){
  let frozen,job;
  if(jobId){
@@ -177,14 +183,42 @@ export async function checkMotionSlot(work,{slot='baseline',assetId,file,baselin
  const load=async(s,f)=>{
   if(f)return readFile(resolve(f));if(!work)throw Error('需要 --workspace 或 --file');
   if(!['baseline','candidate'].includes(s))throw Error('无效版本槽');const cfg=await readProject(work),a=modelSlots(cfg,assetId)[s];if(!a)throw Error('尚未载入该版本');
-  const bytes=await readFile(await inside(work,a.file));if(sha(bytes)!==a.sha256)throw Error('资产校验失败');return bytes;
+  return verifiedMotionBytes(work,a);
  };
  const {checkMotion,compareMotionChecks}=await import('./motion-checks.mjs');
  const result=checkMotion(await load(slot,file),options);
- if(frozen){const bytes=await readFile(await inside(work,frozen.file));if(sha(bytes)!==frozen.sha256)throw Error('冻结输入校验失败');return {...compareMotionChecks(checkMotion(bytes,options),result),jobId:job.id,assetId:job.assetId,scope:job.scope};}
+ if(frozen){const bytes=await verifiedMotionBytes(work,frozen);return {...compareMotionChecks(checkMotion(bytes,options),result),jobId:job.id,assetId:job.assetId,scope:job.scope};}
  if(!baselineSlot&&!baselineFile)return result;
  return compareMotionChecks(checkMotion(await load(baselineSlot,baselineFile),options),result);
 }
+
+export async function diagnoseFootSlip(work,{assetId,clip,versions,jobId}={}){
+ const requested=Object.entries(versions||{});
+ if(typeof assetId!=='string'||!assetId||typeof clip!=='string'||!clip||
+    !requested.length||requested.some(([slot,hash])=>!['baseline','candidate'].includes(slot)||typeof hash!=='string'||!(/^[a-f0-9]{64}$/.test(hash))))throw Error('脚滑检查需要当前模型、动作和版本。');
+ let assets;
+ if(jobId){
+  const job=await getJob(work,jobId);
+  const jobAssetId=job.assetId||(await readProject(work)).legacyAssetId;
+  if(job.state!=='complete'||jobAssetId!==assetId)throw Error('脚滑检查与归档任务不一致。');
+  assets={baseline:job.inputs[job.slot||'baseline'],candidate:job.candidate};
+ }else assets=modelSlots(await readProject(work),assetId);
+ const inputs=requested.map(([slot,hash])=>{
+  const asset=assets[slot];
+  if(asset?.sha256!==hash)throw Error('观察版本已变化，请重新打开动作后检查。');
+  const clips=asset.clips.filter(c=>c.name===clip);
+  if(clips.length!==1||!clips[0].duration)throw Error('请在可比较的版本上选择同一个有效动作。');
+  if(clips[0].duration>120)throw Error('界面脚滑检查支持 120 秒以内的动作。');
+  return [slot,asset];
+ });
+ const fps=30,{checkMotion}=await import('./motion-checks.mjs'),reports=[];
+ for(const [slot,asset] of inputs){
+  const bytes=await verifiedMotionBytes(work,asset);
+  reports.push({slot,...checkMotion(bytes,{clip,fps,checks:['footSlip']})});
+ }
+ return {clip,fps,reports};
+}
+
 const sideNote=c=>`左右提示：要求写的是${SIDE_NAMES[c.requested]}侧，页面选中的却是角色${SIDE_NAMES[c.picked]}侧的 ${c.bone}${c.inferred?'（由点击位置推断）':''}。左右按角色自身朝向；用户可能按画面方向描述。先结合截图与文字确定是哪一侧；仍不确定时用 needs-input 询问，不要两侧都改。`;
 function feedbackSection(points){
  if(!points?.length)return '';

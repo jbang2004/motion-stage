@@ -1,7 +1,7 @@
 {
   "name": "motion-stage",
   "version": "4.2.0",
-  "createdAt": "2026-11-07T16:10:08.981931+00:00",
+  "createdAt": "2026-11-07T16:25:49.079507+00:00",
   "runtime": "Node.js >=22 / Canvas2D curves; WebGL2 spatial previews",
   "externalRuntimeDependencies": {
     "base": [],
@@ -38,8 +38,8 @@
     },
     {
       "path": "SKILL.md",
-      "bytes": 14065,
-      "sha256": "d65ee830ff4ac3197908cf0e7dd0f8e15420252475d799f6d3ca60d6ab4fa361"
+      "bytes": 14623,
+      "sha256": "f5bb9a17784f464abc83d6f680e2f5194225ae5bdc811342d37ff30f510daac1"
     },
     {
       "path": "THIRD_PARTY.md",
@@ -233,8 +233,8 @@
     },
     {
       "path": "assets/viewer/app.js",
-      "bytes": 164382,
-      "sha256": "009b0b07a6a05e1d821ff83e739e30ba4ee44bf4b74eaa3029cb57af81a8ff8f"
+      "bytes": 167288,
+      "sha256": "4a2db35bd363ad07c5103cced6c0031003739786d908cb52d78ad33247705348"
     },
     {
       "path": "assets/viewer/asset-loader.mjs",
@@ -277,6 +277,11 @@
       "sha256": "b12b742211254a8e730ea2955dc8c48431135eeb6d67044eb5d1953bdece8dbe"
     },
     {
+      "path": "assets/viewer/foot-diagnostics.mjs",
+      "bytes": 3172,
+      "sha256": "a1ff3129094aa41be7056da82395e3c9a03b6edb06bc3b8f696cf1107875ac67"
+    },
+    {
       "path": "assets/viewer/gltf-loader.mjs",
       "bytes": 716,
       "sha256": "00c9247ea7df8143df53374fb27f1f8ad1aabe660ead69edc48c13f2aa0cc6a2"
@@ -293,8 +298,8 @@
     },
     {
       "path": "assets/viewer/index.html",
-      "bytes": 38612,
-      "sha256": "24f697c19a5372c3c2aa3568440ad0de324536501a2dda3dff09a5d3472444d1"
+      "bytes": 38903,
+      "sha256": "21075222ab05c4055b78673a41554cce7c952714bc621151fd5644b5dab48dd2"
     },
     {
       "path": "assets/viewer/joint-targets.mjs",
@@ -303,8 +308,8 @@
     },
     {
       "path": "assets/viewer/library.css",
-      "bytes": 52628,
-      "sha256": "71ea1380822a04ea2fd77638d3b69ad79c3ce2f487026af3d19d3678d6df79e7"
+      "bytes": 54189,
+      "sha256": "34f2b5e1b511eaf07f7825105a6e8148a1201dce846a1c5bff110bc22df7e2ba"
     },
     {
       "path": "assets/viewer/model-catalog.mjs",
@@ -578,8 +583,8 @@
     },
     {
       "path": "scripts/jobs.mjs",
-      "bytes": 47013,
-      "sha256": "90837d1ad4141e49f377926bbe8783dee62c89386c335169aaa62d19922d376b"
+      "bytes": 48572,
+      "sha256": "3c5f3c0be5b8f2cdf6e32d284f9c8257cd69e3b3c75153e5ce45a1504147392b"
     },
     {
       "path": "scripts/mcp.mjs",
@@ -643,8 +648,8 @@
     },
     {
       "path": "scripts/server.mjs",
-      "bytes": 26483,
-      "sha256": "896b14c4f96dd66b66ccda468e697d29caae7b8db276b19432c1b395ea9ac82f"
+      "bytes": 26628,
+      "sha256": "5cc97f3037cb2b9e7b61ae47ef2ef54094abec0ff440f14ae2e6d38888fb3fbd"
     },
     {
       "path": "scripts/source-dependencies.mjs",
@@ -808,8 +813,8 @@
     },
     {
       "path": "scripts/test/jobs.test.mjs",
-      "bytes": 21267,
-      "sha256": "c35da4dcc29756529ef60db22cd1d5f3bd4576dacc8b80c02bf7ba0ee1b1df79"
+      "bytes": 23017,
+      "sha256": "30ffb758b5493aecc1c1db546b80480d442356c67f703d27bd209deda16603e7"
     },
     {
       "path": "scripts/test/joint-targets.test.mjs",

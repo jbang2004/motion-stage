@@ -27,11 +27,13 @@ import {createUndoControls} from './undo-controls.mjs';
 import {installShortcuts} from './shortcuts.mjs';
 import {sideConflict,mirrorBoneName,SIDE_NAMES} from './body-side.mjs';
 import {MAX_FEEDBACK_POINTS,pointsForClip,validateFeedbackPoints,feedbackObservation,feedbackPointList} from './feedback-points.mjs';
+import {footDiagnosticReport} from './foot-diagnostics.mjs';
 
 decorateIcons();
 
 const $=id=>document.getElementById(id),slots=['baseline','candidate'];
 let localPreview=null;
+let footDiagnosis=null;
 const state={switching:false,allJobs:[],jobCounts:{},totalJobs:0,jobsRevision:null,studioRevision:null,studioAssetId:null,historyJobs:[],historyAssetId:null,historyRevision:null,historyHasMore:false,historyTotal:0,catalog:null,initialized:false,ready:false,loading:false,playing:false,loop:true,time:0,speed:1,fps:30,display:'single',focus:'baseline',view:'front',models:{},project:null,token:null,paths:{},jobs:[],agent:null,target:null,selectedJob:null,archivedJobId:null,capturing:false,submitting:false,submissionOwner:null,panelMode:'compose',composerSource:null,comparisonPair:null,observationTransform:null,explicitCompose:false,projectLink:null,projectPreview:null,projectPreviewError:null,lineageParentJobId:null,feedbackPoints:[]};
 let renderLoop,castBrowser;
 const viewState=createViewState(new URLSearchParams(location.search).get('asset'));
@@ -333,7 +335,7 @@ function updateDisplay(){
  $('versionModes').hidden=!comparison;$('singleVersion').hidden=comparison;$('singleVersion').textContent=state.focus==='candidate'?'正在观察当前版本':state.models.baseline?.meta.sha256===state.project?.slots.baseline?.sha256?'正在观察最初原版':'正在观察修改前';document.querySelector('[data-version="baseline"]').textContent=comparison?'修改前':'最初原版';$('baselineLabel').querySelector('span').firstChild.nodeValue=state.motionPreview?'兼容动作试播':comparison?'修改前':'最初原版';if(state.motionPreview){$('singleVersion').textContent='临时试播 · 模型版本保持';$('versionModes').hidden=true;$('singleVersion').hidden=false;}
  document.querySelectorAll('[data-display]').forEach(b=>{const yes=b.dataset.display===state.display;b.classList.toggle('active',yes);b.setAttribute('aria-pressed',String(yes));});
  document.querySelectorAll('[data-version]').forEach(b=>{const yes=b.dataset.version===(state.display==='single'?state.focus:'compare');b.classList.toggle('active',yes);b.setAttribute('aria-pressed',String(yes));});
- $('comparisonMeaning').textContent=$('progress').checked?'按进度对齐 · 速度可能不同':'同一秒数比较 · 保留真实节奏';size();updateWorkflow();
+ $('comparisonMeaning').textContent=$('progress').checked?'按进度对齐 · 速度可能不同':'同一秒数比较 · 保留真实节奏';size();updateWorkflow();syncFootDiagnostics();
 }
 // 动作库 frames the whole motion: sample the clip once and fit the camera to
 // every joint's travel, keeping the current view direction. Only the camera
@@ -390,6 +392,57 @@ $('boneSelect').onchange=()=>{const slot=activeSlot(),m=state.models[slot],b=sel
 function drawSidebar(){
  castBrowser?.sync();
 }
+
+function footDiagnosticInput(){
+ const model=activeModel(),clip=model?.clip,assetId=viewState.loadedAssetId;
+ if(!assetId||!clip||!model.joints.length||state.motionPreview)return null;
+ const visible=state.display==='single'?[activeSlot()]:slots;
+ if(visible.some(slot=>state.models[slot]?.clip!==clip))return null;
+ const versions=Object.fromEntries(visible.map(slot=>[slot,state.models[slot].meta.sha256]));
+ const job=currentJob(),jobId=job&&viewMatchesJob(job)?job.id:undefined;
+ return {assetId,clip,versions,jobId};
+}
+function syncFootDiagnostics(){
+ const input=footDiagnosticInput(),button=$('checkFootSlip'),panel=$('footDiagnostics');
+ if(footDiagnosis&&footDiagnosis.key!==JSON.stringify(input)){
+  footDiagnosis=null;panel.hidden=true;panel.replaceChildren();
+ }
+ button.hidden=!activeModel()?.clip||!activeModel()?.joints.length||Boolean(state.motionPreview);
+ button.disabled=!input||!state.initialized||state.loading||state.switching;
+ button.title=!input&&!button.hidden?'请先在两个版本上打开同一个动作。':'';
+ button.setAttribute('aria-expanded',String(!panel.hidden));
+ button.textContent=panel.hidden?'检查脚滑':'收起脚滑检查';
+}
+function seekFootDiagnostic({slot,foot,time}){
+ if(footDiagnosis?.key!==JSON.stringify(footDiagnosticInput())||state.loading||state.switching)return;
+ clearLocalPreview();
+ $('lockRoot').checked=false;
+ if(state.display!=='single'){
+  state.display='split';$('progress').checked=false;updateDisplay();
+ }
+ const model=state.models[slot],node=joint(model,foot.foot,foot.nodeIndex);
+ if(node)setTarget({slot,assetSha256:model.meta.sha256,bone:foot.foot,nodeIndex:foot.nodeIndex,space:'bone-local',inferred:true});
+ else clearTarget();
+ seek(time);$('stage').scrollIntoView({block:'nearest'});return true;
+}
+$('checkFootSlip').onclick=async()=>{
+ const input=footDiagnosticInput(),panel=$('footDiagnostics');
+ if(!input)return;
+ panel.hidden=!panel.hidden;syncFootDiagnostics();
+ if(panel.hidden)return;
+ if(footDiagnosis&&!footDiagnosis.error){panel.scrollIntoView({block:'nearest'});return;}
+ const pending={key:JSON.stringify(input)};footDiagnosis=pending;
+ const status=el('p','正在采样脚节点…','foot-diagnostic-caption');status.setAttribute('role','status');panel.replaceChildren(status);
+ try{
+  const result=await api('/api/actions/foot-diagnostics','POST',input);
+  if(footDiagnosis!==pending||pending.key!==JSON.stringify(footDiagnosticInput()))return;
+  panel.replaceChildren(footDiagnosticReport(result,{partName:name=>semanticPart(name)||name,onSeek:seekFootDiagnostic}));
+ }catch(error){
+  if(footDiagnosis!==pending)return;
+  pending.error=true;status.textContent=error.message;status.classList.add('error-copy');
+ }
+ if(!panel.hidden)panel.scrollIntoView({block:'nearest'});
+};
 
 function drawLibrary(){const m=activeModel(),list=$('clipList'),query=$('search').value.trim().toLowerCase();drawSidebar();list.replaceChildren();const clips=(m?.clips||[]).filter(c=>!query||c.name.toLowerCase().includes(query));$('clipCount').textContent=m?.clips.length||0;const chooser=$('motionSelect');chooser.replaceChildren();for(const c of m?.clips||[]){const o=el('option',c.name);o.value=c.name;chooser.append(o);}if(m?.clip)chooser.value=m.clip;if(!m?.clips.length){const o=el('option','无内置动作');o.value='';chooser.append(o);}chooser.disabled=!m?.clips.length;if(!m?.clips.length){list.append(el('p',m?resourceLabel(m.capabilities)+'。此资源没有内置动作；可独立检查，或明确关联兼容动作。':'导入模型、骨架或动作，或稍候读取示例。','clip-empty'));return;}for(const [index,c] of clips.entries()){const b=el('button',undefined,'motion-card'+(m.clip===c.name?' active':''));b.setAttribute('role','option');b.setAttribute('aria-selected',String(m.clip===c.name));b.dataset.clip=c.name;const glyph=el('span',undefined,'motion-icon'),text=el('span',undefined,'motion-text');glyph.append(icon('motion'));text.append(el('strong',c.name),el('small',c.duration.toFixed(2)+' 秒 · '+(state.display==='single'&&state.focus==='baseline'?'原版动作':'版本对照')));b.append(glyph,text,el('span',String(index+1).padStart(2,'0'),'motion-index'));b.onclick=()=>{selectMotion(c.name);$('libraryDialog').close();};list.append(b);}if(!clips.length)list.append(el('p','没有找到这个动作，试试其他名称。','clip-empty'));}
 let feedbackEditor=null;
@@ -478,6 +531,7 @@ function drawMetadata(){
  drawRecovery();
  updateSideWarning();
  drawFeedbackPoints();
+ syncFootDiagnostics();
  for(const b of $('versionModes')?.querySelectorAll?.('button')||[])b.disabled=Boolean(state.motionPreview);
  drawAppearance({mode:appearance.mode,descriptor:appearance.descriptor,error:appearance.error});
  const m=activeModel();if(!m)return;
