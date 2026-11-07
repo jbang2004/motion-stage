@@ -7,7 +7,7 @@ import {extname} from 'node:path';
 import {randomBytes} from 'node:crypto';
 import {ROOT,json,inside,atomic,validateNote,importAsset,readMarks,sha,withWorkspaceLock,hasClip,readProject,projectView,modelSlots,activateModel} from './core.mjs';
 import {catalogPage,startCatalogScan,openCatalogAsset,stopCatalogScan} from './asset-catalog.mjs';
-import {characterPage,castRoster,characterModelFile,openCharacter,associateCharacterMotion,saveCharacterMap} from './character-library.mjs';
+import {characterPage,castRoster,characterModelBytes,openCharacter,associateCharacterMotion,saveCharacterMap} from './character-library.mjs';
 import {listJobs,getJob,createJob,cancelJob,localEditJob,reviewJob,inspectSlot,importBytes,replyJob,updateJobProgress,getJobProjectContext,previewProjectContext,retryJob,restoreJob,interruptJob,jobArtifacts,reconcileExecutions} from './jobs.mjs';
 import {projectStatus,prepareProject,chooseProjectFolder,revealWorkspace} from './project-workspaces.mjs';
 import {diagnoseRuntime} from './runtime-diagnostics.mjs';
@@ -52,7 +52,7 @@ export async function serve(work,port=5178,options={}){
    if(p==='/api/cast'&&req.method==='GET')return send(200,await castRoster(work,{scope:url.searchParams.get('scope')||'all'}));
    if(p==='/api/thumbnails'&&req.method==='GET')return send(200,await listThumbnails(work));
    const characterModel=p.match(/^\/api\/characters\/([-\w]+)\/model$/);
-   if(characterModel&&req.method==='GET'){const file=await characterModelFile(work,characterModel[1]),bytes=await readFile(file);res.writeHead(200,{'Content-Type':'model/gltf-binary','Content-Length':bytes.length,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});return res.end(bytes);}
+   if(characterModel&&req.method==='GET'){const bytes=await characterModelBytes(work,characterModel[1]);res.writeHead(200,{'Content-Type':'model/gltf-binary','Content-Length':bytes.length,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});return res.end(bytes);}
    if(p==='/api/appearance'&&req.method==='GET')return send(200,await appearanceStatus(work,url.searchParams.get('assetId')||undefined));
    if(p==='/api/project'&&req.method==='GET')return send(200,await projectStatus(work,options));
    const pc=p.match(/^\/api\/jobs\/([a-f0-9-]{36})\/project-context$/);if(pc&&req.method==='GET')return send(200,await getJobProjectContext(work,pc[1]));

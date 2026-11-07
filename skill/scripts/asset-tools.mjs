@@ -1,7 +1,7 @@
 import {resourceCapabilities,curveDescriptor,curveClips,meshoptExtension} from '../assets/viewer/resource-capabilities.mjs';
 import {createHash} from 'node:crypto';
 import {readFile,writeFile,mkdir,lstat,stat,realpath,mkdtemp,symlink,unlink,rmdir} from 'node:fs/promises';
-import {resolve,dirname,basename,join,parse,relative,isAbsolute} from 'node:path';
+import {resolve,dirname,basename,join,parse,relative,isAbsolute,posix} from 'node:path';
 import {tmpdir} from 'node:os';
 import {spawn} from 'node:child_process';
 import {blenderExecutable,commandSpec,pathWithin} from './platform-runtime.mjs';
@@ -23,6 +23,71 @@ export function encodeGlb(doc,bin,extra=[]){
  if(bin.length)chunks.push({type:0x004e4942,data:Buffer.concat([bin,Buffer.alloc((4-bin.length%4)%4)])});chunks.push(...extra);
  const total=12+chunks.reduce((n,c)=>n+8+c.data.length,0),out=Buffer.alloc(total);out.writeUInt32LE(0x46546c67);out.writeUInt32LE(2,4);out.writeUInt32LE(total,8);let p=12;
  for(const c of chunks){out.writeUInt32LE(c.data.length,p);out.writeUInt32LE(c.type,p+4);c.data.copy(out,p+8);p+=8+c.data.length;}return out;
+}
+// A .gltf names its buffers and images by URIs relative to the .gltf file.
+// Returns each external reference as a normalized project-relative path; data:
+// URIs stay inline. Schemes, absolute paths and paths leaving the project fail.
+export function gltfReferences(doc,file='model.gltf'){
+ const dir=posix.dirname(String(file).replaceAll('\\','/')),refs=[];
+ for(const kind of ['buffers','images'])(doc[kind]||[]).forEach((item,index)=>{
+  if(item?.uri===undefined||String(item.uri).startsWith('data:'))return;
+  let name;try{name=decodeURIComponent(String(item.uri)).replaceAll('\\','/');}catch{throw Error('glTF 文件引用编码无效：'+item.uri);}
+  if(!name||name.includes('\0')||name.startsWith('/')||/^[a-z][a-z0-9+.-]*:/i.test(name))throw Error('glTF 只能引用项目内的相对文件：'+item.uri);
+  const path=posix.normalize(posix.join(dir,name));
+  if(path==='.'||path.split('/').includes('..'))throw Error('glTF 引用的文件不在项目内：'+item.uri);
+  refs.push({kind,index,uri:item.uri,path});
+ });
+ return refs;
+}
+const IMAGE_TYPES={'.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.ktx2':'image/ktx2','.avif':'image/avif'};
+function imageType(bytes){
+ if(bytes.subarray(0,8).equals(Buffer.from('89504e470d0a1a0a','hex')))return 'image/png';
+ if(bytes[0]===0xff&&bytes[1]===0xd8&&bytes[2]===0xff)return 'image/jpeg';
+ if(bytes.subarray(0,4).toString('latin1')==='RIFF'&&bytes.subarray(8,12).toString('latin1')==='WEBP')return 'image/webp';
+ if(bytes.subarray(1,7).toString('latin1')==='KTX 20')return 'image/ktx2';
+ if(bytes.subarray(4,8).toString('latin1')==='ftyp'&&/^avi[fs]$/.test(bytes.subarray(8,12).toString('latin1')))return 'image/avif';
+ return null;
+}
+function dataUri(uri){
+ const comma=uri.indexOf(',');if(comma<0)throw Error('glTF data URI 无效');
+ const head=uri.slice(5,comma),body=uri.slice(comma+1);
+ return {mimeType:head.split(';')[0]||null,bytes:/;base64$/i.test(head)?Buffer.from(body,'base64'):Buffer.from(body.replace(/%([0-9a-f]{2})/gi,(_,h)=>String.fromCharCode(parseInt(h,16))),'latin1')};
+}
+// Packs a parsed .gltf plus its referenced files (Map of project-relative path
+// to bytes, keyed as gltfReferences returns them) into one self-contained GLB:
+// every data buffer becomes a 4-byte-aligned slice of the BIN chunk and every
+// external or data: image becomes a bufferView with a mimeType. Pure; no IO.
+export function packGltf(input,files=new Map(),file='model.gltf',{maxBytes=200*1024*1024}={}){
+ const doc=structuredClone(input);if(doc.asset?.version!=='2.0')throw Error('需要 glTF 2.0 模型');
+ const paths=new Map(gltfReferences(doc,file).map(r=>[r.kind+':'+r.index,r.path])),parts=[];let length=0;
+ const append=data=>{const start=length+(4-length%4)%4;if(start>length)parts.push(Buffer.alloc(start-length));parts.push(data);length=start+data.length;if(length>maxBytes)throw Error('glTF 打包后超过 '+Math.round(maxBytes/1048576)+' MB');return start;};
+ const payload=(item,kind,index)=>{
+  if(String(item.uri).startsWith('data:'))return dataUri(item.uri);
+  const path=paths.get(kind+':'+index),bytes=files.get(path);if(!bytes?.length)throw Error('缺少 glTF 引用的文件或文件为空：'+path);return {bytes:Buffer.from(bytes),path};
+ };
+ const buffers=doc.buffers||[],fallback=b=>meshoptExtension(b)?.fallback===true;
+ const placed=buffers.map((b,index)=>{
+  if(!Number.isSafeInteger(b?.byteLength)||b.byteLength<1)throw Error('glTF buffer 长度无效');
+  if(b.uri===undefined){if(fallback(b))return null;throw Error('glTF buffer 缺少数据；请导出带 .bin 的 glTF 或 GLB');}
+  const {bytes,path}=payload(b,'buffers',index);if(bytes.length<b.byteLength)throw Error('glTF buffer 数据不完整：'+(path||'data URI'));
+  return append(bytes.subarray(0,b.byteLength));
+ });
+ const images=(doc.images||[]).map((image,index)=>{
+  if(image.uri===undefined)return null;
+  const {bytes,mimeType,path}=payload(image,'images',index),type=image.mimeType||mimeType||imageType(bytes)||IMAGE_TYPES[posix.extname(path||'').toLowerCase()];
+  if(!type)throw Error('无法识别 glTF 贴图格式：'+(path||'data URI'));
+  return {start:append(bytes),length:bytes.length,type};
+ });
+ const out=length?[{byteLength:length}]:[],target=placed.map((start,i)=>start===null?{buffer:out.push(buffers[i])-1,offset:0}:{buffer:0,offset:start});
+ const move=view=>{
+  const at=target[view.buffer];if(!Number.isInteger(view.buffer)||!at)throw Error('glTF bufferView 引用无效');
+  if(!Number.isSafeInteger(view.byteLength)||(view.byteOffset||0)+view.byteLength>buffers[view.buffer].byteLength)throw Error('glTF bufferView 超出 buffer 范围');
+  view.buffer=at.buffer;if(at.offset)view.byteOffset=(view.byteOffset||0)+at.offset;
+ };
+ for(const view of doc.bufferViews||[]){move(view);for(const name of ['EXT_meshopt_compression','KHR_meshopt_compression'])if(view.extensions?.[name])move(view.extensions[name]);}
+ images.forEach((slot,index)=>{if(!slot)return;const image=doc.images[index];delete image.uri;image.mimeType=slot.type;image.bufferView=(doc.bufferViews??=[]).push({buffer:0,byteOffset:slot.start,byteLength:slot.length})-1;});
+ if(out.length)doc.buffers=out;else delete doc.buffers;
+ return encodeGlb(doc,Buffer.concat(parts));
 }
 export function readAccessor(doc,bin,index){
  const a=doc.accessors?.[index],size=sizes[a?.type],component=components[a?.componentType];

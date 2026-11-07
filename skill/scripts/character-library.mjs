@@ -2,7 +2,7 @@ import {sampledMetadata} from './curve-resources.mjs';
 import {readFile,stat} from 'node:fs/promises';
 import {basename,extname} from 'node:path';
 import {readProject,modelSlots,setModelSlots,inside,atomic,sha,withWorkspaceLock,importAsset,activateModel,glbInfo} from './core.mjs';
-import {readCatalog,catalogPage,glbMetadata,openCatalogAsset} from './asset-catalog.mjs';
+import {readCatalog,catalogPage,glbMetadata,gltfMetadata,gltfDependencyState,readProjectModel,openCatalogAsset} from './asset-catalog.mjs';
 import {getProjectLink} from './project-context.mjs';
 import {characterProfileDigest,characterBindingDigest,consumedDependencies} from './source-dependencies.mjs';
 import {assembleCharacter} from './motion-assembly.mjs';
@@ -14,6 +14,7 @@ const MAP='character-map.json',cache=new Map(),flights=new Map(),CACHE_LIMIT=409
 const requireValue=(ok,message)=>{if(!ok)throw Error(message);};
 const stamp=s=>[s.size,s.mtimeMs,s.ctimeMs,s.ino,s.dev].join(':');
 const assetId=(project,id)=>'character-'+sha(Buffer.from(project+'\0'+id)).slice(0,32);
+const modelFormat=file=>({'.glb':'glb','.gltf':'gltf'})[extname(file).toLowerCase()]||'unsupported';
 function path(value){requireValue(typeof value==='string'&&value.length>0&&value.length<=2000,'需要项目内相对文件路径');const p=value.replaceAll('\\','/');requireValue(!p.startsWith('/')&&!/^[a-z]:/i.test(p)&&!p.split('/').some(n=>n==='..'||n==='.git'||n==='.ssh'||n==='.aws'),'资源路径必须位于项目内');return p;}
 export function normalizeCharacterMap(value){
  requireValue(value?.version===1&&Array.isArray(value.characters)&&value.characters.length<=500,'角色映射需要 version:1 和 characters 数组（最多 500 个角色）');
@@ -21,12 +22,12 @@ export function normalizeCharacterMap(value){
  return {version:1,characters:value.characters.map(c=>{
   requireValue(c&&typeof c.id==='string'&&c.id.length>0&&c.id.length<=200&&!ids.has(c.id),'角色 ID 缺失、过长或重复');ids.add(c.id);
   const model=path(c.model);requireValue(!models.has(model),'同一主模型不能声明两个角色；请为独立角色提供独立主模型');models.add(model);
-  requireValue(['.glb','.fbx'].includes(extname(model).toLowerCase()),'角色主模型需要 GLB 或 FBX');
+  requireValue(['.glb','.gltf','.fbx'].includes(extname(model).toLowerCase()),'角色主模型需要 GLB、glTF 或 FBX');
   requireValue(!c.name||typeof c.name==='string'&&c.name.length<=200,'角色名称无效');
   requireValue(!c.animations||Array.isArray(c.animations)&&c.animations.length<=50,'一个角色最多关联 50 个动作来源');
   const animations=(c.animations||[]).map(a=>{
-   const file=path(a.file),format=a.format||(extname(file).toLowerCase()==='.glb'?'glb':'unsupported');
-   requireValue(['glb','sampled-tracks-v1','unsupported'].includes(format),'未知动作解析格式');
+   const file=path(a.file),format=a.format||modelFormat(file);
+   requireValue(['glb','gltf','sampled-tracks-v1','unsupported'].includes(format),'未知动作解析格式');
    requireValue(!a.clips||Array.isArray(a.clips)&&a.clips.length<=1000&&a.clips.every(n=>typeof n==='string'&&n.length<=200),'动作选择列表无效');
    requireValue(!a.prefix||typeof a.prefix==='string'&&a.prefix.length<=100,'动作前缀无效');
    requireValue(a.replace===undefined||typeof a.replace==='boolean','覆盖规则需要布尔值');
@@ -63,11 +64,20 @@ async function stableRead(root,file,max=200*1024*1024){
 async function fileInfo(root,file,format,known){
  let full,s;
  try{full=await inside(root,file);s=await stat(full);requireValue(s.isFile(),'不是普通文件');}catch(error){return {file,format,status:'missing',count:0,error:'文件缺失或不可读：'+file,stamp:'missing'};}
+ const result=await parsedInfo(root,file,format,full,s,known);if(!result.dependencies)return result;
+ // A .gltf is only as current as the .bin and images it references.
+ const deps=await gltfDependencyState(root,result.dependencies);
+ const modelStamp=result.stamp+'|'+deps.stamp;
+ // Portraits re-render when a referenced .bin or texture changes, not only the JSON.
+ return {...result,stamp:modelStamp,identity:result.identity+':'+sha(Buffer.from(modelStamp)).slice(0,16),...(deps.missing.length&&result.status==='declared'?{status:'unavailable',error:'缺少 glTF 引用的文件：'+deps.missing.slice(0,3).join('、')}:{})};
+}
+async function parsedInfo(root,file,format,full,s,known){
  const key=full+'|'+stamp(s)+'|'+format;
  if(cache.has(key)){const hit=cache.get(key);cache.delete(key);cache.set(key,hit);return hit;}
  let result={file,format,status:'declared',count:0,stamp:stamp(s),identity:[s.size,Math.round(s.mtimeMs)].join(':')};
  try{
   if(format==='glb'){const info=known?.fingerprint===stamp(s)&&known.metadata?.capabilities?.version===1&&Array.isArray(known.metadata.clips)?known.metadata:await glbMetadata(full);result={...result,info,count:info.clips.length};}
+  else if(format==='gltf'){const {info,dependencies}=await gltfMetadata(root,file);result={...result,info,dependencies,count:info.clips.length};}
   else if(format==='sampled-tracks-v1'){
    const {bytes}=await stableRead(root,file,50*1024*1024),data=JSON.parse(bytes.toString('utf8'));
    result.info=sampledMetadata(data);result.count=result.info.clips.length;
@@ -80,13 +90,13 @@ async function library(work,{onlyId=null,includeCandidates=true}={}){
  const profiles=[],covered=new Set(),mapped=map.characters;
  for(const c of mapped){covered.add(c.model);c.variants.forEach(f=>covered.add(f));c.animations.forEach(a=>covered.add(a.file));profiles.push({...c,mapped:true});}
  if(includeCandidates&&link?.exists&&catalog.projectId===link.id)for(const e of catalog.entries){
-  if(covered.has(e.relativePath)||e.status!=='available'||e.format!=='glb')continue;
+  if(covered.has(e.relativePath)||e.status!=='available'||!['glb','gltf'].includes(e.format))continue;
   if(e.metadata?.meshCount&&(e.metadata.skinCount||e.metadata.clips?.length))profiles.push({id:'file:'+e.relativePath,name:basename(e.name,extname(e.name)),model:e.relativePath,variants:[],animations:[],evidence:[],mapped:false});
  }
  const rows=[],selected=link?.exists?profiles.filter(profile=>!onlyId||assetId(link.id,profile.id)===onlyId):[],models=[];
  // Stat (and, on a miss, read headers of) many files at once; rows keep profile order.
  const scanned=catalog.projectId===link?.id?new Map(catalog.entries.map(e=>[e.relativePath,e])):new Map();
- for(let i=0;i<selected.length;i+=LIBRARY_CONCURRENCY)models.push(...await Promise.all(selected.slice(i,i+LIBRARY_CONCURRENCY).map(profile=>fileInfo(link.root,profile.model,extname(profile.model).toLowerCase()==='.glb'?'glb':'unsupported',scanned.get(profile.model)))));
+ for(let i=0;i<selected.length;i+=LIBRARY_CONCURRENCY)models.push(...await Promise.all(selected.slice(i,i+LIBRARY_CONCURRENCY).map(profile=>fileInfo(link.root,profile.model,modelFormat(profile.model),scanned.get(profile.model)))));
  for(const [index,profile]of selected.entries()){
   const id=assetId(link.id,profile.id),model=models[index];
   const sources=await Promise.all(profile.animations.map(a=>fileInfo(link.root,a.file,a.format)));
@@ -126,7 +136,7 @@ export async function castRoster(work,{scope='all'}={}){
  const workspacePortrait=asset=>asset&&(asset.meshCount||0)>0?{source:'workspace',identity:asset.sha256,asset:{sha256:asset.sha256,file:asset.file,bytes:asset.bytes}}:null;
  for(const r of data.rows){
   seen.add(r.id);let portrait=workspacePortrait(modelSlots(data.cfg,r.id).baseline);
-  if(!portrait&&r.format==='glb'&&r.status==='available'&&r.profile&&r.portraitIdentity)portrait={source:'project',identity:r.portraitIdentity,url:'/api/characters/'+encodeURIComponent(r.id)+'/model'};
+  if(!portrait&&['glb','gltf'].includes(r.format)&&r.status==='available'&&r.profile&&r.portraitIdentity)portrait={source:'project',identity:r.portraitIdentity,url:'/api/characters/'+encodeURIComponent(r.id)+'/model'};
   entries.push({id:r.id,kind:'character',name:r.name,confirmed:Boolean(r.confirmed),opened:Boolean(r.opened),status:r.status,format:r.format,relativePath:r.relativePath||null,clipCount:r.metadata?.clips?.length||0,embeddedCount:r.embeddedCount||0,externalCount:r.externalCount||0,portrait});
  }
  for(const [id,m]of Object.entries(data.cfg.models)){
@@ -137,13 +147,16 @@ export async function castRoster(work,{scope='all'}={}){
  entries.sort((a,b)=>rank(a)-rank(b)||a.name.localeCompare(b.name,'zh-Hans-CN'));
  return {entries,total:entries.length,confirmedTotal:entries.filter(e=>e.confirmed).length,activeAssetId:data.cfg.activeAssetId,linked:data.link?.status==='linked'};
 }
-// Main model bytes of a declared or discovered GLB character, for portraits.
-export async function characterModelFile(work,id){
+// Main model of a declared or discovered GLB/glTF character, for portraits.
+async function characterModel(work,id){
  const data=await library(work,{onlyId:id}),row=data.rows.find(r=>r.id===id);
  requireValue(row?.profile&&data.link?.exists,'角色不存在或项目未关联');
- requireValue(row.format==='glb'&&row.status==='available','这个角色的模型不能直接预览');
- return inside(data.link.root,row.profile.model);
+ requireValue(['glb','gltf'].includes(row.format)&&row.status==='available','这个角色的模型不能直接预览');
+ return {root:data.link.root,file:row.profile.model};
 }
+export async function characterModelFile(work,id){const {root,file}=await characterModel(work,id);return inside(root,file);}
+// GLB bytes; a .gltf is packed in memory with the files it references.
+export async function characterModelBytes(work,id){const {root,file}=await characterModel(work,id);return (await readProjectModel(root,file)).bytes;}
 export async function openCharacter(work,id,{refreshSource=false}={}){
  const key=work+'|'+id+'|'+refreshSource;if(flights.has(key))return flights.get(key);
  const promise=prepareCharacter(work,id,refreshSource);flights.set(key,promise);try{return await promise;}finally{flights.delete(key);}
@@ -157,17 +170,21 @@ async function prepareCharacter(work,id,refreshSource){
   const entry=data.catalog.entries.find(e=>e.relativePath===profile.model);requireValue(entry,'请先刷新目录，再打开 FBX 角色');
   await openCatalogAsset(work,entry.id,{refreshSource});const cfg=await readProject(work),raw=modelSlots(cfg,entry.id).baseline;
   base=await stableRead(work,raw.file);baseSource=raw.source;
- }else {base=await stableRead(root,profile.model);baseSource={format:'glb',sha256:base.sha256,projectRelativePath:profile.model,originalName:basename(profile.model)};}
+ }else {
+  // glTF dependencies join the source identity, so a new .bin is a new version.
+  const model=await readProjectModel(root,profile.model);base={bytes:model.bytes,sha256:model.sha256};
+  baseSource={format:modelFormat(profile.model)==='gltf'?'gltf':'glb',sha256:model.sha256,projectRelativePath:profile.model,originalName:basename(profile.model),...(model.dependencyKind?{dependencies:model.dependencies,dependencyKind:model.dependencyKind}:{})};
+ }
  const sources=[],reads=[];
  for(const source of profile.animations){
   if(!row.readyEvidence){sources.push({...source});continue;}
-  try{const read=await stableRead(root,source.file,50*1024*1024);sources.push({...source,bytes:read.bytes});reads.push({file:source.file,sha256:read.sha256,stamp:read.stamp});}catch{sources.push({...source});}
+  try{const read=await readProjectModel(root,source.file,{maxBytes:50*1024*1024});sources.push({...source,bytes:read.bytes});reads.push({file:source.file,sha256:read.sha256,dependencies:read.dependencies});}catch{sources.push({...source});}
  }
  const result=await assembleCharacter(base.bytes,sources);validateCandidate(result.bytes,glbInfo(base.bytes).clips);
  for(const origin of Object.values(result.clips))if(!origin.file)origin.file=profile.model;
  if(!row.readyEvidence)for(const source of result.sources){source.status='needs-confirmation';source.error='项目依据已变化，请重新识别后更新关联';}
  const used=new Set(result.sources.filter(s=>s.status==='ready').map(s=>s.file));
- const dependencies=reads.filter(r=>used.has(r.file)).map(({file,sha256})=>({projectRelativePath:file,sha256}));
+ const dependencies=reads.filter(r=>used.has(r.file)).flatMap(({file,sha256,dependencies})=>[{projectRelativePath:file,sha256},...dependencies]);
  for(const e of profile.evidence)if(row.readyEvidence)dependencies.push({projectRelativePath:e.file,sha256:e.sha256});
  const assembly={version:1,profileId:profile.id,profileFile:MAP,profileSha256:characterBindingDigest(data.map.characters.find(c=>c.id===profile.id)||null),signature:row.signature,dependencies,clips:result.clips,sources:result.sources};
  const source={...baseSource,previewSha256:sha(result.bytes),assembly};
@@ -190,11 +207,11 @@ async function prepareCharacter(work,id,refreshSource){
 
 export async function associateCharacterMotion(work,id,{assetId:sourceId}={}){
  const data=await library(work,{onlyId:id}),row=data.rows.find(r=>r.id===id),entry=data.catalog.entries.find(e=>e.id===sourceId);
- requireValue(row?.profile&&entry,'请选择角色及项目中的动作来源');requireValue(entry.format==='glb','此来源需要先转换为 GLB 或通过项目解析器声明');
+ requireValue(row?.profile&&entry,'请选择角色及项目中的动作来源');requireValue(['glb','gltf'].includes(entry.format),'此来源需要先转换为 GLB 或通过项目解析器声明');
  const profile=row.profile;requireValue(entry.relativePath!==profile.model,'主模型自带动作已关联');
- requireValue(extname(profile.model).toLowerCase()==='.glb','请先将主模型导出为 GLB，再关联外部动作');
- const source={file:entry.relativePath,format:'glb',prefix:basename(entry.name,extname(entry.name))+'__'};
- const base=await stableRead(data.link.root,profile.model),input=await stableRead(data.link.root,entry.relativePath,50*1024*1024);
+ requireValue(modelFormat(profile.model)!=='unsupported','请先将主模型导出为 GLB 或 glTF，再关联外部动作');
+ const source={file:entry.relativePath,format:entry.format,prefix:basename(entry.name,extname(entry.name))+'__'};
+ const base=await readProjectModel(data.link.root,profile.model),input=await readProjectModel(data.link.root,entry.relativePath,{maxBytes:50*1024*1024});
  const check=await assembleCharacter(base.bytes,[{...source,bytes:input.bytes}]);requireValue(check.sources[0]?.status==='ready',check.sources[0]?.error||'动作无法安全绑定');
  const expectedDigest=characterProfileDigest(data.map),map=data.map,c=map.characters.find(c=>c.id===profile.id)||{...profile};delete c.mapped;
  requireValue(!c.animations.some(a=>a.file===source.file),'此动作来源已经关联');c.animations.push(source);

@@ -101,7 +101,7 @@ export async function assembleCharacter(input,sources=[]){
    requireValue(source.bytes,'动作来源文件缺失或无法读取');
    requireValue(source.bytes.length<=50*1024*1024,'动作来源超过 50 MB，请拆分后关联');
    requireValue(doc.buffers?.[0]&&!doc.buffers[0].uri,'此主模型不支持追加动作，需要嵌入 BIN');
-   let clips=source.format==='glb'?await gltfClips(doc,source.bytes,source):source.format==='sampled-tracks-v1'?sampledClips(doc,source.bytes,source):null;
+   let clips=['glb','gltf'].includes(source.format)?await gltfClips(doc,source.bytes,source):source.format==='sampled-tracks-v1'?sampledClips(doc,source.bytes,source):null;
    requireValue(clips,'此动作格式需要转换或项目导出器');
    if(source.clips){const wanted=new Set(source.clips);requireValue(source.clips.every(name=>clips.some(c=>c.name===name)),'指定的动作在来源中不存在');clips=clips.filter(c=>wanted.has(c.name));}
    requireValue(clips.length,'来源中没有可用动作');

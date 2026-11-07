@@ -4,7 +4,7 @@ import {randomUUID,createHash} from 'node:crypto';
 import {execExecutable} from './platform-runtime.mjs';
 import {ROOT,json,atomic,inside,sha,readProject,projectView,modelSlots,activateModel,importAsset,withWorkspaceLock,glbDocumentInfo,setModelSlots} from './core.mjs';
 import {getProjectLink} from './project-context.mjs';
-import {convertFbx,findBlender} from './asset-tools.mjs';
+import {convertFbx,findBlender,gltfReferences,packGltf} from './asset-tools.mjs';
 import {isSampledTracks,sampledMetadata,createCurveResource} from './curve-resources.mjs';
 import {consumedDependencies} from './source-dependencies.mjs';
 
@@ -67,6 +67,47 @@ export async function glbMetadata(path,limits=catalogLimits){
  }finally{await fh.close();}
 }
 
+// A .gltf is a JSON scene plus the relative files its buffers/images name.
+// Metadata comes from the JSON alone; `dependencies` lists those files.
+const gltfJson=bytes=>{let doc;try{doc=JSON.parse(bytes.toString('utf8').replace(/^\uFEFF/,''));}catch{throw Error('glTF JSON 无法解析');}if(!doc||typeof doc!=='object'||Array.isArray(doc))throw Error('glTF 描述无效');return doc;};
+const gltfPaths=(doc,rel)=>[...new Set(gltfReferences(doc,rel).map(r=>r.path))];
+export async function gltfMetadata(root,rel,limits=catalogLimits){
+ const {bytes}=await stableBytes(await inside(root,rel),limits.maxAssetBytes),doc=gltfJson(bytes),strip=list=>list?.map(({uri,...item})=>item);
+ const dependencies=gltfPaths(doc,rel),info=glbDocumentInfo({...doc,buffers:strip(doc.buffers),images:strip(doc.images)});
+ info.nodeCount=doc.nodes?.length||0;return {info,dependencies};
+}
+// `stamp` equals dependencyFingerprint for the same paths: it changes when a
+// referenced file changes or disappears. `missing` lists unreadable files.
+export async function gltfDependencyState(root,dependencies){
+ const rows=[],missing=[];let bytes=0;
+ for(const dep of dependencies){let value='missing';try{const s=await stat(await inside(root,dep));value=fingerprint(s);if(s.isFile())bytes+=s.size;else missing.push(dep);}catch{missing.push(dep);}rows.push([dep,value]);}
+ return {stamp:sha(Buffer.from(JSON.stringify(rows.sort((a,b)=>a[0].localeCompare(b[0]))))),missing,bytes};
+}
+const gltfLists=new Map();
+// Change stamp of a project model without reading geometry. A .gltf stamp
+// also covers every file it references, so an edited .bin is never silent.
+export async function projectModelStamp(root,rel){
+ const path=await inside(root,rel),own=fingerprint(await stat(path));if(extname(rel).toLowerCase()!=='.gltf')return own;
+ const key=path+'|'+own;let deps=gltfLists.get(key);
+ if(!deps){deps=gltfPaths(gltfJson((await stableBytes(path)).bytes),rel);gltfLists.set(key,deps);while(gltfLists.size>256)gltfLists.delete(gltfLists.keys().next().value);}
+ return own+'|'+(await gltfDependencyState(root,deps)).stamp;
+}
+async function packProjectGltf(root,rel,json,maxBytes=catalogLimits.maxAssetBytes){
+ const doc=gltfJson(json),files=new Map(),dependencies=[];let total=json.length;
+ for(const path of gltfPaths(doc,rel)){
+  let read;try{read=await stableBytes(await inside(root,path),maxBytes-total);}catch(e){throw Error((e.code==='ENOENT'?'缺少 glTF 引用的文件：':'无法读取 glTF 引用的文件（'+e.message+'）：')+path);}
+  total+=read.bytes.length;files.set(path,read.bytes);dependencies.push({projectRelativePath:path,sha256:sha(read.bytes)});
+ }
+ return {bytes:packGltf(doc,files,rel,{maxBytes}),dependencies,dependencyKind:'gltf-references-v1'};
+}
+// GLB bytes of a project model. A .gltf is packed in memory with the files it
+// references; sha256 is the main file's and `dependencies` hashes the rest.
+export async function readProjectModel(root,rel,{maxBytes=catalogLimits.maxAssetBytes}={}){
+ const main=await stableBytes(await inside(root,rel),maxBytes),own={sha256:sha(main.bytes),fingerprint:main.fingerprint};
+ if(extname(rel).toLowerCase()!=='.gltf')return {...own,bytes:main.bytes,dependencies:[]};
+ return {...own,...await packProjectGltf(root,rel,main.bytes,maxBytes)};
+}
+
 // A bounded asynchronous scan publishes incremental results and never changes
 // model heads. Only a completed, exhaustive pass can declare a source missing.
 export async function startCatalogScan(work,{force=false,reread=false,limits:overrides={}}={}){
@@ -110,7 +151,7 @@ export async function startCatalogScan(work,{force=false,reread=false,limits:ove
      if(!entry.isFile())continue;scan.visitedFiles++;
      if(scan.visitedFiles>limits.maxFiles||Date.now()-started>limits.maxMs){scan.truncated=true;break;}
      const ext=extname(entry.name).toLowerCase();if(!FORMATS.has(ext))continue;
-     const rel=slash(relative(root,path)),old=previous.get(rel);let row={id:old?.id||randomUUID(),name:entry.name,relativePath:rel,format:ext.slice(1),origin:'project',status:['.glb','.fbx','.json'].includes(ext)?'available':'source-only'};
+     const rel=slash(relative(root,path)),old=previous.get(rel);let row={id:old?.id||randomUUID(),name:entry.name,relativePath:rel,format:ext.slice(1),origin:'project',status:['.glb','.gltf','.fbx','.json'].includes(ext)?'available':'source-only'};
      try{
       const s=await stat(await inside(root,rel));row={...row,bytes:s.size,mtimeMs:s.mtimeMs,fingerprint:fingerprint(s)};
       if(ext==='.json'){
@@ -125,6 +166,15 @@ export async function startCatalogScan(work,{force=false,reread=false,limits:ove
        if(fingerprint(s)!==fingerprint(await stat(path)))throw Error('读取动作时文件发生变化，请刷新');
       }
       if(ext==='.glb')row.metadata=!reread&&old?.fingerprint===row.fingerprint&&old.metadata?.capabilities?.version===1?old.metadata:await glbMetadata(path,limits);
+      else if(ext==='.gltf'){
+       if(!reread&&old?.fingerprint===row.fingerprint&&old.metadata?.capabilities?.version===1&&Array.isArray(old.dependencies)){row.metadata=old.metadata;row.dependencies=old.dependencies;}
+       else{const read=await gltfMetadata(root,rel,limits);row.metadata=read.info;row.dependencies=read.dependencies;}
+       // Referenced files are part of the source: their stamps are compared
+       // with the opened version's, like FBX texture dependencies.
+       const deps=await gltfDependencyState(root,row.dependencies);row.dependencyFingerprint=deps.stamp;row.bytes=s.size+deps.bytes;
+       if(deps.missing.length)throw Error('缺少 glTF 引用的文件：'+deps.missing.slice(0,3).join('、')+(deps.missing.length>3?' 等 '+deps.missing.length+' 个':''));
+       if(row.bytes>limits.maxAssetBytes)throw Error('glTF 及其引用文件超过 200 MB，暂不支持预览');
+      }
       else if(ext==='.fbx'&&s.size>limits.maxAssetBytes)throw Error('FBX 超过 200 MB，暂不支持转换');
       if(ext==='.fbx'&&cfg.models[row.id]?.sourceDependencies)row.dependencyFingerprint=await dependencyFingerprint(root,cfg.models[row.id].sourceDependencies);
      }catch(e){row.status='invalid';row.error=e.message;}
@@ -142,18 +192,18 @@ export async function startCatalogScan(work,{force=false,reread=false,limits:ove
 export async function waitForCatalogScan(work){await scans.get(await realpath(work))?.promise;return readCatalog(work);}
 export async function stopCatalogScan(work){const scan=scans.get(await realpath(work));scan?.controller.abort();await scan?.promise;}
 
-async function stableBytes(path){
+async function stableBytes(path,max=catalogLimits.maxAssetBytes){
  const fh=await open(path,'r');try{
-  const before=await fh.stat();if(!before.isFile()||before.size>catalogLimits.maxAssetBytes)throw Error('模型为空、不是文件或超过 200 MB');
+  const before=await fh.stat();if(!before.isFile()||before.size>max)throw Error('模型为空、不是文件或超过 '+Math.max(0,Math.floor(max/1048576))+' MB');
   const bytes=await fh.readFile();if(fingerprint(before)!==fingerprint(await fh.stat())||bytes.length!==before.size)throw Error('读取期间源文件发生变化，请重试');
   return {bytes,fingerprint:fingerprint(before)};
  }finally{await fh.close();}
 }
-async function hashFile(path){const h=createHash('sha256'),fh=await open(path,'r');try{const before=await fh.stat();for await(const chunk of fh.createReadStream({autoClose:false}))h.update(chunk);if(fingerprint(before)!==fingerprint(await fh.stat()))throw Error('贴图在读取期间变化');return h.digest('hex');}finally{await fh.close();}}
+async function hashFile(path){const h=createHash('sha256'),fh=await open(path,'r');try{const before=await fh.stat();for await(const chunk of fh.createReadStream({autoClose:false}))h.update(chunk);if(fingerprint(before)!==fingerprint(await fh.stat()))throw Error('引用文件在读取期间变化');return h.digest('hex');}finally{await fh.close();}}
 async function dependencyFingerprint(root,dependencies,{verify=false}={}){
  const result=[];for(const dep of dependencies){let value;try{
   const path=await inside(root,dep.projectRelativePath);value=fingerprint(await stat(path));
-  if(verify&&(await hashFile(path)!==dep.sha256||value!==fingerprint(await stat(path))))throw Error('准备期间贴图发生变化，请刷新重试');
+  if(verify&&(await hashFile(path)!==dep.sha256||value!==fingerprint(await stat(path))))throw Error('准备期间引用文件发生变化，请刷新重试');
  }catch(e){if(verify)throw e;value='missing';}result.push([dep.projectRelativePath,value]);}
  return sha(Buffer.from(JSON.stringify(result.sort((a,b)=>a[0].localeCompare(b[0])))));
 }
@@ -176,7 +226,7 @@ async function prepareCatalogAsset(work,id,{refreshSource}){
  const [catalog,link]=await Promise.all([readCatalog(work),getProjectLink(work)]);
  if(!link?.exists||link.id!==catalog.projectId)throw Error('关联的模型目录不可用，请重新关联');
  const entry=catalog.entries.find(e=>e.id===id);if(!entry)throw Error('模型不存在，请刷新目录');
- if(!['glb','fbx','json'].includes(entry.format))throw Error('此格式作为制作源保留，请导出 GLB 或带角色的 FBX');
+ if(!['glb','gltf','fbx','json'].includes(entry.format))throw Error('此格式作为制作源保留，请导出 GLB、glTF 或带角色的 FBX');
  if(entry.status==='missing')throw Error('源文件已不存在；可继续查看之前导入的版本');
  const sourcePath=await inside(link.root,entry.relativePath),snapshot=await stableBytes(sourcePath),sourceSha=sha(snapshot.bytes);
  let bytes=snapshot.bytes,source={format:entry.format,sha256:sourceSha,originalName:entry.name,projectRelativePath:entry.relativePath,previewSha256:sourceSha};
@@ -184,6 +234,9 @@ async function prepareCatalogAsset(work,id,{refreshSource}){
   if(snapshot.bytes.length>50*1024*1024)throw Error('采样动作 JSON 超过 50 MB');
   bytes=createCurveResource(snapshot.bytes);const file='sources/'+sourceSha+'.json';await atomic(await inside(work,file),snapshot.bytes);source={...source,format:'sampled-tracks-v1',file,previewSha256:sha(bytes)};
  }
+ // The workspace keeps a self-contained GLB; every referenced file is a
+ // hashed dependency, so a changed .bin or texture is a new source identity.
+ if(entry.format==='gltf'){const packed=await packProjectGltf(link.root,entry.relativePath,snapshot.bytes);bytes=packed.bytes;source={...source,dependencies:packed.dependencies,dependencyKind:packed.dependencyKind,previewSha256:sha(bytes)};}
  if(entry.format==='fbx'){
   const dependencies=[],blender=await findBlender();
   const version=(await execExecutable(blender,['--version'],{timeout:15000,maxBuffer:65536})).stdout.split('\n')[0];
@@ -221,12 +274,12 @@ async function prepareCatalogAsset(work,id,{refreshSource}){
   if(refreshSource&&existing&&(model?.headRevision!==existing.headRevision||JSON.stringify(modelSlots(current,id))!==JSON.stringify(modelSlots(cfg,id))))throw Error('准备期间此模型的版本已变化，请重新打开');
   if(!refreshSource&&model?.slots?.baseline)return;
   if(fingerprint(await stat(sourcePath))!==snapshot.fingerprint)throw Error('源文件在准备期间变化，请刷新重试');
-  if(source.dependencies&&await dependencyFingerprint(link.root,source.dependencies,{verify:true})!==dependencyStamp)throw Error('等待提交期间贴图发生变化，请刷新重试');
+  if(source.dependencies&&await dependencyFingerprint(link.root,source.dependencies,{verify:true})!==dependencyStamp)throw Error('等待提交期间引用文件发生变化，请刷新重试');
   const heads=modelSlots(current,id),identity=effectiveSourceIdentity(source,sha(bytes));
   if(heads.baseline&&effectiveSourceIdentity(heads.baseline.source,heads.baseline.sha256)===identity){
    // Refresh metadata without changing authored versions, head revision or tasks.
    Object.assign(model,{sourceFingerprint:snapshot.fingerprint,sourceIdentity:identity,...(source.dependencies?{sourceDependencies:source.dependencies,dependencyFingerprint:dependencyStamp}:{})});
-   for(const head of Object.values(heads))if(head.source?.sha256===source.sha256&&source.dependencies){head.source={...head.source,dependencies:source.dependencies,dependencyKind:'consumed-images-v1'};}
+   for(const head of Object.values(heads))if(head.source?.sha256===source.sha256&&source.dependencies){head.source={...head.source,dependencies:source.dependencies,dependencyKind:source.dependencyKind||'consumed-images-v1'};}
    setModelSlots(current,id,heads);await atomic(await inside(work,'project.json'),current);return;
   }
   await importAsset(work,'baseline',bytes,entry.name,{locked:true,assetId:id,reset:true,activate:false,source,model:{name:entry.name,origin:'project',relativePath:entry.relativePath,projectId:link.id,sourceFingerprint:snapshot.fingerprint,sourceIdentity:identity,...(source.dependencies?{sourceDependencies:source.dependencies,dependencyFingerprint:dependencyStamp}:{})}});

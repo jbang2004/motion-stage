@@ -2,7 +2,7 @@ import {open,readFile,stat} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import {basename} from 'node:path';
 import {inside,readProject,modelSlots,sha,withWorkspaceLock,atomic} from './core.mjs';
-import {readCatalog} from './asset-catalog.mjs';
+import {readCatalog,readProjectModel,projectModelStamp} from './asset-catalog.mjs';
 import {getProjectLink} from './project-context.mjs';
 import {motionTargetResolver,gltfClips} from './motion-assembly.mjs';
 import {parseGlb} from './asset-tools.mjs';
@@ -12,6 +12,11 @@ const jobs=new Map(),sourceCache=new Map(),inventories=new Map(),MAX_JSON=8*1024
 const digest=value=>sha(Buffer.from(JSON.stringify(value)));
 const stamp=s=>[s.dev,s.ino,s.size,s.mtimeMs,s.ctimeMs].join(':');
 const required=(ok,message)=>{if(!ok)throw Error(message);};
+// A project .gltf source is read as its packed GLB through a read-only memory
+// handle; its stamp covers the JSON and every file it references.
+const sourceStamp=async source=>source.format==='gltf'?projectModelStamp(source.root,source.relativePath):stamp(await stat(source.file));
+const sourceBytes=async source=>source.format==='gltf'?(await readProjectModel(source.root,source.relativePath)).bytes:readFile(source.file);
+const memoryFile=bytes=>({stat:async()=>({isFile:()=>true,size:bytes.length}),read:async(target,offset,length,position)=>({bytesRead:position<bytes.length?bytes.copy(target,offset,position,Math.min(bytes.length,position+length)):0}),close:async()=>{}});
 // One read covers the GLB header, the JSON chunk and the BIN chunk header for
 // nearly every file; matching opens hundreds of sources, so round trips count.
 async function header(fh){
@@ -64,7 +69,7 @@ async function buildInventory(work){
  // Prefer declared/current snapshots over build copies as a source label.
  for(const m of library.models)for(const v of m.versions.filter(v=>!v.archived&&v.asset.clips?.length))add({kind:'model',ownerId:m.id,slot:v.slot,assetSha:v.asset.sha256,file:await inside(work,v.asset.file),name:m.name});
  for(const p of library.packs)for(const v of p.versions)add({kind:'pack',packId:p.id,versionId:v.id,file:await inside(work,v.file),name:p.name});
- if(link?.exists)for(const e of catalog.entries.filter(e=>e.status==='available'&&e.format==='glb'&&e.metadata?.clips?.length).sort((a,b)=>Number(Boolean(a.metadata.meshCount))-Number(Boolean(b.metadata.meshCount))))add({kind:'project',sourceId:e.id,file:await inside(link.root,e.relativePath),name:e.name});
+ if(link?.exists)for(const e of catalog.entries.filter(e=>e.status==='available'&&['glb','gltf'].includes(e.format)&&e.metadata?.clips?.length).sort((a,b)=>Number(Boolean(a.metadata.meshCount))-Number(Boolean(b.metadata.meshCount))))add({kind:'project',sourceId:e.id,file:await inside(link.root,e.relativePath),name:e.name,...(e.format==='gltf'?{format:'gltf',root:link.root,relativePath:e.relativePath}:{})});
  return {sources,mappings:library.mappings,characters:(library.models.some(m=>m.projectCharacter)?library.models.filter(m=>m.projectCharacter):library.models.filter(m=>m.capabilities?.hasMesh)).map(m=>({id:m.id,name:m.name,projectCharacter:Boolean(m.projectCharacter)})),saved:library.characters,signature:digest({catalog:catalog.scan?.finishedAt,entries:catalog.entries.length,models:sources.map(s=>[s.kind,s.file,s.assetSha||s.versionId]),mappings:library.mappings.map(m=>m.id)})};
 }
 async function inventory(work){
@@ -93,17 +98,17 @@ async function saveActionCache(store,targetSha,{prune}){
 const live=job=>!job.retired&&job.state==='scanning';
 async function matchSource(work,job,source,base,store){
  const mapping=source.kind==='pack'?job.mappings.find(m=>m.targetSha===job.target.asset.sha256&&m.sourceSha===source.versionId):null;source.mappingId=mapping?.id;
- const fingerprint=stamp(await stat(source.file)),key=digest([work,source.file,fingerprint,job.target.asset.sha256,mapping?.id]),storeKey=digest([source.file,fingerprint,mapping?.id||null]);
+ const gltf=source.format==='gltf',fingerprint=await sourceStamp(source),key=digest([work,source.file,fingerprint,job.target.asset.sha256,mapping?.id]),storeKey=digest([source.file,fingerprint,mapping?.id||null]);
  let entries=sourceCache.get(key)||store.entries[storeKey];
  if(!entries){
-  const fh=await open(source.file,'r');
+  const fh=gltf?memoryFile(await sourceBytes(source)):await open(source.file,'r');
   try{
-   required(stamp(await fh.stat())===fingerprint,'读取期间来源变化');const meta=await header(fh),resolver=motionTargetResolver(base.doc,meta.doc,mapping?.nodeMap||{}),read=animationReader(fh,meta),rows=[];let incompatible=0;
+   if(!gltf)required(stamp(await fh.stat())===fingerprint,'读取期间来源变化');const meta=await header(fh),resolver=motionTargetResolver(base.doc,meta.doc,mapping?.nodeMap||{}),read=animationReader(fh,meta),rows=[];let incompatible=0;
    for(const [index,clip]of (meta.doc.animations||[]).entries()){
     if(!live(job))return null; // a cancelled file is never cached half-read
     try{required(clip.channels?.length,'空动作');const curve=await curveHash(meta,clip,resolver,read);rows.push({clip:clip.name||'animation_'+index,curve,duration:Math.max(0,...clip.samplers.map(s=>meta.doc.accessors?.[s.input]?.max?.[0]||0))});}catch{incompatible++;}
    }
-   required(stamp(await fh.stat())===fingerprint,'读取期间来源变化');entries={rows,incompatible};
+   required((gltf?await sourceStamp(source):stamp(await fh.stat()))===fingerprint,'读取期间来源变化');entries={rows,incompatible};
   }finally{await fh.close();}
  }
  sourceCache.delete(key);sourceCache.set(key,entries);while(sourceCache.size>1200)sourceCache.delete(sourceCache.keys().next().value);
@@ -143,7 +148,7 @@ export async function discoverCharacterActions(work,input={}){
  return {assetId:target.assetId,modelSha:target.asset.sha256,slot:target.slot,state:job.state,checked:job.checked,total:job.sources.length,incompatible:job.incompatible,duplicates:job.duplicates,error:job.error,characters:data.characters,saved:data.saved[target.assetId]||[],actions:job.rows.map(({curve,...row})=>row)};
 }
 export async function previewCharacterAction(work,input={}){return withWorkspaceLock(work,async()=>{
- const target=await targetInfo(work,input),key=work+'|'+target.assetId+'|'+target.slot+'|'+target.asset.sha256,job=jobs.get(key),entry=job?.details.get(input.actionId);required(entry&&!job.retired,'动作列表已更新，请重新选择');required(stamp(await stat(entry.source.file))===entry.fingerprint,'动作来源已变化，请重新匹配');
+ const target=await targetInfo(work,input),key=work+'|'+target.assetId+'|'+target.slot+'|'+target.asset.sha256,job=jobs.get(key),entry=job?.details.get(input.actionId);required(entry&&!job.retired,'动作列表已更新，请重新选择');required(await sourceStamp(entry.source)===entry.fingerprint,'动作来源已变化，请重新匹配');
  let request;
  if(entry.source.kind==='pack')request={assetId:target.assetId,slot:target.slot,expectedModelSha:target.asset.sha256,packId:entry.source.packId,versionId:entry.source.versionId,clip:entry.clip,...(entry.source.mappingId?{mappingId:entry.source.mappingId}:{})};
  else{const library=await motionLibrary(work),source=entry.source,pack=await registerMotionPack(work,{...(source.kind==='project'?{sourceId:source.sourceId}:{assetId:source.ownerId,slot:source.slot,expectedModelSha:source.assetSha}),clips:[entry.clip],expectedRevision:library.revision,name:source.name+' / '+entry.clip});request={assetId:target.assetId,slot:target.slot,expectedModelSha:target.asset.sha256,packId:pack.pack.id,versionId:pack.version.id,clip:entry.clip};}
@@ -182,7 +187,7 @@ export async function characterActionCurves(work,input={}){
  for(const [file,list]of groups){
   try{
    required(list.every(([,entry])=>entry.fingerprint===list[0][1].fingerprint),'动作来源已变化，请重新匹配');
-   const bytes=await readFile(file);required(stamp(await stat(file))===list[0][1].fingerprint,'动作来源已变化，请重新匹配');
+   const source=list[0][1].source,bytes=await sourceBytes(source);required(await sourceStamp(source)===list[0][1].fingerprint,'动作来源已变化，请重新匹配');
    const mapping=list[0][1].source.mappingId?job.mappings.find(m=>m.id===list[0][1].source.mappingId):null;
    const clips=await gltfClips(base,bytes,{clips:list.map(([,entry])=>entry.clip),nodeMap:mapping?.nodeMap||{}});
    for(const [id,entry]of list){

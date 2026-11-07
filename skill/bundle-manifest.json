@@ -1,7 +1,7 @@
 {
   "name": "motion-stage",
   "version": "4.0.0",
-  "createdAt": "2026-11-07T03:42:54.372953+00:00",
+  "createdAt": "2026-11-07T04:07:59.753524+00:00",
   "runtime": "Node.js >=22 / Canvas2D curves; WebGL2 spatial previews",
   "externalRuntimeDependencies": {
     "base": [],
@@ -38,8 +38,8 @@
     },
     {
       "path": "SKILL.md",
-      "bytes": 12752,
-      "sha256": "9ae4968a8f9e1acfa78fd9782327e00c9fa7121923e1402d8a6ed97c452dc0b0"
+      "bytes": 12806,
+      "sha256": "6d843443852087ed7be3b5c65f6f700476aed1530bbb5aeb8d739fbb9e92438d"
     },
     {
       "path": "THIRD_PARTY.md",
@@ -288,8 +288,8 @@
     },
     {
       "path": "assets/viewer/model-catalog.mjs",
-      "bytes": 14037,
-      "sha256": "694ef7ff8548a1c2a6e19fd06281241981f72dfa6e45cc5a2405887a794b90ff"
+      "bytes": 14085,
+      "sha256": "57710d1134f161ac6d317b5ce5244f66837152fa70d8ef2b909f1d485edc0351"
     },
     {
       "path": "assets/viewer/motion-runtime.mjs",
@@ -388,8 +388,8 @@
     },
     {
       "path": "references/asset-library.md",
-      "bytes": 10497,
-      "sha256": "4e8d102f99597f67b49423dfc8e1ffb74a37baabe0e20b091a71d885cb304042"
+      "bytes": 11067,
+      "sha256": "fcdb24a6137b41b3c29d8b081b15393d0e4affc20a74fe97c0e6d93d885bfe41"
     },
     {
       "path": "references/character-map.md",
@@ -438,13 +438,13 @@
     },
     {
       "path": "scripts/asset-catalog.mjs",
-      "bytes": 20319,
-      "sha256": "7fc5273c98caad7b2ea80e22b9f2561c1716bdd4509a653b9d5028bf7f9116a7"
+      "bytes": 25047,
+      "sha256": "67dc012f55fea3b80bc0371a22368984cba62f380c9a315e32d5e4d5090ff052"
     },
     {
       "path": "scripts/asset-tools.mjs",
-      "bytes": 22181,
-      "sha256": "6ed9771a591b988bd62a9d2199c8b156426f4d9957d5912966da29ad294ee28a"
+      "bytes": 27441,
+      "sha256": "c9817fb6da6d556d51ffcc1d7ded3c32b06cc5191248ed27b4730f679129a31b"
     },
     {
       "path": "scripts/blender/convert_fbx.py",
@@ -458,13 +458,13 @@
     },
     {
       "path": "scripts/character-actions.mjs",
-      "bytes": 20054,
-      "sha256": "d554fdc277aaae6351a9180f9092a367efab49c1669156e39cbde3c98affacd8"
+      "bytes": 21006,
+      "sha256": "396b08068ffea8de7c662e110f6c529ce7413e7208e0704c0224c10ab41706e6"
     },
     {
       "path": "scripts/character-library.mjs",
-      "bytes": 21939,
-      "sha256": "75f3cccca277a472019273194f47350de639bfda334c2ef2b1f561c167adbf8d"
+      "bytes": 23666,
+      "sha256": "98f00f03ef13c7233a5312f5a2a84e44f8f00fcbbe6378f0c7b34d1d07b68efe"
     },
     {
       "path": "scripts/continuity.mjs",
@@ -508,8 +508,8 @@
     },
     {
       "path": "scripts/motion-assembly.mjs",
-      "bytes": 12909,
-      "sha256": "5c0a870d14fb5b0acfec66a4994046cc64c8c9044103b631da22c84d9fe09a70"
+      "bytes": 12926,
+      "sha256": "472458f1aa7fa46bc1dcebfa818c0a2ec2a4cabcf8bb4aa81d6cbb0e2c2fae31"
     },
     {
       "path": "scripts/motion-checks.mjs",
@@ -523,8 +523,8 @@
     },
     {
       "path": "scripts/motion-library.mjs",
-      "bytes": 12950,
-      "sha256": "3496d71e78531629ed77bee29bf3cd0c74cac7640ee9774bb94cce8de5fe0282"
+      "bytes": 13257,
+      "sha256": "2e0edac2d18f43c756b62bbc6945e918a046a8fe270e102432fde36fe3c32878"
     },
     {
       "path": "scripts/platform-runtime.mjs",
@@ -563,8 +563,8 @@
     },
     {
       "path": "scripts/server.mjs",
-      "bytes": 24484,
-      "sha256": "0ad8283dad7ffdcf717737e1ac41d5200ca3957879309ed3b7c271011fd82496"
+      "bytes": 24460,
+      "sha256": "5f6db5fc09baba47d879e1170d559a136b6d30e14668064727cf0a29dc21403e"
     },
     {
       "path": "scripts/source-dependencies.mjs",
@@ -675,6 +675,11 @@
       "path": "scripts/test/environment-view.test.mjs",
       "bytes": 4710,
       "sha256": "d66ef0b69078114a73f05e149c90543e33c77cab0e15a747e38fc520793a8e94"
+    },
+    {
+      "path": "scripts/test/gltf-source.test.mjs",
+      "bytes": 11657,
+      "sha256": "0273ca2c3054422241f465e96f44537a70d0c34d7011f71ee0624dd7f597e4d0"
     },
     {
       "path": "scripts/test/job-detail-loading.test.mjs",
