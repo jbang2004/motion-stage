@@ -577,6 +577,10 @@ export function createCastBrowser({
       let url = null;
       if (row.kind === 'own') url = await studio.ownAction(rig, row.clip, {priority: 1, wanted});
       else if (row.kind === 'matched') url = await studio.sharedAction(rig, value, row.source, {priority: 2, wanted});
+      else if (row.kind === 'saved' && row.source.recipe?.id && studio.savedAction) {
+        const {packId, versionId, clip, mappingId} = row.source.recipe;
+        url = await studio.savedAction(rig, {...value, packId, versionId, clip, ...(mappingId ? {mappingId} : {})}, row, {priority: 2, wanted});
+      }
       if (!url) return;
       thumbs.set(subjectSha + '|' + row.id, url);
       if (button.isConnected) showThumb(button, url);

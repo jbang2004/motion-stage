@@ -532,6 +532,20 @@ export function createThumbnailStudio({api, loader, loadAsset, onError = console
       }, {priority, wanted});
     },
 
+    // A 常用 card is a saved recipe: the read-only motion preview resolves its
+    // curves (nothing is registered or adopted); the key follows the recipe id.
+    async savedAction(subject, request, row, {priority = 2, wanted} = {}) {
+      const category = classifyAction(request.clip, {duration: row.duration}).category;
+      const key = await thumbnailKey('a', subject.id, 'saved', row.source.recipe.id);
+      return cached(key, async () => {
+        const result = await api('/api/motions/preview', 'POST', request);
+        const data = result.clips?.find(c => c.name === request.clip) || result.clips?.[0];
+        if (!data?.tracks?.length) throw Error('动作曲线不可用');
+        const [clip] = await runtimeMotionClips(T, [{name: data.name, tracks: data.tracks}], subject.nodeFor);
+        return drawAction(subject, clip, category);
+      }, {priority, wanted});
+    },
+
     sharedClip,
     startLive,
     stopLive,

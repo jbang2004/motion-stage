@@ -34,11 +34,11 @@ function page() {
   return doc;
 }
 
-function setup({actions = MATCHED, mode = null} = {}) {
+function setup({actions = MATCHED, mode = null, studio = null} = {}) {
   const doc = page(), store = new Map(mode ? [['motion-stage-mode', mode]] : []);
   globalThis.document = doc;
   globalThis.localStorage = {getItem: key => store.get(key) ?? null, setItem: (key, value) => store.set(key, String(value))};
-  const stage = {value: {ready: true, assetId: 'A', slot: 'baseline', modelSha: 'sha-a', name: '善逸', model: null, ownClips: OWN, currentClip: 'Zenitsu_ArpgIdle', previewing: false}};
+  const stage = {value: {ready: true, assetId: 'A', slot: 'baseline', modelSha: 'sha-a', name: '善逸', model: studio ? {root: {}, parser: {}} : null, ownClips: OWN, currentClip: 'Zenitsu_ArpgIdle', previewing: false}};
   const calls = [], events = [];
   let release = null;
   const api = async path => {
@@ -49,7 +49,7 @@ function setup({actions = MATCHED, mode = null} = {}) {
   };
   const browser = createCastBrowser({
     api, documentRef: doc, getStage: () => stage.value,
-    studio: {available: () => false, stopLive() {}, portrait: async () => null},
+    studio: studio || {available: () => false, stopLive() {}, portrait: async () => null},
     openCharacter: async entry => { events.push(['open', entry.id]); },
     playOwn: name => events.push(['own', name]),
     playShared: (row, isCurrent) => new Promise(resolve => { release = () => { events.push(['shared', row.id, isCurrent()]); resolve(); }; }),
@@ -184,4 +184,18 @@ test('saved actions without a recorded length show no 0s badge', async () => {
   const card = h.cards().find(node => node.dataset.id === 'saved:s1');
   assert.ok(card);
   assert.equal(card.querySelector('.ac-duration'), null);
+});
+
+test('saved 常用 cards request a key-pose thumbnail from their recipe', async () => {
+  const requests = [];
+  const studio = {available: () => true, stopLive() {}, portrait: async () => null, known: () => null, createSubject: () => ({dispose() {}}),
+    ownAction: async () => 'own.png', sharedAction: async () => 'shared.png',
+    savedAction: async (subject, request, row) => { requests.push({request, recipe: row.source.recipe.id}); return 'saved.png'; }};
+  const recipe = {id: 'recipe-1', packId: 'p1', versionId: 'v1', clip: 'run_wide_arms', mappingId: 'map-1'};
+  const h = setup({studio, actions: {...MATCHED, saved: [{id: 's1', name: 'run_wide_arms', number: 1, recipe}]}});
+  h.browser.sync();
+  await settle(8);
+  assert.deepEqual(requests, [{request: {assetId: 'A', slot: 'baseline', expectedModelSha: 'sha-a', packId: 'p1', versionId: 'v1', clip: 'run_wide_arms', mappingId: 'map-1'}, recipe: 'recipe-1'}]);
+  const card = h.cards().find(node => node.dataset.id === 'saved:s1');
+  assert.equal(card.querySelector('img').src, 'saved.png');
 });

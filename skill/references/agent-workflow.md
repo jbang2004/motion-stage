@@ -28,6 +28,8 @@ Separate observation, goal, diagnosis and acceptance. Never write a guess as the
 
 Resolve material ambiguity before editing: character-left versus screen-left, the whole clip versus a local interval, a missing reference. Preserve clauses are optional. When a missing condition would change the result, ask one specific question and mark the task `needs-input`.
 
+When the request names one side (左臂, right knee) and the picked bone is on the character's other side, the job carries `sideConflict: {requested, picked, bone, inferred}` and `task.md` has a 左右提示 line. The page already warned the user before they submitted. Decide one side from the words and the screenshot together and say which side you edited in progress and the summary. If they still disagree, ask; never edit both sides.
+
 "收一点摆臂" does not automatically mean an arbitrary 30% transform. Without a number, propose a moderate candidate and state the basis. Use the strict swing-factor tool only when the user explicitly chose local fine-tuning or the request genuinely fits it. It is a deterministic transform; it does not fix foot slide, balance or intersection.
 
 For a follow-up task, carry the applicable earlier preserve clauses and read the original requests and clarifications for implicit constraints. Completed goals and AI summaries are background, not instructions to repeat. Current explicit user changes win; ask about material conflicts or ambiguous branches. Details: [project-workspace.md](project-workspace.md).
