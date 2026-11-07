@@ -40,6 +40,8 @@ node "$SKILL_DIR/scripts/motion-feedback.mjs" job --workspace "$WORKSPACE" --job
 node "$SKILL_DIR/scripts/motion-feedback.mjs" claim --workspace "$WORKSPACE" --job "$ID" --owner claude-code
 ```
 
+`jobs` (MCP `motion_list_jobs`) prints one summary per task: state, request, model, clip, progress, candidate and review. Read the chosen task in full with `job` (`motion_get_job`); `jobs --full` (`full:true`) lists every stored field.
+
 `--owner` only records who claimed the task. Keep the returned lease for every later call. If a worker already claimed the task, use its lease; do not claim again.
 
 Bind every inspection and edit to the job's `assetId` and frozen input SHA. CLI `inspect --asset-id ID` and MCP `motion_inspect_asset` accept the model identity. The current browser selection may belong to another task. Browsing another model does not invalidate this task; a changed head revision or a confirmed production-source change does. Return results to this job. Never switch a different model's preview or borrow its history because two files share the same bytes.
@@ -95,7 +97,7 @@ Run it on the job input and on your candidate in one call when the edit touches 
 node "$SKILL_DIR/scripts/motion-feedback.mjs" motion-check --workspace "$WORKSPACE" --asset-id "$ASSET" --baseline-slot baseline --file "$CANDIDATE_GLB" --clip "$CLIP"
 ```
 
-Findings are marked `new`, `existing` or `resolved`. Report `new` warnings and either fix them or explain why they are intended; pre-existing ones are context, not the edit's fault. Foot nodes are guessed from names (`footSelection: "name-hint"`) unless `--feet` names the ankle nodes; a guess is a hint, not anatomical identity. Pass contact windows, extra arm chains or a floor height with `--options PARAMS.json` (`{"contacts":{"LeftFoot":[[0,0.3]]},"chains":[["LeftArm","LeftForeArm","LeftHand"]]}`). The checks measure joint positions only: they cannot prove mesh collision freedom, natural motion or runtime IK behavior, and they never gate completion.
+Compare against `--baseline-slot` or `--baseline-file`; the checked model is `--slot`/`--asset-id` or `--file`. Unknown flags are rejected with a hint (for example `--input` → `--baseline-file`, `--candidate` → `--file`), and `--checks` accepts only `rotationFlips`, `footSlip` and `limbExtension`. Findings are marked `new`, `existing` or `resolved`. Report `new` warnings and either fix them or explain why they are intended; pre-existing ones are context, not the edit's fault. Foot nodes are guessed from names (`footSelection: "name-hint"`) unless `--feet` names the ankle nodes; a guess is a hint, not anatomical identity. Pass contact windows, extra arm chains or a floor height with `--options PARAMS.json` (`{"contacts":{"LeftFoot":[[0,0.3]]},"chains":[["LeftArm","LeftForeArm","LeftHand"]]}`). The checks measure joint positions only: they cannot prove mesh collision freedom, natural motion or runtime IK behavior, and they never gate completion.
 
 ### Completion gate
 

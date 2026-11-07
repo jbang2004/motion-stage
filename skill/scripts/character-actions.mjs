@@ -1,31 +1,57 @@
 import {open,readFile,stat} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import {basename} from 'node:path';
-import {inside,readProject,modelSlots,sha,withWorkspaceLock} from './core.mjs';
+import {inside,readProject,modelSlots,sha,withWorkspaceLock,atomic} from './core.mjs';
 import {readCatalog} from './asset-catalog.mjs';
 import {getProjectLink} from './project-context.mjs';
 import {motionTargetResolver,gltfClips} from './motion-assembly.mjs';
 import {parseGlb} from './asset-tools.mjs';
 import {motionLibrary,registerMotionPack,previewMotion} from './motion-library.mjs';
 
-const jobs=new Map(),sourceCache=new Map(),inventories=new Map(),MAX_JSON=8*1024*1024,MAX_VIEW=32*1024*1024;
+const jobs=new Map(),sourceCache=new Map(),inventories=new Map(),MAX_JSON=8*1024*1024,MAX_VIEW=32*1024*1024,MAX_VIEW_CACHE=16*1024*1024,MAX_SPAN=16*1024*1024,HEAD_READ=256*1024,PREFETCH=4;
 const digest=value=>sha(Buffer.from(JSON.stringify(value)));
 const stamp=s=>[s.dev,s.ino,s.size,s.mtimeMs,s.ctimeMs].join(':');
 const required=(ok,message)=>{if(!ok)throw Error(message);};
+// One read covers the GLB header, the JSON chunk and the BIN chunk header for
+// nearly every file; matching opens hundreds of sources, so round trips count.
 async function header(fh){
- const info=await fh.stat();required(info.isFile()&&info.size<=200*1024*1024,'资源过大');const bytes=Buffer.alloc(20);required((await fh.read(bytes,0,20,0)).bytesRead===20&&bytes.readUInt32LE(0)===0x46546c67&&bytes.readUInt32LE(4)===2&&bytes.readUInt32LE(8)===info.size&&bytes.readUInt32LE(16)===0x4e4f534a,'无效 GLB');
- const length=bytes.readUInt32LE(12);required(length<=MAX_JSON&&length+28<=info.size,'GLB 描述超出预算');const json=Buffer.alloc(length);required((await fh.read(json,0,length,20)).bytesRead===length,'读取未完成');const chunk=Buffer.alloc(8);await fh.read(chunk,0,8,20+length);required(chunk.readUInt32LE(4)===0x004e4942,'需要自包含 GLB');
+ const info=await fh.stat();required(info.isFile()&&info.size<=200*1024*1024,'资源过大');const first=Buffer.allocUnsafe(Math.min(info.size,HEAD_READ)),got=(await fh.read(first,0,first.length,0)).bytesRead;
+ required(got>=20&&first.readUInt32LE(0)===0x46546c67&&first.readUInt32LE(4)===2&&first.readUInt32LE(8)===info.size&&first.readUInt32LE(16)===0x4e4f534a,'无效 GLB');
+ const length=first.readUInt32LE(12);required(length<=MAX_JSON&&length+28<=info.size,'GLB 描述超出预算');let json,chunk;
+ if(28+length<=got){json=first.subarray(20,20+length);chunk=first.subarray(20+length,28+length);}
+ else{json=Buffer.allocUnsafe(length);required((await fh.read(json,0,length,20)).bytesRead===length,'读取未完成');chunk=Buffer.alloc(8);await fh.read(chunk,0,8,20+length);}
+ required(chunk.readUInt32LE(4)===0x004e4942,'需要自包含 GLB');
  const doc=JSON.parse(json.toString('utf8').trim());required(Array.isArray(doc.nodes)&&doc.nodes.length<=5000&&Array.isArray(doc.animations||[])&&(doc.animations?.length||0)<=1000,'节点或动作数量超出预算');required(doc.buffers?.[0]&&!doc.buffers[0].uri,'需要嵌入动画数据');return {doc,info,binOffset:28+length,binLength:chunk.readUInt32LE(0)};
+}
+function viewRange(meta,index){
+ const a=meta.doc.accessors?.[index],v=meta.doc.bufferViews?.[a?.bufferView];required(a&&v&&!a.sparse,'此 accessor 需要单独检查');const ext=v.extensions?.EXT_meshopt_compression||v.extensions?.KHR_meshopt_compression;
+ const start=ext?.byteOffset??v.byteOffset??0,length=ext?.byteLength??v.byteLength,buffer=ext?.buffer??v.buffer??0;required(buffer===0&&Number.isSafeInteger(start)&&start>=0&&Number.isSafeInteger(length)&&length>0&&length<=MAX_VIEW&&start+length<=meta.binLength,'动画数据超出预算');
+ return {a,v,ext,start,length};
+}
+// Exporters write sampler data next to each other, so one read of that span
+// replaces thousands of tiny per-accessor reads. A span mostly made of mesh or
+// texture bytes (or too large) falls back to reading each view on its own.
+function animationReader(fh,meta){
+ const seen=new Set();let lo=Infinity,hi=0,total=0;
+ for(const animation of Array.isArray(meta.doc.animations)?meta.doc.animations:[])for(const sampler of Array.isArray(animation?.samplers)?animation.samplers:[])for(const index of [sampler?.input,sampler?.output]){
+  let range;try{range=viewRange(meta,index);}catch{continue;}const key=range.start+':'+range.length;if(seen.has(key))continue;seen.add(key);
+  lo=Math.min(lo,range.start);hi=Math.max(hi,range.start+range.length);total+=range.length;
+ }
+ const useSpan=hi>lo&&hi-lo<=MAX_SPAN&&hi-lo<=total*2+1024*1024,views=new Map();let span=null,cached=0;
+ return async(start,length)=>{
+  if(useSpan&&start>=lo&&start+length<=hi){if(!span){const bytes=Buffer.allocUnsafe(hi-lo);required((await fh.read(bytes,0,bytes.length,meta.binOffset+lo)).bytesRead===bytes.length,'动画数据未完整读取');span=bytes;}return span.subarray(start-lo,start-lo+length);}
+  const key=start+':'+length;let data=views.get(key);
+  if(!data){data=Buffer.allocUnsafe(length);required((await fh.read(data,0,length,meta.binOffset+start)).bytesRead===length,'动画数据未完整读取');if(cached+length<=MAX_VIEW_CACHE){views.set(key,data);cached+=length;}}
+  return data;
+ };
 }
 // Hash animation bytes and target bindings, never mesh/texture payloads. Only
 // exact encodings are deduplicated; uncertain layouts stay separate.
-async function curveHash(fh,meta,animation,target,views){
+async function curveHash(meta,animation,target,read){
  required(Array.isArray(animation.channels)&&animation.channels.length<=5000&&Array.isArray(animation.samplers)&&animation.samplers.length<=5000,'动画轨道超出预算');const hash=createHash('sha256'),channels=animation.channels.map(c=>({...c,dest:target(c.target.node)})).sort((a,b)=>a.dest-b.dest||a.target.path.localeCompare(b.target.path));
  for(const channel of channels){const path=channel.target.path;required(['rotation','translation','scale'].includes(path),'此轨道需要模型专属适配');const sampler=meta.doc.animations?animation.samplers[channel.sampler]:null;required(sampler&&['LINEAR','STEP','CUBICSPLINE'].includes(sampler.interpolation||'LINEAR'),'不支持的插值');hash.update(JSON.stringify([channel.dest,path,sampler.interpolation||'LINEAR']));
   for(const index of [sampler.input,sampler.output]){
-   const a=meta.doc.accessors?.[index],v=meta.doc.bufferViews?.[a?.bufferView];required(a&&v&&!a.sparse,'此 accessor 需要单独检查');const ext=v.extensions?.EXT_meshopt_compression||v.extensions?.KHR_meshopt_compression;
-   const start=ext?.byteOffset??v.byteOffset??0,length=ext?.byteLength??v.byteLength,buffer=ext?.buffer??v.buffer??0;required(buffer===0&&Number.isSafeInteger(start)&&start>=0&&Number.isSafeInteger(length)&&length>0&&length<=MAX_VIEW&&start+length<=meta.binLength,'动画数据超出预算');
-   const key=start+':'+length;let data=views.get(key);if(!data){data=Buffer.alloc(length);required((await fh.read(data,0,length,meta.binOffset+start)).bytesRead===length,'动画数据未完整读取');if((views.bytes||0)+length<=16*1024*1024){views.set(key,data);views.bytes=(views.bytes||0)+length;}}
+   const {a,v,ext,start,length}=viewRange(meta,index),data=await read(start,length);
    hash.update(JSON.stringify([a.type,a.componentType,a.count,a.normalized||false,a.byteOffset||0,v.byteStride||0,ext?{mode:ext.mode,filter:ext.filter,count:ext.count,byteStride:ext.byteStride}:null]));hash.update(data);
   }
  }
@@ -46,30 +72,68 @@ async function inventory(work){
  if(previous?.key===key)return previous.promise;
  const promise=buildInventory(work);inventories.set(work,{key,promise});while(inventories.size>6)inventories.delete(inventories.keys().next().value);try{return await promise;}catch(error){if(inventories.get(work)?.promise===promise)inventories.delete(work);throw error;}
 }
+// Match results survive restarts and one-shot CLI runs: one file per target
+// model under the git-ignored cache/, keyed by each source's identity stamp.
+// Bump the version whenever curve hashing or bone resolution changes.
+export const ACTION_CACHE_DIR='cache/actions';
+const ACTION_CACHE_VERSION=1,MAX_CACHE_FILE=64*1024*1024,HEX=/^[0-9a-f]{64}$/;
+const validEntry=e=>e&&Array.isArray(e.rows)&&Number.isSafeInteger(e.incompatible)&&e.rows.every(r=>r&&typeof r.clip==='string'&&HEX.test(r.curve)&&Number.isFinite(r.duration));
+async function loadActionCache(work,targetSha){
+ const store={file:await inside(work,ACTION_CACHE_DIR+'/'+targetSha+'.json'),entries:{},used:{}};
+ try{const info=await stat(store.file);if(info.size>MAX_CACHE_FILE)return store;const data=JSON.parse(await readFile(store.file,'utf8'));
+  if(data?.version===ACTION_CACHE_VERSION&&data.targetSha===targetSha&&data.entries&&typeof data.entries==='object')for(const [key,entry]of Object.entries(data.entries))if(HEX.test(key)&&validEntry(entry))store.entries[key]=entry;
+ }catch{}
+ return store;
+}
+async function saveActionCache(store,targetSha,{prune}){
+ const entries=prune?store.used:{...store.entries,...store.used},keys=Object.keys(entries);
+ if(keys.length===Object.keys(store.entries).length&&keys.every(k=>store.entries[k]))return;
+ try{await atomic(store.file,JSON.stringify({version:ACTION_CACHE_VERSION,targetSha,entries}));}catch{} // a cache, never a reason to fail matching
+}
+const live=job=>!job.retired&&job.state==='scanning';
+async function matchSource(work,job,source,base,store){
+ const mapping=source.kind==='pack'?job.mappings.find(m=>m.targetSha===job.target.asset.sha256&&m.sourceSha===source.versionId):null;source.mappingId=mapping?.id;
+ const fingerprint=stamp(await stat(source.file)),key=digest([work,source.file,fingerprint,job.target.asset.sha256,mapping?.id]),storeKey=digest([source.file,fingerprint,mapping?.id||null]);
+ let entries=sourceCache.get(key)||store.entries[storeKey];
+ if(!entries){
+  const fh=await open(source.file,'r');
+  try{
+   required(stamp(await fh.stat())===fingerprint,'读取期间来源变化');const meta=await header(fh),resolver=motionTargetResolver(base.doc,meta.doc,mapping?.nodeMap||{}),read=animationReader(fh,meta),rows=[];let incompatible=0;
+   for(const [index,clip]of (meta.doc.animations||[]).entries()){
+    if(!live(job))return null; // a cancelled file is never cached half-read
+    try{required(clip.channels?.length,'空动作');const curve=await curveHash(meta,clip,resolver,read);rows.push({clip:clip.name||'animation_'+index,curve,duration:Math.max(0,...clip.samplers.map(s=>meta.doc.accessors?.[s.input]?.max?.[0]||0))});}catch{incompatible++;}
+   }
+   required(stamp(await fh.stat())===fingerprint,'读取期间来源变化');entries={rows,incompatible};
+  }finally{await fh.close();}
+ }
+ sourceCache.delete(key);sourceCache.set(key,entries);while(sourceCache.size>1200)sourceCache.delete(sourceCache.keys().next().value);
+ store.used[storeKey]=entries;return {fingerprint,entries};
+}
 async function scan(work,job){
+ const pending=new Map();
  try{
-  const fh=await open(await inside(work,job.target.asset.file),'r');let base,preset=new Set();
-  try{base=await header(fh);job.presetNames=new Set((base.doc.animations||[]).map(a=>a.name));const actual=await readFile(await inside(work,job.target.asset.file));required(sha(actual)===job.target.asset.sha256,'角色快照已损坏');const resolver=motionTargetResolver(base.doc,base.doc),views=new Map();for(const clip of base.doc.animations||[]){if(job.retired)return;try{preset.add(await curveHash(fh,base,clip,resolver,views));}catch{}} }finally{await fh.close();}
-  const unique=new Map();
-  const deadline=Date.now()+120000;for(const source of job.sources){if(job.retired)return;if(Date.now()>deadline){job.state='partial';return;}job.checked++;if(source.file===await inside(work,job.target.asset.file))continue;
-   let fh;try{
-    fh=await open(source.file,'r');const mapping=source.kind==='pack'?job.mappings.find(m=>m.targetSha===job.target.asset.sha256&&m.sourceSha===source.versionId):null;source.mappingId=mapping?.id;const info=await fh.stat(),fingerprint=stamp(info),key=digest([work,source.file,fingerprint,job.target.asset.sha256,mapping?.id]);let entries=sourceCache.get(key);
-    if(!entries){const meta=await header(fh),resolver=motionTargetResolver(base.doc,meta.doc,mapping?.nodeMap||{}),views=new Map();entries=[];let incompatible=0;
-     for(const [index,clip]of (meta.doc.animations||[]).entries()){
-      if(job.retired)return; // a cancelled file is never cached half-read
-      try{required(clip.channels?.length,'空动作');const curve=await curveHash(fh,meta,clip,resolver,views);entries.push({clip:clip.name||'animation_'+index,curve,duration:Math.max(0,...clip.samplers.map(s=>meta.doc.accessors?.[s.input]?.max?.[0]||0))});}catch{incompatible++;}
-     }
-     required(stamp(await fh.stat())===fingerprint,'读取期间来源变化');entries={rows:entries,incompatible};sourceCache.set(key,entries);while(sourceCache.size>1200)sourceCache.delete(sourceCache.keys().next().value);
-    }
-    job.incompatible+=entries.incompatible;for(const entry of entries.rows){if(preset.has(entry.curve)){job.duplicates++;continue;}const previous=unique.get(entry.curve);if(previous){previous.sourceCount++;job.duplicates++;continue;}
-     const row={id:digest([job.target.asset.sha256,source.file,fingerprint,entry.clip]),name:entry.clip,duration:entry.duration,sourceName:source.name,sourceCount:1,origin:'compatible',presetVariant:job.presetNames.has(entry.clip),curve:entry.curve};unique.set(entry.curve,row);job.rows.push(row);job.details.set(row.id,{source,fingerprint,clip:entry.clip});
-    }
-   }catch{job.errors++;}finally{await fh?.close();}
+  const targetFile=await inside(work,job.target.asset.file),fh=await open(targetFile,'r');let base,preset=new Set();
+  try{base=await header(fh);job.presetNames=new Set((base.doc.animations||[]).map(a=>a.name));const actual=await readFile(targetFile);required(sha(actual)===job.target.asset.sha256,'角色快照已损坏');const resolver=motionTargetResolver(base.doc,base.doc),read=animationReader(fh,base);for(const clip of base.doc.animations||[]){if(job.retired)return;try{preset.add(await curveHash(base,clip,resolver,read));}catch{}} }finally{await fh.close();}
+  const store=await loadActionCache(work,job.target.asset.sha256),unique=new Map(),deadline=Date.now()+120000;
+  // A few sources are read ahead while results merge strictly in inventory
+  // order, so labels and dedup winners match a one-at-a-time scan.
+  const ahead=i=>{for(let k=i;k<Math.min(job.sources.length,i+PREFETCH);k++)if(!pending.has(k)&&job.sources[k].file!==targetFile)pending.set(k,matchSource(work,job,job.sources[k],base,store).catch(error=>({error})));};
+  for(const [i,source]of job.sources.entries()){
+   if(job.retired)return;if(Date.now()>deadline){job.state='partial';await saveActionCache(store,job.target.asset.sha256,{prune:false});return;}
+   job.checked++;if(source.file===targetFile)continue;ahead(i);
+   const result=await pending.get(i);pending.delete(i);if(job.retired)return;
+   if(!result||result.error){job.errors++;continue;}
+   const {fingerprint,entries}=result;job.incompatible+=entries.incompatible;
+   for(const entry of entries.rows){if(preset.has(entry.curve)){job.duplicates++;continue;}const previous=unique.get(entry.curve);if(previous){previous.sourceCount++;job.duplicates++;continue;}
+    const row={id:digest([job.target.asset.sha256,source.file,fingerprint,entry.clip]),name:entry.clip,duration:entry.duration,sourceName:source.name,sourceCount:1,origin:'compatible',presetVariant:job.presetNames.has(entry.clip),curve:entry.curve};unique.set(entry.curve,row);job.rows.push(row);job.details.set(row.id,{source,fingerprint,clip:entry.clip});
+   }
    // Yield to playback, polling and user actions between every source.
-   await new Promise(r=>setTimeout(r,0));
+   await new Promise(r=>setImmediate(r));
   }
-  job.state='ready';
+  job.state='ready';await saveActionCache(store,job.target.asset.sha256,{prune:true});
  }catch(e){job.state='failed';job.error=e.message;}
+ // Read-ahead work stops at its next clip once the job is no longer live.
+ finally{await Promise.allSettled(pending.values());}
 }
 export async function discoverCharacterActions(work,input={}){
  const target=await withWorkspaceLock(work,()=>targetInfo(work,input)),data=await inventory(work),key=work+'|'+target.assetId+'|'+target.slot+'|'+target.asset.sha256;let job=jobs.get(key);
