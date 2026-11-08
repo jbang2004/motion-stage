@@ -1,5 +1,6 @@
 import {editRotationTrack} from '../assets/viewer/rotation-edit.mjs';
 import {resourceCapabilities,curveDescriptor,curveClips,meshoptExtension} from '../assets/viewer/resource-capabilities.mjs';
+import {MeshoptDecoder} from '../assets/vendor/three/examples/jsm/libs/meshopt_decoder.module.js';
 import {createHash} from 'node:crypto';
 import {readFile,writeFile,mkdir,lstat,stat,realpath,mkdtemp,symlink,unlink,rmdir} from 'node:fs/promises';
 import {resolve,dirname,basename,join,parse,relative,isAbsolute,posix} from 'node:path';
@@ -10,6 +11,7 @@ const digest=b=>createHash('sha256').update(b).digest('hex');
 const sizes={SCALAR:1,VEC2:2,VEC3:3,VEC4:4,MAT2:4,MAT3:9,MAT4:16};
 const components={5120:[1,'readInt8'],5121:[1,'readUInt8'],5122:[2,'readInt16LE'],5123:[2,'readUInt16LE'],5125:[4,'readUInt32LE'],5126:[4,'readFloatLE']};
 const bounds=values=>values.reduce(([lo,hi],v)=>[Math.min(lo,v),Math.max(hi,v)],[Infinity,-Infinity]);
+await MeshoptDecoder.ready;
 export function parseGlb(input,{copy=true}={}){
  const bytes=!copy&&Buffer.isBuffer(input)?input:Buffer.from(input);
  if(bytes.length<20||bytes.readUInt32LE(0)!==0x46546c67||bytes.readUInt32LE(4)!==2||bytes.readUInt32LE(8)!==bytes.length)throw Error('需要完整的 glTF 2.0 GLB 文件。');
@@ -103,6 +105,36 @@ export function readAccessor(doc,bin,index){
   let n=bin[read](start+i*stride+j*width);if(!Number.isFinite(n))throw Error('模型含有非有限数值。');
   if(a.normalized){if(a.componentType===5121)n/=255;else if(a.componentType===5123)n/=65535;else if(a.componentType===5120)n=Math.max(-1,n/127);else if(a.componentType===5122)n=Math.max(-1,n/32767);}return n;
  }));
+}
+
+export function meshoptAnimationView(doc,bin,view){
+ const ext=meshoptExtension(view);
+ if(!ext)return null;
+ const start=ext.byteOffset??0,size=ext.count*ext.byteStride;
+ if(!Number.isSafeInteger(ext.count)||ext.count<=0||!Number.isSafeInteger(ext.byteStride)||ext.byteStride<=0||
+    !Number.isSafeInteger(size)||size!==view.byteLength||ext.buffer!==0||doc.buffers?.[0]?.uri||
+    !Number.isSafeInteger(start)||start<0||!Number.isSafeInteger(ext.byteLength)||ext.byteLength<=0||start+ext.byteLength>bin.length)
+  throw Error('压缩动画的数据范围或描述无效。');
+ return {ext,size,bytes:bin.subarray(start,start+ext.byteLength)};
+}
+
+export function animationAccessorReader(doc,bin){
+ const decoded=new Map();
+ let remaining=128*1024*1024;
+ return index=>{
+  const accessor=doc.accessors?.[index],view=doc.bufferViews?.[accessor?.bufferView];
+  if(!meshoptExtension(view))return readAccessor(doc,bin,index);
+  if(!decoded.has(view)){
+   const {ext,size,bytes}=meshoptAnimationView(doc,bin,view);
+   if(size>remaining)throw Error('压缩动画超出解码预算。');
+   const data=Buffer.alloc(size);
+   MeshoptDecoder.decodeGltfBuffer(data,ext.count,ext.byteStride,bytes,ext.mode,ext.filter);
+   remaining-=size;
+   decoded.set(view,data);
+  }
+  const data=decoded.get(view);
+  return readAccessor({buffers:[{byteLength:data.length}],bufferViews:[{byteLength:data.length,byteStride:view.byteStride}],accessors:[{...accessor,bufferView:0}]},data,0);
+ };
 }
 export function inspectAsset(bytes){
  const{doc:d,bin}=parseGlb(bytes),nodes=d.nodes||[],parents=new Map();nodes.forEach((n,i)=>(n.children||[]).forEach(c=>parents.set(c,i)));

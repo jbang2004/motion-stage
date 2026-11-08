@@ -5,6 +5,8 @@ import {assembleCharacter} from '../motion-assembly.mjs';
 import {parseGlb,encodeGlb,readAccessor} from '../asset-tools.mjs';
 import {glbInfo} from '../core.mjs';
 import {validateCandidate} from '../candidate-validation.mjs';
+import {checkMotion} from '../motion-checks.mjs';
+import {compareCandidate} from '../candidate-diff.mjs';
 const base=await readFile(new URL('../../assets/demo/baseline.glb',import.meta.url));
 const clipNames=b=>glbInfo(b).clips.map(c=>c.name);
 function motion(mutate=()=>{}){const p=parseGlb(base);p.doc.animations=[p.doc.animations[0]];p.doc.animations[0].name='External';delete p.doc.meshes;for(const n of p.doc.nodes){delete n.mesh;delete n.skin;}mutate(p.doc,p.bin);return encodeGlb(p.doc,p.bin);}
@@ -60,6 +62,10 @@ for(const extension of ['EXT_meshopt_compression','KHR_meshopt_compression'])tes
  p.doc.accessors=[{bufferView:0,componentType:5126,count:2,type:'SCALAR',min:[0],max:[1]},{bufferView:1,componentType:5126,count:2,type:'VEC4'}];let offset=0;
  p.doc.bufferViews=data.map((bytes,i)=>{const out={buffer:1,byteOffset:i?8:0,byteLength:i?32:8,extensions:{[extension]:{buffer:0,byteOffset:offset,byteLength:bytes.length,byteStride:i?16:4,count:2,mode:'ATTRIBUTES',filter:'NONE'}}};offset+=bytes.length;return out;});
  p.doc.buffers=[{byteLength:offset},{byteLength:40,extensions:{[extension]:{fallback:true}}}];
- const result=await assembleCharacter(base,[source(encodeGlb(p.doc,Buffer.concat(data)))]);assert.equal(result.sources[0].status,'ready',result.sources[0].error);validateCandidate(result.bytes);
+ const compressed=encodeGlb(p.doc,Buffer.concat(data));
+ const result=await assembleCharacter(base,[source(compressed)]);assert.equal(result.sources[0].status,'ready',result.sources[0].error);validateCandidate(result.bytes);
  const parsed=parseGlb(result.bytes),s=parsed.doc.animations.at(-1).samplers[0];assert.deepEqual(readAccessor(parsed.doc,parsed.bin,s.input),[[0],[1]]);assert.ok(Math.abs(readAccessor(parsed.doc,parsed.bin,s.output)[1][1]-.6)<1e-6);
+ assert.deepEqual(checkMotion(compressed,{clip:'Compressed'}).checks,checkMotion(result.bytes,{clip:'Compressed'}).checks);
+ assert.equal(compareCandidate(compressed,compressed).tracks.unchanged,1);
+ assert.equal(compareCandidate(compressed,result.bytes,{clip:'Compressed'}).tracks.unchanged,1);
 });

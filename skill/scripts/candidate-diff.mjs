@@ -1,5 +1,6 @@
-import {parseGlb,readAccessor} from './asset-tools.mjs';
-import {curveDescriptor} from '../assets/viewer/resource-capabilities.mjs';
+import {createHash} from 'node:crypto';
+import {parseGlb,animationAccessorReader,meshoptAnimationView} from './asset-tools.mjs';
+import {curveDescriptor,meshoptExtension} from '../assets/viewer/resource-capabilities.mjs';
 
 const dimensions={SCALAR:1,VEC2:2,VEC3:3,VEC4:4};
 const states=()=>({unchanged:0,changed:0,added:0,removed:0,unverified:0});
@@ -61,21 +62,39 @@ function animationData(bytes,interned){
   for(const [key,track] of tracks)if(!track){tracks.delete(key);unpaired++;}
   clips.set(clip.name,{tracks,unpaired,unsupported:extensions(clip),duration:curves?clip.duration:undefined});
  }
- const cache=new Map();
+ const cache=new Map(),compressedViews=new Map(),read=animationAccessorReader(doc,bin);
  let remaining=1_000_000;
+ function compressedIdentity(index){
+  const a=doc.accessors?.[index],view=doc.bufferViews?.[a?.bufferView];
+  if(!meshoptExtension(view)||extensions(a)||a.sparse||Object.keys(view.extensions).length!==1)return null;
+  const width={5120:1,5121:1,5122:2,5123:2,5125:4,5126:4}[a.componentType],element=width*dimensions[a.type];
+  const offset=a.byteOffset??0,stride=view.byteStride??element;
+  if(!element||!Number.isSafeInteger(offset)||offset<0||!Number.isSafeInteger(stride)||stride<element||
+     !Number.isSafeInteger(a.count)||a.count<=0||offset+(a.count-1)*stride+element>view.byteLength)return null;
+  if(!compressedViews.has(view)){
+   try{
+    const {ext,bytes}=meshoptAnimationView(doc,bin,view);
+    const hash=createHash('sha256').update(bytes).digest('hex');
+    compressedViews.set(view,[hash,ext.count,ext.byteStride,ext.mode,ext.filter||'NONE',view.byteStride]);
+   }catch{compressedViews.set(view,null);}
+  }
+  const identity=compressedViews.get(view);
+  return identity&&JSON.stringify([identity,a.type,a.componentType,a.count,offset,Boolean(a.normalized)]);
+ }
  function accessor(index){
   if(cache.has(index))return cache.get(index);
   let values=null;
   const a=doc.accessors?.[index],view=doc.bufferViews?.[a?.bufferView],size=a?.count*dimensions[a?.type];
-  if(Number.isSafeInteger(size)&&size>0&&size<=remaining&&!extensions(a)&&!extensions(view)&&
+  if(Number.isSafeInteger(size)&&size>0&&size<=remaining&&!extensions(a)&&
+    (!extensions(view)||meshoptExtension(view)&&Object.keys(view.extensions).length===1)&&
     (a.bufferView===undefined||view)){
    remaining-=size;
-   try{values=readAccessor(doc,bin,index);}catch{/* Unsupported or unreadable data is not equality. */}
+   try{values=read(index);}catch{/* Unsupported or unreadable data is not equality. */}
   }
   cache.set(index,values);
   return values;
  }
- return {clips,unidentified,accessor};
+ return {clips,unidentified,accessor,compressedIdentity};
 }
 
 function sameValues(a,b){
@@ -87,6 +106,12 @@ export function compareCandidate(sourceBytes,candidateBytes,{clip,lockOtherClips
  const result={version:1,tracks:states(),outside:0,unverifiedClips:0,clips:[],omittedClips:0,protection:lockOtherClips?'verified':'off',keyframeTimes:'unchanged'};
  const identities=new Map();
  const before=animationData(sourceBytes,identities),after=animationData(candidateBytes,identities);
+ const compareAccessors=(a,b)=>{
+  const encoded=before.compressedIdentity(a);
+  if(encoded&&encoded===after.compressedIdentity(b))return true;
+  const first=before.accessor(a),second=after.accessor(b);
+  return first&&second?sameValues(first,second):null;
+ };
  result.unverifiedClips=Math.max(before.unidentified,after.unidentified);
  let outsideUnknown=result.unverifiedClips>0;
  for(const name of new Set([...before.clips.keys(),...after.clips.keys()])){
@@ -112,13 +137,13 @@ export function compareCandidate(sourceBytes,candidateBytes,{clip,lockOtherClips
      continue;
     }
     if(a.unsupported||b.unsupported||first.unsupported||second.unsupported){record('unverified',second);continue;}
-    const t0=before.accessor(first.input),t1=after.accessor(second.input),v0=before.accessor(first.output),v1=after.accessor(second.output);
+    const times=compareAccessors(first.input,second.input),values=compareAccessors(first.output,second.output);
     const fields=[];
-    if(t0&&t1){if(!sameValues(t0,t1)){fields.push('time');result.keyframeTimes='changed';}}
-    else if(result.keyframeTimes==='unchanged')result.keyframeTimes='unverified';
-    if(v0&&v1&&(!sameValues(v0,v1)||first.layout!==second.layout))fields.push('values');
+    if(times===false){fields.push('time');result.keyframeTimes='changed';}
+    else if(times===null&&result.keyframeTimes==='unchanged')result.keyframeTimes='unverified';
+    if(values===false||values===true&&first.layout!==second.layout)fields.push('values');
     if(first.interpolation!==second.interpolation)fields.push('interpolation');
-    record(fields.length?'changed':t0&&t1&&v0&&v1?'unchanged':'unverified',second,fields);
+    record(fields.length?'changed':times===true&&values===true?'unchanged':'unverified',second,fields);
    }
   }
   detail.unpaired=Math.max(a?.unpaired||0,b?.unpaired||0);

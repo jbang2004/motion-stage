@@ -7,13 +7,33 @@ import {spawnSync,spawn} from 'node:child_process';
 import {parseGlb,encodeGlb,editGlb} from '../asset-tools.mjs';
 import {ROOT,atomic,json,importAsset,sha,withWorkspaceLock,readProject,modelSlots} from '../core.mjs';
 import {buildDemo} from '../practice.mjs';
-import {createJob,claimJob,completeJob,getJob,listJobs,cancelJob,failJob,localEditJob,reviewJob,inspectSlot,checkMotionSlot} from '../jobs.mjs';
+import {createJob,claimJob,completeJob,getJob,listJobs,cancelJob,failJob,localEditJob,reviewJob,inspectSlot,checkMotionSlot,validateJobs} from '../jobs.mjs';
 import {serve} from '../server.mjs';
 import {saveDraft,readDraft} from '../drafts.mjs';
 import {feedbackObservation,pointsForClip} from '../../assets/viewer/feedback-points.mjs';
 import {planObservationRestore,restoredTransportTime} from '../../assets/viewer/observation-state.mjs';
 async function setup(){const w=await mkdtemp(resolve(tmpdir(),'motion-jobs-'));await atomic(resolve(w,'project.json'),{version:2,title:'Test',slots:{}});await atomic(resolve(w,'feedback.json'),{version:1,notes:[]});const b=await buildDemo(false);await importAsset(w,'baseline',b,'base.glb');await importAsset(w,'candidate',b,'candidate.glb');return w;}
 async function input(w,changes={}){const p=await json(resolve(w,'project.json'));return {request:'左臂摆动收小三成，保留其他动作',preserve:'模型、其他肢体和时长',target:{bone:'LeftArm'},scope:{start:0,end:1,wholeClip:true},context:{slot:'baseline',asset:p.slots.baseline,clip:'Run',time:.25,fps:30,frame:8,view:'front',mode:'elapsed',rootLocked:true,slots:Object.fromEntries(Object.entries(p.slots).map(([k,v])=>[k,{...v,clip:'Run',time:.25}]))},...changes};}
+
+test('a diagnostic repair freezes the measured foot, interval and travel from the selected version through completion',async()=>{
+ const w=await setup();try{
+  const payload=await input(w,{request:'',scope:{start:.1,end:.5,wholeClip:false}}),asset=payload.context.asset;
+  const source=await readFile(resolve(w,asset.file)),nodeIndex=parseGlb(source).doc.nodes.findIndex(n=>n.name==='LeftFoot');
+  const repair={assetSha256:asset.sha256,clip:'Run',foot:'LeftFoot',nodeIndex,time:[.2,.4],inPlace:true,runtime:{direction:'+Z',speed:1.2}};
+  await assert.rejects(createJob(w,{...payload,footRepair:{...repair,assetSha256:'1'.repeat(64)}}),/版本不一致/);
+  await assert.rejects(createJob(w,{...payload,footRepair:repair,scope:{start:.3,end:.5,wholeClip:false}}),/必须包含/);
+  const job=await createJob(w,{...payload,footRepair:repair});
+  assert.equal(job.target.nodeIndex,nodeIndex);assert.equal(job.lockOtherClips,true);
+  assert.equal(job.footRepair.before.fps,120);
+  assert.deepEqual((await json(resolve(w,'jobs',job.id,'context.json'))).footRepair,job.footRepair);
+  assert.match(await readFile(job.taskPath,'utf8'),/沿 \+Z 移动 1\.2/);
+  const claim=await claimJob(w,job.id),path=resolve(w,'repair-candidate.glb');
+  await writeFile(path,await buildDemo(true));
+  const done=await completeJob(w,job.id,{lease:claim.lease,candidatePath:path,summary:'返回候选'});
+  assert.deepEqual(done.footRepairResult.after,job.footRepair.before);
+  assert.equal((await validateJobs(w)).jobsCount,1);
+ }finally{await rm(w,{recursive:true,force:true});}
+});
 
 test('foot diagnostics compare the displayed frozen pair after the workspace candidate changes',async()=>{
  const w=await setup();let server;try{

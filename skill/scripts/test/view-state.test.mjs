@@ -151,7 +151,7 @@ function selectionHarness({storageFailure,existingA=false}={}){
  if(existingA)storage.setItem(draftStorageKey('/review','A'),JSON.stringify({...draft('A','Older persisted A request'),preserve:'Older A preserve'}));
  if(storageFailure==='quota')storage.setItem=()=>{throw Error('QuotaExceededError');};
  const requestLog=[];
- const ctx=vm.createContext({callerKey,restoredDelivery,renderLoop:null,castBrowser:null,workspaceDrafts:createDraftSync({load:async()=>({revision:0,draft:null}),save:async(_id,input)=>({revision:input.expectedRevision+1})}),state,viewState:view,localStorage:storage,saveViewDraft,readViewDraft,
+ const ctx=vm.createContext({callerKey,restoredDelivery,renderLoop:null,castBrowser:null,setFootRepairDraft:repair=>{state.footRepair=repair;},workspaceDrafts:createDraftSync({load:async()=>({revision:0,draft:null}),save:async(_id,input)=>({revision:input.expectedRevision+1})}),state,viewState:view,localStorage:storage,saveViewDraft,readViewDraft,
   $:field,clearTimeout,history:{replaceState(){}},location:{href:'http://local/?asset=A'},
   api:async(path,method,body,request)=>{
    requestLog.push({path,method,body,request});

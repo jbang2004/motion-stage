@@ -42,13 +42,13 @@ export function candidateDiffEvidence(job,{open=false,documentRef=globalThis.doc
   details.append(group);
  }
  if(diff.omittedClips)details.append(node('p',`另有 ${diff.omittedClips} 个动作计入摘要。`));
- if(diff.unverifiedClips||unverified)details.append(node('p','名称不唯一、压缩或稀疏数据、超出比较预算等情况会标为未验证。'));
+ if(diff.unverifiedClips||unverified)details.append(node('p','名称不唯一、数据格式不受支持或超出比较预算时，会标为未验证。'));
  details.append(node('p','基于本轮修改前的版本，比较动作轨道、关键帧数据和插值。网格、材质、骨架静止姿势和动作自然度需要另行检查。'));
  section.append(details);return section;
 }
 export function motionReport(audit){return audit?.kind==='motion-checks'?audit:audit?.motionChecks?.kind==='motion-checks'?audit.motionChecks:null;}
 export function resultEvidence(job,{onSeek,documentRef=globalThis.document}={}){
- const node=(tag,text,cls)=>el(tag,text,cls,documentRef),section=node('section',undefined,'result-evidence'),audit=job.audit||{},report=motionReport(audit);
+ const node=(tag,text,cls)=>el(tag,text,cls,documentRef),section=node('section',undefined,'result-evidence'),audit=job.audit||{},report=motionReport(job.footRepairResult?.motionChecks)||motionReport(audit);
  const heading=node('div',undefined,'evidence-heading');heading.append(node('b','检查结果'),node('span',job.validation?'文件校验通过':'文件检查未记录','check-badge'));section.append(heading);
  if(report){
   const findings=[...rows(report.findings),...rows(report.unverified)],compared=Boolean(report.baselineSha256)||findings.some(f=>f.status),important=findings.filter(f=>f.severity==='warning'&&(!compared||['new','worsened','unverified'].includes(f.status)));
@@ -68,6 +68,7 @@ export function resultEvidence(job,{onSeek,documentRef=globalThis.document}={}){
  for(const [key,label]of Object.entries({changedKeyframes:'修改关键帧',factor:'幅度倍率',degrees:'局部旋转角度',axis:'局部旋转轴',bone:'目标部位',clip:'动作',protectedWorldMaxDifference:'保护部位最大差异',sampling:'采样范围'}))if(audit[key]!==undefined)details.append(node('p',label+'：'+(key==='factor'&&Number.isFinite(audit[key])?Math.round(audit[key]*100)+'%':key==='degrees'&&Number.isFinite(audit[key])?audit[key]+'°':typeof audit[key]==='object'?JSON.stringify(audit[key]):audit[key])));
  const limitations=[...(Array.isArray(audit.limitations)?audit.limitations:[]),...(report!==audit&&Array.isArray(report?.limitations)?report.limitations:[]),...(Array.isArray(job.validation?.limitations)?job.validation.limitations:[])];
  for(const value of limitations)details.append(node('p',limitationText(value,audit.kind)));
+ if(job.footRepairResult?.motionCheckError)details.append(node('p','脚滑候选的动作检查未完成。'+job.footRepairResult.motionCheckError));
  details.append(node('p','文件与数值检查不代表艺术认可；游戏内表现需在接入时检查。'));
- const raw=node('details');raw.append(node('summary','原始检查 JSON'),node('pre',JSON.stringify({audit:job.audit,validation:job.validation},null,2)));details.append(raw);section.append(details);return section;
+ const raw=node('details');raw.append(node('summary','原始检查 JSON'),node('pre',JSON.stringify({audit:job.audit,validation:job.validation,footRepair:job.footRepairResult},null,2)));details.append(raw);section.append(details);return section;
 }

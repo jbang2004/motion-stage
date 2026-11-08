@@ -136,6 +136,17 @@
             <div class="context-chips" id="contextCard"><button type="button" id="openTarget" class="context-chip"><span class="context-chip-icon" data-icon="target"></span><span class="context-chip-copy"><small>修改部位</small><b id="targetText">整个角色</b></span><span data-icon="chevron"></span></button><button type="button" id="scopeChip" class="context-chip"><span class="context-chip-icon" data-icon="range"></span><span class="context-chip-copy"><small>时间范围</small><b id="scopeText">整个动作</b></span><span data-icon="chevron"></span></button></div>
             <div id="sideWarning" class="side-warning" role="status" hidden><p id="sideWarningText"></p><button type="button" id="sideFix" class="text-button" hidden></button></div>
             <p class="context-auto"><span data-icon="camera">已带上当前画面</span><span id="contextTime">0.000s</span><span id="contextClip" hidden>动作</span></p>
+            <section id="footRepairDraft" class="foot-diagnostics" aria-labelledby="footRepairTitle" hidden>
+              <div class="feedback-points-heading"><h3 id="footRepairTitle">脚滑修复</h3><button id="removeFootRepair" type="button" class="text-button">移除诊断</button></div>
+              <p id="footRepairSummary" class="foot-diagnostic-caption"></p>
+              <div id="footRepairRuntime" hidden>
+                <div class="foot-repair-fields">
+                  <label>前进方向<select id="footRepairDirection"><option value="">选择方向</option><option value="+Z">+Z</option><option value="-Z">−Z</option><option value="+X">+X</option><option value="-X">−X</option></select></label>
+                  <label>模拟移动速度<input id="footRepairSpeed" type="number" min="0.001" max="1000" step="any" placeholder="可选" aria-describedby="footRepairSpeedHint"></label>
+                </div>
+                <p id="footRepairSpeedHint" class="foot-diagnostic-caption">填入已核对的游戏速度 ÷ 动作播放倍率，单位为场景单位 / 动画秒。</p>
+              </div>
+            </section>
             <section id="feedbackPoints" class="feedback-points" aria-labelledby="feedbackPointsTitle" hidden>
               <div class="feedback-points-heading"><h3 id="feedbackPointsTitle">反馈标记</h3><button id="addFeedbackPoint" type="button" class="text-button"><span aria-hidden="true">＋</span> 标记当前画面</button></div>
               <p id="feedbackPointsHint" class="feedback-points-hint">有几处要改？逐处标记，一起提交。</p>

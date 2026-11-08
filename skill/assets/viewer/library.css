@@ -797,6 +797,17 @@ button.feedback-point-jump:hover, .feedback-point-jump[aria-current] { border-co
 .foot-diagnostic-run.slip b { color: #874617; }
 .foot-diagnostic-run[aria-current] { background: var(--ms-accent-soft); border-color: var(--ms-accent-ring); }
 .foot-diagnostic-run small { color: var(--ms-label-2); font-size: 11px; }
+.foot-diagnostic-actions { display: flex; align-items: center; gap: 4px; }
+.foot-diagnostic-actions .foot-diagnostic-run { flex: 1; min-width: 0; }
+.foot-diagnostic-actions .text-button { flex: none; min-height: 44px; padding: 5px; font-size: 12px; }
+.foot-repair-fields { display: grid; grid-template-columns: minmax(70px, 1fr) minmax(100px, 1.5fr); gap: 8px; }
+.foot-repair-fields label { display: grid; gap: 4px; font-size: 12px; }
+.foot-repair-fields input, .foot-repair-fields select { width: 100%; min-width: 0; min-height: 40px; }
+.foot-repair-result p { margin: 5px 0; font-size: 12px; }
+.foot-repair-metrics { width: 100%; margin: 8px 0 5px; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+.foot-repair-metrics th, .foot-repair-metrics td { padding: 6px 4px; border-bottom: 1px solid var(--ms-separator); text-align: right; }
+.foot-repair-metrics th:first-child { text-align: left; }
+.foot-repair-metrics thead { color: var(--ms-label-2); }
 .finding-list { display: grid; gap: 8px; }
 .finding { display: grid; gap: 4px; text-align: left; padding: 10px; border-radius: 8px; background: #fff5ed; color: #874617; width: 100%; }
 .finding strong { font-size: 13px; }.finding span, .finding small { font-size: 12px; }

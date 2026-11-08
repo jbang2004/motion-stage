@@ -1,5 +1,6 @@
 import {inside,readProject,readWorkspaceJSON,atomic,withWorkspaceLock} from './core.mjs';
 import {validateFeedbackPoints} from '../assets/viewer/feedback-points.mjs';
+import {validateFootRepair} from '../assets/viewer/foot-repair.mjs';
 
 async function pathFor(work,assetId){
  if(!/^[a-zA-Z0-9_-]{1,80}$/.test(assetId||'')||!(await readProject(work)).models[assetId])throw Error('草稿模型不存在');
@@ -17,6 +18,7 @@ export async function saveDraft(work,assetId,{expectedRevision,draft}={}){return
  if(Buffer.byteLength(JSON.stringify(draft))>128*1024)throw Error('草稿超过 128 KB');
  if(typeof draft.request!=='string'||typeof draft.preserve!=='string'||draft.request.length>12000||draft.preserve.length>12000)throw Error('草稿文字无效或过长');
  if(draft.feedbackPoints!==undefined)draft={...draft,feedbackPoints:validateFeedbackPoints(draft.feedbackPoints)};
+ if(draft.footRepair!==undefined)draft={...draft,footRepair:validateFootRepair(draft.footRepair)};
  const record={version:1,assetId,revision:current.revision+1,updatedAt:new Date().toISOString(),draft};
  await atomic(path,record);return record;
 });}

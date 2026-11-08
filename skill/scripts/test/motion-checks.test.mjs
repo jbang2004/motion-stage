@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {parseGlb,encodeGlb,readAccessor} from '../asset-tools.mjs';
-import {checkMotion,compareMotionChecks} from '../motion-checks.mjs';
+import {checkMotion,compareMotionChecks,measureFootRepair} from '../motion-checks.mjs';
 
 const demo=await readFile(new URL('../../assets/demo/baseline.glb',import.meta.url));
 
@@ -62,6 +62,17 @@ test('foot slip: still foot is planted, root-motion drag is slip, in-place linea
  // Explicit contact windows override the height heuristic.
  const given=checkMotion(leg([{node:'Pelvis',path:'translation',times:[0,1],values:[[0,.9,0],[0,.9,.3]]}]),{checks:['footSlip'],feet:['LeftFoot'],contacts:{LeftFoot:[[0,.1]]}});
  assert.equal(given.footSelection,'given');assert.equal(given.checks.footSlip[0].contactSource,'given');assert(Math.abs(given.checks.footSlip[0].contacts[0].slide-.03)<2e-3);
+});
+
+test('repair compares the same contact interval with character travel even if the authored tracks have different key times',()=>{
+ const source=leg([{node:'LeftHip',path:'translation',times:[0,1],values:[[0,0,0],[0,0,-.5]]}]);
+ const candidate=leg([{node:'LeftHip',path:'translation',times:[0,.33,1],values:[[0,0,0],[0,0,-.198],[0,0,-.6]]}]);
+ const repair={clip:'Clip',foot:'LeftFoot',nodeIndex:4,time:[.17,.67],runtime:{direction:'+Z',speed:.6}};
+ const before=measureFootRepair(source,repair),after=measureFootRepair(candidate,repair,{candidate:true});
+ assert.deepEqual([before.raw,after.raw,before.simulated,after.simulated],[.25,.3,.05,0]);
+ assert.equal(before.samples,after.samples);
+ assert.throws(()=>measureFootRepair(source,{...repair,nodeIndex:3}),/脚节点与诊断/);
+ assert.throws(()=>measureFootRepair(candidate,{...repair,time:[.3,1.1]},{candidate:true}),/未覆盖/);
 });
 
 test('limb extension: a one-frame snap to straight is a pop, a lengthened shin is a stretch',()=>{

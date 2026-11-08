@@ -30,7 +30,7 @@ function harness({createGate,createError,editGate,result=complete,editError,getR
   throw Error('Unexpected API '+path);
  };
  const ctx=vm.createContext({state,viewState:view,$:field,api,clearTimeout,structuredClone,
-  canLocalEdit:()=>!state.submitting&&!state.switching,clearLocalPreview(){},localEditTrack(){},activeFeedbackPoints:()=>[],validateFeedbackPoints:points=>points,
+  canLocalEdit:()=>!state.submitting&&!state.switching,clearLocalPreview(){},localEditTrack(){},activeFeedbackPoints:()=>[],validateFeedbackPoints:points=>points,footRepairForSubmission:()=>null,
   localEditParameters:()=>({bone:state.target.bone,range:{...scopeValue},options:{factor:Number(field('swingFactor').value)}}),
   context:()=>({assetId:view.loadedAssetId,slot:'baseline',asset:state.models.baseline.meta}),scope:()=>({...scopeValue}),activeSlot:()=> 'baseline',activeModel:()=>state.models.baseline,parentJobId:()=>null,captureStage:()=>({toDataURL:()=> 'data:image/png;base64,fixture'}),canvas:{toDataURL:()=> 'data:image/png;base64,fixture'},
   updateSideWarning:()=>null,render(){},drawJobs(){},updateClock(){},updateTaskClock(){},drawMetadata(){},drawLatestJob(){},drawAgent(){},drawCatalog(){},loadJobHistory:async()=>{},mergeJobSummary:s=>s,persistView(){},updateDisplay(){},notice:message=>notices.push(message),connectAgent:async()=>assert.fail('Agent must not connect in fixture'),errorString:e=>typeof e==='string'?e:e?.message||'',fail:error=>errors.push(error.message),toast:message=>toasts.push(message),

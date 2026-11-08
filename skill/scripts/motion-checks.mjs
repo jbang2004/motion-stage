@@ -3,7 +3,8 @@
 // scenario-labs/skills `scenario-blender-animation/scripts/bx_anim.py` (MIT); see THIRD_PARTY.md.
 // These are evidence for the agent and the user, never a completion gate or artistic approval.
 import {createHash} from 'node:crypto';
-import {parseGlb,readAccessor} from './asset-tools.mjs';
+import {parseGlb,animationAccessorReader} from './asset-tools.mjs';
+import {footRepairVelocity} from '../assets/viewer/foot-repair.mjs';
 
 const DEG=180/Math.PI;
 const digest=b=>createHash('sha256').update(b).digest('hex');
@@ -35,10 +36,10 @@ function loadClip(doc,bin,clipName){
  const anims=doc.animations||[];
  const index=clipName===undefined?(anims.length===1?0:-1):anims.findIndex((a,i)=>(a.name||'animation_'+i)===clipName);
  if(index<0)throw Error(anims.length?'请用 --clip 指定动作：'+anims.map((a,i)=>a.name||'animation_'+i).join('、'):'模型没有动作，无法做运动检查。');
- const a=anims[index],channels=[];let start=Infinity,end=-Infinity;
+ const a=anims[index],channels=[],read=animationAccessorReader(doc,bin);let start=Infinity,end=-Infinity;
  for(const c of a.channels||[]){
   const node=c.target?.node,path=c.target?.path;if(!Number.isInteger(node)||!['translation','rotation','scale'].includes(path))continue;
-  const s=a.samplers[c.sampler],times=readAccessor(doc,bin,s.input).flat(),values=readAccessor(doc,bin,s.output),interpolation=s.interpolation||'LINEAR';
+  const s=a.samplers[c.sampler],times=read(s.input).flat(),values=read(s.output),interpolation=s.interpolation||'LINEAR';
   if(!times.length)continue;
   if(values.length!==times.length*(interpolation==='CUBICSPLINE'?3:1))throw Error('动作轨道的时间与数值数量不一致。');
   channels.push({node,path,times,values,interpolation});start=Math.min(start,times[0]);end=Math.max(end,times.at(-1));
@@ -149,6 +150,26 @@ export function footSlip(poser,clip,foot,{fps=30,legLength,pelvis,contacts,floor
 }
 
 // ---- entry point ----
+export function measureFootRepair(bytes,repair,{candidate=false}={}){
+ const {doc,bin}=parseGlb(bytes,{copy:false}),clip=loadClip(doc,bin,repair.clip),poser=makePoser(doc,clip);
+ const foot=resolveNode(poser.nodes,candidate?repair.foot:repair.nodeIndex);
+ if(nameOf(poser.nodes,foot)!==repair.foot)throw Error('脚节点与诊断记录不一致。');
+ const [start,end]=repair.time;
+ if(start<clip.start-.0001||end>clip.end+.0001)throw Error('该版本未覆盖完整的脚滑诊断区间。');
+ const fps=120,steps=Math.ceil((end-start)*fps),[vx,vz]=footRepairVelocity(repair);
+ const first=poser.worldPos([foot],start)[0];
+ let raw=0,simulated=0,heightChange=0;
+ for(let i=1;i<=steps;i++){
+  const dt=(end-start)*i/steps,point=poser.worldPos([foot],start+dt)[0];
+  const dx=point[0]-first[0],dz=point[2]-first[2];
+  raw=Math.max(raw,Math.hypot(dx,dz));
+  simulated=Math.max(simulated,Math.hypot(dx+vx*dt,dz+vz*dt));
+  heightChange=Math.max(heightChange,Math.abs(point[1]-first[1]));
+ }
+ if(![raw,simulated,heightChange].every(Number.isFinite))throw Error('脚节点位置无法测量。');
+ return {fps,samples:steps+1,raw:round(raw),simulated:repair.runtime?round(simulated):null,heightChange:round(heightChange)};
+}
+
 export const CHECK_NAMES=['rotationFlips','footSlip','limbExtension'];
 export function checkMotion(bytes,{clip,fps=30,feet,chains,checks=CHECK_NAMES,maxStepDegrees=90,popDegrees=20,contacts,floor,tolerance}={}){
  if(!Number.isFinite(fps)||fps<1||fps>240)throw Error('采样帧率需要在 1 到 240 之间。');

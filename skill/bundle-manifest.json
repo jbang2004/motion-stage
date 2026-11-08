@@ -1,7 +1,7 @@
 {
   "name": "motion-stage",
   "version": "4.2.0",
-  "createdAt": "2026-11-07T16:25:49.079507+00:00",
+  "createdAt": "2026-11-08T01:48:37.394596+00:00",
   "runtime": "Node.js >=22 / Canvas2D curves; WebGL2 spatial previews",
   "externalRuntimeDependencies": {
     "base": [],
@@ -38,8 +38,8 @@
     },
     {
       "path": "SKILL.md",
-      "bytes": 14623,
-      "sha256": "f5bb9a17784f464abc83d6f680e2f5194225ae5bdc811342d37ff30f510daac1"
+      "bytes": 15440,
+      "sha256": "4f7f3d9b70c5f433b0b643f59236b146675f2cec4803a53763c5624e15b79092"
     },
     {
       "path": "THIRD_PARTY.md",
@@ -233,8 +233,8 @@
     },
     {
       "path": "assets/viewer/app.js",
-      "bytes": 167288,
-      "sha256": "4a2db35bd363ad07c5103cced6c0031003739786d908cb52d78ad33247705348"
+      "bytes": 171794,
+      "sha256": "613203a6307b7ac9c24787708574680e8a2a913e8815d755e1637350d3755e25"
     },
     {
       "path": "assets/viewer/asset-loader.mjs",
@@ -278,8 +278,13 @@
     },
     {
       "path": "assets/viewer/foot-diagnostics.mjs",
-      "bytes": 3172,
-      "sha256": "a1ff3129094aa41be7056da82395e3c9a03b6edb06bc3b8f696cf1107875ac67"
+      "bytes": 5536,
+      "sha256": "81199ab52165894e815d3c72ffda040cb828a884f9d2a71211f860eaaf7c361f"
+    },
+    {
+      "path": "assets/viewer/foot-repair.mjs",
+      "bytes": 1750,
+      "sha256": "1e85480541e1c2164eea1361f98de65be0056f7595bac447dd518749ea45f2b6"
     },
     {
       "path": "assets/viewer/gltf-loader.mjs",
@@ -298,8 +303,8 @@
     },
     {
       "path": "assets/viewer/index.html",
-      "bytes": 38903,
-      "sha256": "21075222ab05c4055b78673a41554cce7c952714bc621151fd5644b5dab48dd2"
+      "bytes": 40050,
+      "sha256": "b4b38c3a63e0a83b8dc81b94d602d197800074db0b1fd9ca8820a84e61209682"
     },
     {
       "path": "assets/viewer/joint-targets.mjs",
@@ -308,8 +313,8 @@
     },
     {
       "path": "assets/viewer/library.css",
-      "bytes": 54189,
-      "sha256": "34f2b5e1b511eaf07f7825105a6e8148a1201dce846a1c5bff110bc22df7e2ba"
+      "bytes": 55173,
+      "sha256": "3c33d992e1c6a89b1624fea8666c4251152d40e256a7a1edfc99b6c3ee692614"
     },
     {
       "path": "assets/viewer/model-catalog.mjs",
@@ -373,8 +378,8 @@
     },
     {
       "path": "assets/viewer/result-evidence.mjs",
-      "bytes": 9106,
-      "sha256": "eebad3444fd59bd93471e4d2569d2a736cfb393da270fb09ecbfa19e5e4f7501"
+      "bytes": 9338,
+      "sha256": "503313966e886495dbbc69d139479b0a6c36857fe7ec00f2e732b70f0c0441ae"
     },
     {
       "path": "assets/viewer/rotation-edit.mjs",
@@ -488,8 +493,8 @@
     },
     {
       "path": "scripts/agent-worker.mjs",
-      "bytes": 19737,
-      "sha256": "3af53611ced589e549708989f6b6a17c8d1985eba6e42d59a1ed0b4ae59748dc"
+      "bytes": 19776,
+      "sha256": "2901ae5ca6dd06d6f1f7ae5e5b00ddf8d91079d4bd96d0a8f3ba72ce4287cfc5"
     },
     {
       "path": "scripts/asset-catalog.mjs",
@@ -498,8 +503,8 @@
     },
     {
       "path": "scripts/asset-tools.mjs",
-      "bytes": 25184,
-      "sha256": "6635dc9b55b95b1cef768c0323b2fab1b48e312e04ff5ec636c3340ef19a5bc9"
+      "bytes": 26781,
+      "sha256": "0558280a2ac45d612368d76eec6a1238c08b5c20978a76e9b8042ea0eea2333b"
     },
     {
       "path": "scripts/blender/convert_fbx.py",
@@ -508,8 +513,8 @@
     },
     {
       "path": "scripts/candidate-diff.mjs",
-      "bytes": 7084,
-      "sha256": "3a9d385730098c530882f91a12053a614cec214dbe569701253f9976d7b611f1"
+      "bytes": 8634,
+      "sha256": "7d428e53aaffb61431165872f2fc1255be7cf425491a8c45376ab7c0e1a5e6b6"
     },
     {
       "path": "scripts/candidate-validation.mjs",
@@ -558,8 +563,8 @@
     },
     {
       "path": "scripts/drafts.mjs",
-      "bytes": 1713,
-      "sha256": "7988d88a9d74e3ae4c0d07233853379bc2a28356fb4d5c408ffa0fd407b06a72"
+      "bytes": 1881,
+      "sha256": "a4e746d115149f6198b6a4afd8f1fa352e898fecbc5772cf7bd15c05a324923d"
     },
     {
       "path": "scripts/execution-runtime.mjs",
@@ -583,8 +588,8 @@
     },
     {
       "path": "scripts/jobs.mjs",
-      "bytes": 48572,
-      "sha256": "3c5f3c0be5b8f2cdf6e32d284f9c8257cd69e3b3c75153e5ce45a1504147392b"
+      "bytes": 50892,
+      "sha256": "59b4c0a353a09545f9df0592584e125b561bf1f74c8633b66df06b8f9cf8dbee"
     },
     {
       "path": "scripts/mcp.mjs",
@@ -593,13 +598,13 @@
     },
     {
       "path": "scripts/motion-assembly.mjs",
-      "bytes": 12926,
-      "sha256": "472458f1aa7fa46bc1dcebfa818c0a2ec2a4cabcf8bb4aa81d6cbb0e2c2fae31"
+      "bytes": 11317,
+      "sha256": "8f2a8cefa4caff353e048b902991ff7f3151dbbdf9c605d5a2363e43a7cbdacf"
     },
     {
       "path": "scripts/motion-checks.mjs",
-      "bytes": 19577,
-      "sha256": "651215aa1a8384292dad521a1c919b710237bf73f35ce1e70b3f087838d70902"
+      "bytes": 20884,
+      "sha256": "14c7bb273220b2f7be26704fe872af8ff5ad7533e530f42f948519e64c93e82e"
     },
     {
       "path": "scripts/motion-feedback.mjs",
@@ -813,8 +818,8 @@
     },
     {
       "path": "scripts/test/jobs.test.mjs",
-      "bytes": 23017,
-      "sha256": "30ffb758b5493aecc1c1db546b80480d442356c67f703d27bd209deda16603e7"
+      "bytes": 24593,
+      "sha256": "829dbd9bd2f9bbc7bffbc3b23fd26abef8ec12c4621edf398e6a07319101e4e1"
     },
     {
       "path": "scripts/test/joint-targets.test.mjs",
@@ -828,13 +833,13 @@
     },
     {
       "path": "scripts/test/motion-assembly.test.mjs",
-      "bytes": 7263,
-      "sha256": "90ebf1d20116c789dff5a435af56dd09a056afe9bc761063afbc49ad5633c2f9"
+      "bytes": 7695,
+      "sha256": "949b4782816e6853505dec0dbe7e0734ddc2fd9300150d0912d59d237857757b"
     },
     {
       "path": "scripts/test/motion-checks.test.mjs",
-      "bytes": 9345,
-      "sha256": "a88752dc1c3f72fa68cf3e0ba97f8b86f4813c006f9a0bbf22d0bc177ec9ad2f"
+      "bytes": 10257,
+      "sha256": "fb6d85823345b6a21d3678f554ba122de763a8f54180ce657c814c42f2abc874"
     },
     {
       "path": "scripts/test/motion-library.test.mjs",
@@ -928,13 +933,13 @@
     },
     {
       "path": "scripts/test/view-operations.test.mjs",
-      "bytes": 15375,
-      "sha256": "1921cef282712c92ce6f18df794f6a316218ae9c78bd07b4a00e10e6a3262fc1"
+      "bytes": 15408,
+      "sha256": "bae6c98e2c0ae2ee93cfca4607fcebf1f27171f4efeeb70ba78d9bad33c16315"
     },
     {
       "path": "scripts/test/view-state.test.mjs",
-      "bytes": 22990,
-      "sha256": "cf0b8c680145a806cf5740be522f6eb73085480061ad298c195a02e3d4f2eb22"
+      "bytes": 23044,
+      "sha256": "2b85cf140877d17e5b6ab83cc17997aaf4032c67e7a0e003b1439d60962d4368"
     },
     {
       "path": "scripts/test/viewer-dom-fixture.mjs",

@@ -1,8 +1,6 @@
-import {meshoptExtension} from '../assets/viewer/resource-capabilities.mjs';
 import {parseSampledTracks} from './curve-resources.mjs';
 import {Matrix4,Quaternion,Vector3,PropertyBinding} from '../assets/vendor/three/build/three.core.js';
-import {parseGlb,encodeGlb,readAccessor} from './asset-tools.mjs';
-import {MeshoptDecoder} from '../assets/vendor/three/examples/jsm/libs/meshopt_decoder.module.js';
+import {parseGlb,encodeGlb,animationAccessorReader} from './asset-tools.mjs';
 
 const requireValue=(value,message)=>{if(!value)throw Error(message);};
 const shapes={translation:'VEC3',rotation:'VEC4',scale:'VEC3',weights:'SCALAR'};
@@ -50,19 +48,7 @@ export function motionTargetResolver(base,source,nodeMap={}){
 
 export async function gltfClips(base,bytes,options={}){
  const source=parseGlb(bytes);
- const decoded=new Map();let expanded=0;
- const selected=(source.doc.animations||[]).filter((a,i)=>!options.clips||options.clips.includes(a.name||'animation_'+i));
- for(const animation of selected)for(const sampler of animation.samplers||[])for(const index of [sampler.input,sampler.output]){
-  const accessor=source.doc.accessors?.[index],view=source.doc.bufferViews?.[accessor?.bufferView],ext=meshoptExtension(view);
-  if(!ext||decoded.has(accessor.bufferView))continue;
-  const size=ext.count*ext.byteStride;
-  requireValue(Number.isSafeInteger(size)&&size>0&&(expanded+=size)<=128*1024*1024&&ext.buffer===0&&size===view.byteLength,'压缩动作超出解码预算或描述无效');
-  requireValue(Number.isSafeInteger(ext.byteOffset||0)&&(ext.byteOffset||0)>=0&&Number.isSafeInteger(ext.byteLength)&&ext.byteLength>0&&(ext.byteOffset||0)+ext.byteLength<=source.bin.length,'压缩动作数据范围无效');
-  await MeshoptDecoder.ready;const out=Buffer.alloc(size);
-  MeshoptDecoder.decodeGltfBuffer(out,ext.count,ext.byteStride,source.bin.subarray(ext.byteOffset||0,(ext.byteOffset||0)+ext.byteLength),ext.mode,ext.filter);
-  decoded.set(accessor.bufferView,out);
- }
- const read=index=>{const a=source.doc.accessors[index],data=decoded.get(a.bufferView);return data?readAccessor({buffers:[{byteLength:data.length}],bufferViews:[{byteLength:data.length,byteStride:source.doc.bufferViews[a.bufferView].byteStride}],accessors:[{...a,bufferView:0}]},data,0):readAccessor(source.doc,source.bin,index);};
+ const read=animationAccessorReader(source.doc,source.bin);
  const target=motionTargetResolver(base,source.doc,options.nodeMap||{});
  return (source.doc.animations||[]).map((animation,index)=>({animation,index})).filter(({animation,index})=>!options.clips||options.clips.includes(animation.name||'animation_'+index)).map(({animation,index})=>{
   const name=animation.name||'animation_'+index;
