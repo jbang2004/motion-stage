@@ -17,6 +17,8 @@ import {listJobs,getJob,createJob,cancelJob,localEditJob,reviewJob,inspectSlot,d
 import {projectStatus,prepareProject,chooseProjectFolder,revealWorkspace} from './project-workspaces.mjs';
 import {diagnoseRuntime} from './runtime-diagnostics.mjs';
 import {appearanceStatus,appearanceFile} from './project-appearance.mjs';
+import {offlinePreviewStatus,runtimePreviewStatus} from './runtime-preview.mjs';
+import {createManagedPreview} from './managed-preview.mjs';
 import {readJobIndex,jobsPage,activeJobStates} from './job-index.mjs';
 import * as jobLifecycle from './jobs.mjs';
 
@@ -29,6 +31,7 @@ export async function serve(work,port=5178,options={}){
  const caller=normalizeCaller(options.caller);options={...options,caller};
  work=await realpath(work);const serverKey=JSON.stringify([work,callerKey(caller)]);const children=new Set();
  let serverCloseCleanup=()=>{};
+ const managedPreview=createManagedPreview(work, options.managedPreview);
  const diagnose=options.diagnoseRuntime||diagnoseRuntime;
  let runtime=await diagnose({workspace:work,programs:[]});
  if(!runtime.node.supported)throw Error('需要 Node.js 22 或更高版本。请升级 Node.js 后重新启动工作台。');
@@ -66,6 +69,8 @@ export async function serve(work,port=5178,options={}){
    const characterModel=p.match(/^\/api\/characters\/([-\w]+)\/model$/);
    if(characterModel&&req.method==='GET'){const bytes=await characterModelBytes(work,characterModel[1]);res.writeHead(200,{'Content-Type':'model/gltf-binary','Content-Length':bytes.length,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});return res.end(bytes);}
    if(p==='/api/appearance'&&req.method==='GET')return send(200,await appearanceStatus(work,url.searchParams.get('assetId')||undefined));
+   if(p==='/api/runtime-preview'&&req.method==='GET')return send(200,await runtimePreviewStatus(work,url.searchParams.get('assetId'),origin));
+   if(p==='/api/offline-preview'&&req.method==='GET')return send(200,await offlinePreviewStatus(work,url.searchParams.get('assetId')));
    if(p==='/api/project'&&req.method==='GET')return send(200,await projectStatus(work,options));
    const pc=p.match(/^\/api\/jobs\/([a-f0-9-]{36})\/project-context$/);if(pc&&req.method==='GET')return send(200,await getJobProjectContext(work,pc[1]));
    if(p==='/api/studio'&&req.method==='GET'){
@@ -89,6 +94,18 @@ export async function serve(work,port=5178,options={}){
    if(p.startsWith('/api/')&&req.method!=='GET'){
     if(req.headers['x-motion-token']!==token)return send(403,{error:'请刷新页面后重试'});
     const data=await body(req,p.startsWith('/api/assets/')?200*1024*1024:12*1024*1024);
+    if(p.startsWith('/api/runtime-preview/')&&req.method==='POST'){
+     const {lease,assetId}=JSON.parse(data);
+     if(typeof lease!=='string'||!/^[-\w]{36}$/.test(lease))return send(400,{error:'游戏预览会话无效'});
+     if(p==='/api/runtime-preview/renew')return send(200,{active:managedPreview.renew(lease)});
+     if(p==='/api/runtime-preview/release'){await managedPreview.release(lease);return send(200,{});}
+     if(p==='/api/runtime-preview/open'){
+      const catalog=await managedPreview.acquire(lease);
+      const result=await runtimePreviewStatus(work,assetId,origin,catalog);
+      if(catalog&&!result.states.length)await managedPreview.release(lease);
+      return send(200,{...result,managed:Boolean(catalog&&result.states.length)});
+     }
+    }
     if(draftRoute&&req.method==='POST')return send(200,await saveDraft(work,draftRoute[1],JSON.parse(data)));
     if(p==='/api/undo'&&req.method==='POST')return send(200,await applyUndo(work,JSON.parse(data)));
     // Cache writes and read-only curve reads skip the mutation queue so
@@ -215,7 +232,7 @@ export async function serve(work,port=5178,options={}){
   }catch(e){if(!res.headersSent)send(e.code==='ENOENT'?404:['MODEL_JOB_ACTIVE','AGENT_BUSY'].includes(e.code)?409:400,{error:e.message,...(e.code?{code:e.code}:{}),...(e.jobId?{jobId:e.jobId}:{})});else res.end();}
  });
  server.once('close',()=>{if(workspaceServers.get(serverKey)===server)workspaceServers.delete(serverKey);serverCloseCleanup();});
- const close=server.close.bind(server);server.close=callback=>{workerGeneration++;connecting=null;workerAbort?.abort();Promise.all([workerRun,stopCharacterActionDiscovery(work),stopCatalogScan(work),...[...children].filter(c=>c.listening).map(c=>new Promise(r=>c.close(r)))]).catch(()=>{}).finally(()=>close(callback));return server;};
+ const close=server.close.bind(server);server.close=callback=>{workerGeneration++;connecting=null;workerAbort?.abort();Promise.all([workerRun,managedPreview.close(),stopCharacterActionDiscovery(work),stopCatalogScan(work),...[...children].filter(c=>c.listening).map(c=>new Promise(r=>c.close(r)))]).catch(()=>{}).finally(()=>close(callback));return server;};
  try{await new Promise((ok,no)=>{server.once('error',no);server.listen(port,'127.0.0.1',ok);});}
  catch(error){throw Object.assign(Error(error.code==='EADDRINUSE'?'本地服务端口已被占用，请关闭旧服务或使用 --port 0 自动选择端口。':'本地服务无法启动，请检查本机网络权限后重试。',{cause:error}),{code:error.code});}
  runtime.server={status:'ready',host:'127.0.0.1',port:server.address().port};workspaceServers.set(serverKey,server);

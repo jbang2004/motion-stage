@@ -41,6 +41,7 @@ macOS 可双击 `Open MotionStage.command`，Windows 可双击 `Open MotionStage
 - **版本与来源**：公共动作包、名称映射和每个角色收录的动作分开管理，旧版本与任务记录全部保留。
 - **导入素材**：**＋导入** 支持自包含 GLB、静态模型、采样动作 JSON；有本机 Blender 时可导入 FBX。
 - **项目外观（可选）**：安装经审阅的适配包后，可用游戏自己的着色器预览角色；默认是中性检查。
+- **游戏状态预览（可选）**：选择角色并点击 **游戏状态**，在动作台预览项目提供的动作、外观和装备配置，也可切换到游戏运行时。主视窗的「游戏角色」可直接预览对应的原版动作。项目登记预览入口后，打开和关闭预览会自动管理本地服务。
 - **环境检查**：**⋯ → 环境检查** 显示启动结果与浏览器的真实渲染状态。
 
 ## 从 3.x 升级
@@ -64,6 +65,7 @@ macOS 可双击 `Open MotionStage.command`，Windows 可双击 `Open MotionStage
 - 资源库与格式：[references/asset-library.md](references/asset-library.md)
 - 项目工作区：[references/project-workspace.md](references/project-workspace.md)
 - 项目外观：[references/project-appearance.md](references/project-appearance.md)
+- 游戏状态预览：[references/runtime-preview.md](references/runtime-preview.md)
 - 安装与排错：[references/setup.md](references/setup.md)
 - 环境诊断与恢复：[references/reliability.md](references/reliability.md)
 - 实测案例：[references/agent-case.md](references/agent-case.md)、[references/real-case.md](references/real-case.md)

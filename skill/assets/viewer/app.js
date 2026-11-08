@@ -19,6 +19,9 @@ import {projectArray,renderProjectContext as renderContext} from './project-cont
 import {createAssetLoader} from './asset-loader.mjs';
 import {createAppearanceController,disposeAppearance,withRendererState,renderAppearance,captureResources,disposeResources} from './project-appearance.mjs';
 import {createEnvironmentPanel} from './environment-view.mjs';
+import {createRuntimePreview} from './runtime-preview.mjs';
+import {createRuntimeStage} from './runtime-stage.mjs';
+import {parseOfflineState,modelPreviewStates,bindOfflineAttachments,resetOfflineAttachments,poseOfflineAttachments} from './offline-state.mjs';
 import {observationDuration,observationTime,planObservationRestore,restoredTransportTime,observationFrame,observationFrameOptions} from './observation-state.mjs';
 import {createDemandLoop} from './render-loop.mjs';
 import {resultEvidence,candidateDiffEvidence,protectionMessage} from './result-evidence.mjs';
@@ -51,8 +54,42 @@ let toastTimer;
 function toast(message,action=null){$('toast').textContent=message;if(action){const b=el('button','撤销','text-button');b.type='button';b.onclick=action;$('toast').append(b);}$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').hidden=true,4500);}
 function notice(message,error=false){$('notice').textContent=message;$('notice').hidden=!message;$('notice').classList.toggle('error',error);}
 function fail(e,fatal=false){const message=e?.message||String(e);notice(message,true);if(fatal){$('errorMessage').textContent=message;$('stageError').hidden=false;$('stageLoading').hidden=true;}console.error(e);}
-async function api(path,method='GET',body,request={}){if(method==='GET'&&['/api/session','/api/studio','/api/undo'].includes(path)){const params=new URLSearchParams(),id=request.assetId??state.project?.activeAssetId??new URLSearchParams(location.search).get('asset');if(id)params.set('assetId',id);if(request.compact){params.set('compact','1');if(request.since)params.set('since',request.since);if(state.selectedJob)params.set('jobId',state.selectedJob);}if(params.size)path+='?'+params;}const response=await fetch(path,{method,signal:request.signal,keepalive:method!=='GET'&&path.startsWith('/api/drafts/')&&JSON.stringify(body).length<15000,headers:method==='GET'?{}:{'x-motion-token':state.token,'Content-Type':body instanceof Blob?'application/octet-stream':'application/json'},body:body===undefined?undefined:body instanceof Blob?body:JSON.stringify(body)});let data;try{data=await response.json();}catch{throw Error('工作台服务没有返回有效结果，请检查服务是否仍在运行。');}if(!response.ok)throw Object.assign(Error(data.error||'请求失败（'+response.status+'）'),{code:data.code});return data;}
+async function api(path,method='GET',body,request={}){if(method==='GET'&&['/api/session','/api/studio','/api/undo'].includes(path)){const params=new URLSearchParams(),id=request.assetId??state.project?.activeAssetId??new URLSearchParams(location.search).get('asset');if(id)params.set('assetId',id);if(request.compact){params.set('compact','1');if(request.since)params.set('since',request.since);if(state.selectedJob)params.set('jobId',state.selectedJob);}if(params.size)path+='?'+params;}const response=await fetch(path,{method,signal:request.signal,keepalive:method!=='GET'&&(path==='/api/runtime-preview/release'||path.startsWith('/api/drafts/')&&JSON.stringify(body).length<15000),headers:method==='GET'?{}:{'x-motion-token':state.token,'Content-Type':body instanceof Blob?'application/octet-stream':'application/json'},body:body===undefined?undefined:body instanceof Blob?body:JSON.stringify(body)});let data;try{data=await response.json();}catch{throw Error('工作台服务没有返回有效结果，请检查服务是否仍在运行。');}if(!response.ok)throw Object.assign(Error(data.error||'请求失败（'+response.status+'）'),{code:data.code});return data;}
 const environmentPanel=createEnvironmentPanel({button:$('openEnvironment'),dialog:$('environmentDialog'),body:$('environmentResults'),recheck:$('recheckEnvironment'),close:$('closeEnvironment'),reload:$('reloadEnvironment'),loadReport:refresh=>api('/api/doctor'+(refresh?'':'?cached=1'))});
+const runtimePreviewDialog=$('runtimePreviewDialog');
+let offlineSelection=null;
+const renewRuntime=lease=>api('/api/runtime-preview/renew','POST',{lease});
+const releaseRuntime=lease=>api('/api/runtime-preview/release','POST',{lease});
+const runtimeStage=createRuntimeStage({
+ stage:$('stage'), host:$('runtimeStageFrame'), button:$('runtimeStageMode'), assetButton:$('assetStageMode'),
+ status:$('runtimeStageStatus'), transport:$('runtimeStageTransport'), timeline:$('runtimeStageTimeline'),
+ play:$('runtimeStagePlay'), clock:$('runtimeStageClock'), load:loadPreviewStates, renew:renewRuntime, release:releaseRuntime,
+ current:runtimeStageInput,
+ onMode:active=>{$('taskPanel').inert=active;},
+ onReturn:()=>{render();updateClock();},
+});
+function runtimeStageInput(){
+ const model=activeModel(), source=model?.meta.source, clip=model?.clip;
+ const original=source?.assembly?.clips?.[clip];
+ const file=original?.file??source?.projectRelativePath;
+ return {assetId:viewState.loadedAssetId, sourceId:JSON.stringify([model?.meta.sha256,clip,file]), file,
+  clip:original?.sourceClip??clip, time:localTime(activeSlot()), playing:state.playing, loop:state.loop,
+  speed:state.speed, view:state.view,
+  ineligible:!state.ready||!file||!viewState.loadedAssetId||state.display!=='single'||activeSlot()!=='baseline'||
+   Boolean(state.motionPreview||localPreview||state.archivedJobId||state.capturing||state.submitting)};
+}
+createRuntimePreview({
+ button:$('openRuntimePreview'),dialog:runtimePreviewDialog,title:$('runtimePreviewCharacter'),
+ status:$('runtimePreviewStatus'),mode:$('runtimePreviewMode'),select:$('runtimePreviewState'),refresh:$('refreshRuntimeStates'),
+ apply:$('applyOfflineState'),clear:$('clearOfflineState'),
+ frameHost:$('runtimePreviewFrame'),external:$('openRuntimeExternal'),
+ currentAsset:()=>({id:viewState.loadedAssetId,name:state.project?.title}),
+ currentPreset:activeOfflinePreset,applyPreset:applyOfflinePreset,
+ loadStates:loadPreviewStates,
+ renew:renewRuntime, release:releaseRuntime,
+});
+runtimePreviewDialog.addEventListener('close',()=>renderLoop?.wake());
+$('openRuntimePreview').addEventListener('click',()=>runtimeStage.stop(),{capture:true});
 const appearance=createAppearanceController({revision:T.REVISION,runCreate:(fn,ctx)=>withRendererState(renderer,T,()=>fn(ctx)),loadStatus:id=>api('/api/appearance?assetId='+encodeURIComponent(id||''),'GET',undefined,{signal:AbortSignal.timeout?.(5000)}),onChange:drawAppearance});
 function drawAppearance({mode,descriptor,error,loading}){const select=$('appearanceMode');select.value=mode;select.querySelector('option[value="project"]').disabled=descriptor?.status!=='ready'||activeModel()?.capabilities.hasMesh===false;select.disabled=activeModel()?.capabilities.hasMesh===false||loading||state.switching||state.loading||state.capturing||state.submitting; $('appearanceStatus').textContent=error||(mode==='project'?descriptor.label+' · '+(descriptor.limitations||[]).join('；'):'中性检查 · '+(descriptor?.status==='ready'?'可切换为 '+descriptor.label:descriptor?.message||'未配置项目外观'));}
 $('appearanceMode').onchange=async()=>{if(state.loading||state.switching||state.capturing||state.submitting){drawAppearance({mode:appearance.mode,descriptor:appearance.descriptor,error:appearance.error});return;}appearance.select($('appearanceMode').value);try{await refreshModels({force:true});}catch(e){fail(e);}finally{drawAppearance({mode:appearance.mode,descriptor:appearance.descriptor,error:appearance.error});}};
@@ -248,7 +285,7 @@ const ring=new T.Mesh(new T.RingGeometry(.73,.734,100),new T.MeshBasicMaterial({
 const shadow=new T.Mesh(new T.CircleGeometry(.65,64),new T.MeshBasicMaterial({color:0x1c2230,transparent:true,opacity:.14,depthWrite:false}));shadow.rotation.x=-Math.PI/2;shadow.scale.set(1,.58,1);shadow.position.y=-.003;scene.add(shadow);
 return{scene,environment:[floor,grid,ring,shadow]};}
 function dispose(m){if(!m)return;m.mixer?.stopAllAction();m.mixer?.uncacheRoot(m.root);const resources=captureResources(m.scene,m.inputResources);for(const material of m.ghostMaterials||[])resources.materials.add(material);disposeAppearance(m);disposeResources(resources);}
-function timeModel(m,time){m.holder.position.copy(m.offset);const action=m.previewAction||m.action;if(action){action.reset().play();m.mixer.setTime(time);}m.scene.updateMatrixWorld(true);}
+function timeModel(m,time){resetOfflineAttachments(m.offlineBindings);m.holder.position.copy(m.offset);const action=m.previewAction||m.action;if(action){action.reset().play();m.mixer.setTime(time);}m.scene.updateMatrixWorld(true);poseOfflineAttachments(m);}
 function normalize(m,frame=observationFrame(m.bbox,$('scaleMode').value)){
  m.frame=frame;m.factor=frame.factor;m.holder.scale.setScalar(frame.factor);m.offset.fromArray(frame.offset);timeModel(m,0);m.anchor=m.hip.getWorldPosition(new T.Vector3());m.poseStamp=null;
  if(m.scene.fog===m.inspectionFog){m.inspectionFog.near=10*frame.distanceScale;m.inspectionFog.far=26*frame.distanceScale;}
@@ -305,7 +342,7 @@ function selectClip(slot,name){const m=state.models[slot];if(!m)return;if(localP
 function pose(){for(const slot of slots){const m=state.models[slot];if(!m)continue;const stamp=[m.previewAction||m.action,localTime(slot),m.frame,$('lockRoot').checked,$('bones').checked,state.display,state.target];if(m.poseStamp?.every((value,i)=>value===stamp[i]))continue;m.poseStamp=stamp;timeModel(m,localTime(slot));if($('lockRoot').checked&&m.action){const delta=m.hip.getWorldPosition(new T.Vector3()).sub(m.anchor);m.holder.position.x-=delta.x;m.holder.position.z-=delta.z;m.scene.updateMatrixWorld(true);}m.lines.visible=!m.capabilities.hasMesh||$('bones').checked||(state.display==='overlay'&&slot==='baseline');m.points.visible=!m.capabilities.hasMesh&&m.joints.length>0;if(m.points.visible)m.points.geometry.setFromPoints(m.joints.map(b=>b.getWorldPosition(new T.Vector3())));if(m.lines.visible){const points=[];for(const b of m.joints)if(m.jointSet.has(b.parent))points.push(b.getWorldPosition(new T.Vector3()),b.parent.getWorldPosition(new T.Vector3()));m.lines.geometry.setFromPoints(points);}m.nodeAxes.visible=!m.capabilities.hasMesh&&m.joints.length>0;if(m.nodeAxes.visible){const b=joint(m,state.target?.bone,state.target?.nodeIndex)||m.joints.at(-1);m.nodeAxes.position.copy(b.getWorldPosition(new T.Vector3()));m.nodeAxes.quaternion.copy(b.getWorldQuaternion(new T.Quaternion()));}m.marker.visible=Boolean(state.target&&state.target.slot===slot);if(m.marker.visible){const bone=joint(m,state.target.bone,state.target.nodeIndex);if(bone)m.marker.position.copy(bone.getWorldPosition(new T.Vector3()));else if(state.target.worldPoint)m.marker.position.fromArray(state.target.worldPoint);else m.marker.visible=false;}}
 }
 function drawModel(m,camera,viewport){if(['curves','metadata'].includes(m.capabilities.preview))return;try{renderAppearance(m,{renderer,THREE:T,camera,viewport,time:localTime(m.appearanceContext.slot)});}catch(error){if(m.appearance||appearanceRecovery)recoverAppearance(error);else throw error;}}
-function render(){if(continuousFrames())renderLoop?.wake();if(!state.ready)return;if(localPreview&&!localPreviewCurrent())clearLocalPreview();drawObservationConditions();pose();drawResourcePanels();if(!renderer)return;const rect=$('stage').getBoundingClientRect(),w=rect.width,h=rect.height;if(!w||!h)return;renderer.setScissorTest(true);renderer.setViewport(0,0,w,h);renderer.setScissor(0,0,w,h);renderer.clear();
+function render(){if(!state.loading&&!state.switching)runtimeStage.sync();if(runtimeStage.active)return;if(continuousFrames())renderLoop?.wake();if(!state.ready)return;if(localPreview&&!localPreviewCurrent())clearLocalPreview();syncOfflineAttachments();drawObservationConditions();pose();drawResourcePanels();if(!renderer)return;const rect=$('stage').getBoundingClientRect(),w=rect.width,h=rect.height;if(!w||!h)return;renderer.setScissorTest(true);renderer.setViewport(0,0,w,h);renderer.setScissor(0,0,w,h);renderer.clear();
 if(state.display==='split'){for(const [i,slot] of ['baseline','candidate'].entries()){const m=state.models[slot];if(!m)continue;cameras[slot].aspect=w/2/h;cameras[slot].updateProjectionMatrix();renderer.setViewport(i*w/2,0,w/2,h);renderer.setScissor(i*w/2,0,w/2,h);drawModel(m,cameras[slot],{x:i*w/2,y:0,width:w/2,height:h});}}
 else{const slot=activeSlot(),m=state.models[slot];if(m){cameras[slot].aspect=w/h;cameras[slot].updateProjectionMatrix();drawModel(m,cameras[slot],{x:0,y:0,width:w,height:h});}if(state.display==='overlay'&&state.models.baseline&&!['curves','metadata'].includes(state.models.baseline.capabilities.preview)){const base=state.models.baseline,old=base.scene.background;base.scene.background=null;for(const o of base.environment)o.visible=false;for(const o of base.meshes)o.visible=false;renderer.clearDepth();renderer.render(base.scene,cameras[slot]);for(const o of base.environment)o.visible=true;for(const o of base.meshes)o.visible=true;base.scene.background=old;}}
 renderer.setScissorTest(false);updateSelectionFloat();}
@@ -317,7 +354,7 @@ function drawResourcePanels(){
  if(state.display==='split'&&!a.element.hidden&&!b.element.hidden&&x&&y&&x.binding===y.binding&&x.component===y.component){const range=[Math.min(a.range[0],b.range[0]),Math.max(a.range[1],b.range[1])];for(const p of [a,b]){p.setDomain(range);p.redraw();}}
 }
 
-function captureStage(){const out=document.createElement('canvas'),r=$('stage').getBoundingClientRect();out.width=renderer?canvas.width:Math.max(1,Math.round(r.width));out.height=renderer?canvas.height:Math.max(1,Math.round(r.height));const ctx=out.getContext('2d');ctx.fillStyle='#161e2a';ctx.fillRect(0,0,out.width,out.height);if(renderer)ctx.drawImage(canvas,0,0);for(const panel of Object.values(resourcePanels))if(!panel.element.hidden){const box=panel.element.getBoundingClientRect();ctx.save();ctx.translate((box.left-r.left)*out.width/r.width,(box.top-r.top)*out.height/r.height);ctx.scale(out.width/r.width,out.height/r.height);panel.paint(ctx,box.width,box.height);ctx.restore();}return out;}
+function captureStage(){runtimeStage.stop();const out=document.createElement('canvas'),r=$('stage').getBoundingClientRect();out.width=renderer?canvas.width:Math.max(1,Math.round(r.width));out.height=renderer?canvas.height:Math.max(1,Math.round(r.height));const ctx=out.getContext('2d');ctx.fillStyle='#161e2a';ctx.fillRect(0,0,out.width,out.height);if(renderer)ctx.drawImage(canvas,0,0);for(const panel of Object.values(resourcePanels))if(!panel.element.hidden){const box=panel.element.getBoundingClientRect();ctx.save();ctx.translate((box.left-r.left)*out.width/r.width,(box.top-r.top)*out.height/r.height);ctx.scale(out.width/r.width,out.height/r.height);panel.paint(ctx,box.width,box.height);ctx.restore();}return out;}
 function setViewButtons(){document.querySelectorAll('[data-view]').forEach(b=>{const active=b.dataset.view===state.view;b.classList.toggle('active',active);b.setAttribute('aria-pressed',String(active));});$('viewName').textContent=({front:'正面',side:'侧面',back:'背面',top:'俯视',orbit:'自由视角'})[state.view]||'自由视角';}
 function view(name){cameraBusy=true;const frame=activeModel()?.frame,target=frame?.target||[0,1,0],scale=frame?.distanceScale||1;for(const slot of slots){const position=viewPositions[name];cameras[slot].position.set(target[0]+position[0]*scale,target[1]+(position[1]-1)*scale,target[2]+position[2]*scale);cameras[slot].near=Math.max(.00001,.01*scale);cameras[slot].far=Math.max(1000,1000*scale);cameras[slot].updateProjectionMatrix();controls[slot].minDistance=.45*scale;controls[slot].maxDistance=40*scale;controls[slot].target.fromArray(target);controls[slot].update();}cameraBusy=false;state.view=name;setViewButtons();render();}
 function drawObservationConditions(){
@@ -362,9 +399,63 @@ function fitMotion(){
  requestAnimationFrame(step);
 }
 function selectMotion(name,{remember=true}={}){navigationEpoch++;castBrowser?.cancelPreview();if(state.switching||state.loading)return;if(remember&&activeModel()?.clip!==name)rememberMotion();for(const slot of slots)if(state.models[slot]?.clips.some(c=>c.name===name))selectClip(slot,name);state.time=0;state.playing=duration()>0;clearTarget();drawLibrary();updateBoneChoices();drawMetadata();render();}
+function activeOfflinePreset(){
+ return offlineSelection&&offlineSelection.assetId===viewState.loadedAssetId?offlineSelection.preset:null;
+}
+async function loadPreviewStates(assetId,offline,signal,lease){
+ if(!offline)return api('/api/runtime-preview/open','POST',{lease,assetId});
+ const result=await api('/api/offline-preview?assetId='+encodeURIComponent(assetId),'GET',undefined,{signal});
+ if(result.states.length||signal.aborted||assetId!==viewState.loadedAssetId)return result;
+ const states=modelPreviewStates(Object.values(state.models),activeModel());
+ return states.length?{states,message:'当前显示模型自带的动作。'+result.message+'。'}:result;
+}
+function restoreOfflinePreset(ctx){
+ offlineSelection=null;
+ if(!ctx.offlinePreset||ctx.assetId!==viewState.loadedAssetId)return;
+ try{offlineSelection={assetId:ctx.assetId,preset:parseOfflineState(ctx.offlinePreset)};}
+ catch(error){notice(error.message,true);}
+}
+function syncOfflineAttachments(){
+ const preset=activeOfflinePreset();
+ const models=Object.values(state.models).filter(model=>model.offlinePreset!==preset);
+ if(!models.length)return;
+ let bindings;
+ try{bindings=models.map(model=>bindOfflineAttachments(T,model,preset?.attachments||[]));}
+ catch(error){offlineSelection=null;syncOfflineAttachments();notice('已清除离线状态配置。'+error.message,true);return;}
+ for(const [index,model] of models.entries()){
+  resetOfflineAttachments(model.offlineBindings);
+  model.offlineBindings=bindings[index];
+  model.offlinePreset=preset;
+  model.poseStamp=null;
+ }
+ $('openRuntimePreview').title=preset?'离线状态 · '+preset.label:'游戏状态';
+}
+async function applyOfflinePreset(preset){
+ const assetId=viewState.loadedAssetId;
+ if(!assetId||state.loading||state.switching||state.capturing||state.submitting)throw Error('请等当前操作完成后再选择状态');
+ if(!preset){offlineSelection=null;render();persistView();return;}
+ for(const model of Object.values(state.models)){
+  const clips=model.libraryOriginalClips||model.clips;
+  if(!clips.some(clip=>clip.name===preset.clip&&preset.time<=clip.duration))throw Error('当前版本缺少状态所需的动作或时刻：'+preset.clip);
+  bindOfflineAttachments(T,model,preset.attachments);
+ }
+ rememberMotion();
+ if(preset.appearance&&preset.appearance!==appearance.mode){
+  appearance.select(preset.appearance);
+  if(!await refreshModels({force:true})||assetId!==viewState.loadedAssetId)throw Error('角色已切换，请重新选择状态');
+ }
+ clearMotionTrial(false);
+ offlineSelection=preset.modelOnly?null:{assetId,preset};
+ selectMotion(preset.clip,{remember:false});
+ seek(preset.time);
+ state.playing=preset.play&&duration()>0;
+ updateClock();
+ persistView();
+ if(preset.appearance==='project'&&appearance.error)notice(appearance.error,true);
+}
 function seek(time){state.playing=false;state.time=Math.max(0,Math.min(duration(),Number(time)||0));render();updateClock();}
 function updateClock(){const d=duration();$('timeline').max=String(d||1);$('timeline').value=String(Math.min(state.time,d));$('timeline').style.setProperty('--progress',(d?Math.min(100,state.time/d*100):0)+'%');$('clock').replaceChildren(document.createTextNode(state.time.toFixed(3)+' '),el('span','/ '+d.toFixed(3)+' s'));const symbol=state.playing?'pause':'play';if($('play').dataset.symbol!==symbol){$('play').replaceChildren(icon(symbol));$('play').dataset.symbol=symbol;}$('play').setAttribute('aria-label',state.playing?'暂停':'播放');$('play').disabled=!state.ready||!d;$('prev').disabled=!d;$('next').disabled=!d;$('contextTime').textContent=localTime(activeSlot()).toFixed(3)+'s';$('frameInfo').textContent='第 '+Math.round(localTime(activeSlot())*state.fps)+' 帧 · '+state.fps+' fps 审阅';$('contextClip').textContent=activeModel()?.clip||'静态姿态';$('tickQuarter').textContent=(d/4).toFixed(2);$('tickMid').textContent=(d/2).toFixed(2);$('tickThreeQuarter').textContent=(d*.75).toFixed(2);$('tickEnd').textContent=d.toFixed(2)+' s';updateScopeVisual();}
-function context(){const slot=activeSlot(),m=state.models[slot];return{assetId:viewState.loadedAssetId,slot,asset:m?{sha256:m.meta.sha256,file:m.meta.file}:null,clip:m?.clip||null,time:localTime(slot),frame:Math.round(localTime(slot)*state.fps),fps:state.fps,speed:state.speed,loop:state.loop,scaleMode:$('scaleMode').value,view:state.view,displayMode:state.display==='single'?'all':'comparison',display:state.display,mode:$('progress').checked?'progress':'elapsed',normalized:$('scaleMode').value!=='raw'&&Boolean(m?.capabilities.hasMesh||m?.capabilities.hasNodes),rootLocked:$('lockRoot').checked,linkedCameras:$('linkCameras').checked,cameras:Object.fromEntries(slots.map(s=>[s,{position:cameras[s].position.toArray(),target:controls[s].target.toArray(),fov:cameras[s].fov,projection:'perspective'}])),slots:Object.fromEntries(slots.filter(s=>state.models[s]).map(s=>[s,{sha256:state.models[s].meta.sha256,file:state.models[s].meta.file,clip:state.models[s].clip,duration:state.models[s].duration,time:localTime(s)}])),normalization:Object.fromEntries(slots.filter(s=>state.models[s]).map(s=>[s,{scale:state.models[s].factor,restOffset:state.models[s].offset.toArray(),displayOffset:state.models[s].holder.position.toArray(),sourceHeight:state.models[s].height}])),selection:state.target?structuredClone(state.target):null,appearance:appearance.snapshot(m),resourceObservation:resourcePanels[slot].observe()};}
+function context(){const slot=activeSlot(),m=state.models[slot];return{assetId:viewState.loadedAssetId,slot,asset:m?{sha256:m.meta.sha256,file:m.meta.file}:null,clip:m?.clip||null,time:localTime(slot),frame:Math.round(localTime(slot)*state.fps),fps:state.fps,speed:state.speed,loop:state.loop,scaleMode:$('scaleMode').value,view:state.view,displayMode:state.display==='single'?'all':'comparison',display:state.display,mode:$('progress').checked?'progress':'elapsed',normalized:$('scaleMode').value!=='raw'&&Boolean(m?.capabilities.hasMesh||m?.capabilities.hasNodes),rootLocked:$('lockRoot').checked,linkedCameras:$('linkCameras').checked,cameras:Object.fromEntries(slots.map(s=>[s,{position:cameras[s].position.toArray(),target:controls[s].target.toArray(),fov:cameras[s].fov,projection:'perspective'}])),slots:Object.fromEntries(slots.filter(s=>state.models[s]).map(s=>[s,{sha256:state.models[s].meta.sha256,file:state.models[s].meta.file,clip:state.models[s].clip,duration:state.models[s].duration,time:localTime(s)}])),normalization:Object.fromEntries(slots.filter(s=>state.models[s]).map(s=>[s,{scale:state.models[s].factor,restOffset:state.models[s].offset.toArray(),displayOffset:state.models[s].holder.position.toArray(),sourceHeight:state.models[s].height}])),selection:state.target?structuredClone(state.target):null,appearance:appearance.snapshot(m),offlinePreset:activeOfflinePreset(),resourceObservation:resourcePanels[slot].observe()};}
 function rawName(m,o){const idx=m.parser?.associations?.get(o)?.nodes;return idx!==undefined?(m.parser.json.nodes[idx]?.name||o.name):o.name;}
 function joint(m,name,index){return findJoint(m,name,index);}
 function updateBoneChoices(){const m=activeModel(),previous=state.target?joint(m,state.target.bone,state.target.nodeIndex):selectedJoint(m,$('boneSelect').value),advanced=$('showAllBones').checked,select=$('boneSelect');select.replaceChildren();const all=el('option',m?.capabilities.hasMesh?'整个模型 / 自动判断部位':'整个资源 / 选择节点');all.value='';select.append(all);const counts=new Map();for(const b of m?.joints||[])counts.set(rawName(m,b),(counts.get(rawName(m,b))||0)+1);if(m)for(const b of m.joints){const name=rawName(m,b),label=semanticPart(name);if(m.capabilities.hasMesh&&!advanced&&part(name)===name&&b!==previous)continue;const duplicate=counts.get(name)>1,description=advanced?(label?label+' · '+name:name):(label||name),o=el('option',description+(duplicate?' · 节点 '+m.parser.associations.get(b)?.nodes:''));o.value=jointValue(m,b);select.append(o);}select.value=previous?jointValue(m,previous):'';}
@@ -589,6 +680,7 @@ $('feedbackPointForm').onsubmit=event=>{
 };
 
 function drawMetadata(){
+ $('runtimeStageMode').disabled=!runtimeStage.active&&(state.loading||state.switching||runtimeStageInput().ineligible);
  drawRecovery();
  updateSideWarning();
  drawFeedbackPoints();
@@ -651,6 +743,7 @@ async function refreshModels({preserve=true,force=false,selectionTicket=null,obs
 // observation belonging to a retired asset load.
 function applyObservation(ctx,options={}){
  const plan=planObservationRestore(ctx,state.models,options),settings=plan.settings;
+ restoreOfflinePreset(ctx);
  state.playing=false;state.display=plan.display;state.focus=plan.focus;
  $('lockRoot').checked=settings.rootLocked;$('linkCameras').checked=settings.linkedCameras;$('progress').checked=settings.mode==='progress';$('scaleMode').value=settings.scaleMode;
  state.speed=settings.speed;$('speed').value=String(state.speed);state.loop=settings.loop;drawLoop();
@@ -745,6 +838,7 @@ async function connectAgent(provider=$('executorProvider').value){
  }finally{await pollStudio();}
 }
 async function beginCompose({job=null,source=null,prefill=false}={}){
+ runtimeStage.stop();
  if(state.motionPreview){notice('请使用试播栏的“以此动作继续修改”，先准备固定的工作版本。');return;}
  if(state.switching||state.loading||state.capturing)return;const ticket=viewState.capture();
  if(state.archivedJobId){notice('这是一条归档任务。请先返回当前素材，再继续修改。');return;}
@@ -1178,12 +1272,13 @@ function setLibraryTab(history){if(history)loadJobHistory().catch(fail);$('searc
 function rangeAroundCurrent(){const d=activeModel()?.duration||0,t=localTime(activeSlot());$('scopeStart').value=String(Math.max(0,t-.15));$('scopeEnd').value=String(Math.min(d,t+.15));updateScopeVisual();}
 $('scopeMode').onchange=()=>{const range=$('scopeMode').value==='range';$('scopeInputs').hidden=!range;$('scopeStart').disabled=!range;$('scopeEnd').disabled=!range;if(range)rangeAroundCurrent();updateScopeVisual();};$('scopeStart').oninput=updateScopeVisual;$('scopeEnd').oninput=updateScopeVisual;$('scopeDialog').addEventListener('close',refreshLocalPreview);$('useCurrentTime').onclick=rangeAroundCurrent;
 document.querySelectorAll('[data-prompt]').forEach(b=>b.onclick=()=>{$('request').value=b.dataset.prompt;$('request').focus();updateSideWarning();scheduleProjectPreview();});$('request').addEventListener('input',updateSideWarning);$('retryLoad').onclick=()=>refreshModels({force:true}).catch(e=>fail(e,true));
-installShortcuts({undo:()=>undoControls.run('undo'),redo:()=>undoControls.run('redo'),mode:()=>castBrowser.mode(),search:mode=>{if(mode==='library')$('abSearch').focus();else{setLibraryTab(false);$('libraryDialog').showModal();$('search').focus();}},play:()=>$('play').click(),step:n=>seek(state.time+n/state.fps),clear:()=>{if(document.body.classList.contains('preview-focused'))setPreviewFocus(false);else if(state.motionPreview)void endMotionTrial();else clearTarget();}});
+installShortcuts({undo:()=>undoControls.run('undo'),redo:()=>undoControls.run('redo'),mode:()=>castBrowser.mode(),search:mode=>{if(mode==='library')$('abSearch').focus();else{setLibraryTab(false);$('libraryDialog').showModal();$('search').focus();}},play:()=>runtimeStage.active?runtimeStage.toggle():$('play').click(),step:n=>runtimeStage.active?runtimeStage.step(n):seek(state.time+n/state.fps),clear:()=>{if(runtimeStage.active)runtimeStage.stop();else if(document.body.classList.contains('preview-focused'))setPreviewFocus(false);else if(state.motionPreview)void endMotionTrial();else clearTarget();}});
 canvas.addEventListener('webglcontextlost',e=>{e.preventDefault();state.playing=false;fail(Error('三维画面暂时中断。反馈已经保留，请刷新页面恢复。'),true);});
 new ResizeObserver(size).observe($('stage'));
-function continuousFrames(){return Boolean(appearanceRecovery||state.ready&&!state.loading&&!state.capturing&&(state.playing&&duration()||Object.values(state.models).some(m=>m.appearance&&(m.appearance.update||m.appearance.render))));}
+function continuousFrames(){return !runtimeStage.active&&!runtimePreviewDialog.open&&Boolean(appearanceRecovery||state.ready&&!state.loading&&!state.capturing&&(state.playing&&duration()||Object.values(state.models).some(m=>m.appearance&&(m.appearance.update||m.appearance.render))));}
 let lastDOM=0;
 renderLoop=createDemandLoop({requestFrame:requestAnimationFrame,cancelFrame:cancelAnimationFrame,shouldContinue:continuousFrames,onFrame(now,dt){
+ if(runtimeStage.active||runtimePreviewDialog.open)return;
  if(appearanceRecovery&&!state.loading&&!state.switching&&!state.capturing&&!state.submitting){appearanceRecovery=false;if(Object.values(state.models).some(m=>m.appearance)){void refreshModels({force:true}).catch(fail);return;}}
  if(!state.ready||state.loading||state.capturing)return;
  const wasPlaying=state.playing;

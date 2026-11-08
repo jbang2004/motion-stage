@@ -67,7 +67,11 @@
         <div class="asset-heading"><span id="stageEyebrow" class="eyebrow">当前素材</span><h1 id="clipTitle">正在载入角色…</h1><span id="roleName" class="asset-subtitle">本地工作空间</span></div>
         <div class="stage-heading-actions"><select id="motionSelect" class="studio-only" aria-label="选择动作"><option>读取动作…</option></select><button id="editThisAction" type="button" class="edit-action library-only" data-icon="wand">修改这个动作</button><button id="openLibrary" class="icon-button" aria-label="素材详情" title="素材详情" data-icon="more"></button></div>
       </div>
-      <div class="recovery-bar" aria-label="返回与撤销"><button id="previousMotion" type="button" class="text-button" disabled>返回上一动作</button><div role="group" aria-label="内容撤销"><button id="undoAction" type="button" class="text-button" disabled>撤销</button><button id="redoAction" type="button" class="text-button" disabled>重做</button></div></div>
+      <div class="recovery-bar" aria-label="预览与历史"><div role="group" aria-label="预览">
+        <div class="stage-preview-modes" role="group" aria-label="主视窗模式">
+          <button id="assetStageMode" type="button" class="text-button" aria-pressed="true">资产检查</button>
+          <button id="runtimeStageMode" type="button" class="text-button" aria-pressed="false" disabled>游戏角色</button>
+        </div><button id="previousMotion" type="button" class="text-button" disabled>返回上一动作</button><button id="openRuntimePreview" type="button" class="text-button" aria-haspopup="dialog">游戏状态</button></div><div role="group" aria-label="内容撤销"><button id="undoAction" type="button" class="text-button" disabled>撤销</button><button id="redoAction" type="button" class="text-button" disabled>重做</button></div></div>
       <div id="exampleBanner" class="example-banner" hidden><span>原创练习角色，试着收小一点左臂摆幅。</span><button id="importMine" class="text-button">导入我的角色 ↗</button></div>
       <div id="motionPreviewBar" class="mw-preview-bar" hidden aria-label="公共动作试播"></div>
       <div class="preview-header studio-only">
@@ -76,6 +80,10 @@
         <div class="preview-options"><button id="returnCurrent" class="text-button" hidden>↩ 返回当前素材</button><button id="openSettings" class="text-button" data-icon="sliders">视角与显示</button></div>
       </div>
       <div id="stage" class="stage" aria-label="模型三维预览" tabindex="-1">
+        <div class="runtime-stage-layer">
+          <div id="runtimeStageFrame" class="runtime-stage-frame"></div>
+          <span id="runtimeStageStatus" class="runtime-stage-status" role="status"></span>
+        </div>
         <div class="stage-vignette"></div>
         <canvas id="canvas" aria-label="三维模型预览，点击身体定位，拖动旋转，滚轮缩放"></canvas>
         <div id="surface-candidate" class="interaction-surface" data-slot="candidate"></div><div id="surface-baseline" class="interaction-surface" data-slot="baseline"></div>
@@ -105,6 +113,11 @@
             <button id="checkFootSlip" type="button" class="text-button studio-only" aria-controls="footDiagnostics" aria-expanded="false" hidden>检查脚滑</button>
           </div>
         </div>
+      </section>
+      <section id="runtimeStageTransport" class="runtime-stage-transport" aria-label="游戏角色播放控制" hidden>
+        <button id="runtimeStagePlay" type="button" class="text-button">播放</button>
+        <input id="runtimeStageTimeline" type="range" min="0" max="1" step=".001" value="0" aria-label="游戏角色时间轴">
+        <output id="runtimeStageClock"></output>
       </section>
       <p id="observationConditions" class="observation-conditions studio-only" role="status"></p>
       <section id="footDiagnostics" class="foot-diagnostics studio-only" aria-label="脚底滑动诊断" hidden></section>
@@ -197,6 +210,22 @@
 </span>
 <span>↑</span>
 </button>
+<dialog id="runtimePreviewDialog" class="runtime-preview-dialog" aria-labelledby="runtimePreviewTitle">
+  <div class="dialog-heading">
+    <div><span id="runtimePreviewCharacter" class="section-kicker"></span><h2 id="runtimePreviewTitle">游戏状态预览</h2></div>
+    <button type="button" data-close class="icon-button" aria-label="关闭游戏状态预览" data-icon="close"></button>
+  </div>
+  <p id="runtimePreviewStatus" role="status"></p>
+  <div class="runtime-preview-controls">
+    <select id="runtimePreviewMode" aria-label="预览方式"><option value="offline">离线预览</option><option value="runtime">游戏运行时</option></select>
+    <select id="runtimePreviewState" aria-label="选择游戏状态" disabled></select>
+    <button id="applyOfflineState" type="button" class="primary-button" disabled>在动作台预览</button>
+    <button id="clearOfflineState" type="button" class="text-button" hidden>清除状态配置</button>
+    <button id="refreshRuntimeStates" type="button" class="text-button">刷新状态</button>
+    <a id="openRuntimeExternal" class="text-button" target="_blank" rel="noopener noreferrer" hidden>打开游戏预览页 ↗</a>
+  </div>
+  <div id="runtimePreviewFrame" class="runtime-preview-frame" hidden></div>
+</dialog>
 <dialog id="integrationDialog" class="integration-dialog" aria-labelledby="integrationTitle"><div class="dialog-heading"><div><span class="section-kicker">从认可版本继续</span><h2 id="integrationTitle">接入游戏</h2></div><button data-close class="icon-button" aria-label="关闭接入游戏">×</button></div><p class="dialog-intro">核对版本与目标文件，复制接入请求交给当前对话。页面不会直接替换游戏文件。</p><div id="integrationBody" aria-live="polite"></div></dialog>
 <dialog id="castGallery" class="cast-gallery" aria-labelledby="castGalleryTitle">
  <header class="cg-head"><div class="cg-title"><span class="cg-kicker">动作台 · 角色</span><h2 id="castGalleryTitle">选择角色</h2></div><label class="cg-search"><span data-icon="search"></span><input id="castGallerySearch" type="search" placeholder="搜索角色或路径" aria-label="搜索角色" autocomplete="off"></label><button data-close class="icon-button" aria-label="关闭角色列表"></button></header>

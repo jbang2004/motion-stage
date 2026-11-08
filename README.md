@@ -16,10 +16,11 @@ Agent 回传候选后，原版和候选并排放在同一时刻、同一镜头�
 > to your agent (CLI or stdio MCP), then compare the returned candidate side by side.
 > The UI is in Chinese. MIT licensed. Skill / package id: `motion-stage`.
 
-当前版本 4.2.0。界面只有中文。
+当前版本 4.4.0。界面只有中文。
 
 ## 4.2 工作流更新
 
+- **游戏状态**默认在动作台离线预览项目提供的动作、外观和装备挂点。需要检查布料等运行时效果时，可在主视窗切换到「游戏角色」，直接预览当前动作。声明了预览入口并通过本机登记的项目，动作台会按需启动服务并自动读取状态。 [游戏状态接入](skill/references/runtime-preview.md)
 - 自动扫描本机后台执行器，支持选择 Codex CLI、Claude Code 或 DeepSeek Harness；应用已安装但未接入时明确显示不可选，失败不切换客户端。
 
 - 默认跟随调用 skill 的客户端和会话；任务冻结处理来源，跨客户端不会误领，补充和重试保留归属。无会话唤醒接口时显示等待领取，通过复制任务或 CLI/MCP 交接。

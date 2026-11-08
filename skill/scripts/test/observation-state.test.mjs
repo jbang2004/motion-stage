@@ -56,7 +56,7 @@ test('production snapshot application restores settings and camera FOV before de
  const state={models:structuredClone(models),playing:true},cameras={},controls={};let normalized=0;
  const vector=()=>({value:null,fromArray(a){this.value=[...a];}});
  for(const slot of ['baseline','candidate']){cameras[slot]={position:vector(),updateProjectionMatrix(){}};controls[slot]={target:vector(),update(){}};}
- const ctx=vm.createContext({state,slots:['baseline','candidate'],$,cameras,controls,planObservationRestore,restoredTransportTime,activeModel:()=>state.models.candidate,selectClip(slot,name){state.models[slot].clip=name;},normalizePair(){normalized++;},drawLoop(){},setViewButtons(){}});
+ const ctx=vm.createContext({state,slots:['baseline','candidate'],$,cameras,controls,planObservationRestore,restoredTransportTime,activeModel:()=>state.models.candidate,selectClip(slot,name){state.models[slot].clip=name;},normalizePair(){normalized++;},drawLoop(){},setViewButtons(){},restoreOfflinePreset(){}});
  vm.runInContext('let cameraBusy=false;'+extract('function applyObservation(','\nasync function restoreContext('),ctx);
  vm.runInContext('applyObservation',ctx)({slot:'candidate',time:1,mode:'progress',rootLocked:false,linkedCameras:false,speed:.5,loop:false,cameras:{candidate:{position:[2,3,4],target:[0,2,0],fov:55}}},{inputSlot:'candidate'});
  assert.equal(state.playing,false);assert.equal(state.display,'split');assert.equal(state.time,1); // new baseline duration is 4; source local second stays 1
@@ -95,11 +95,13 @@ test('continuing from a scaled candidate restores its frozen transform for both 
  for(const invalid of [{scale:0,restOffset:[0,0,0]},{scale:Infinity,restOffset:[0,0,0]},{scale:1,restOffset:[0,NaN,0]},{scale:1,restOffset:[0,0]}])assert.equal(observationFrame(box,'shared',invalid).factor,.25);
 });
 
-test('production frame policy includes paused project hooks and excludes neutral idle, loading and capture',()=>{
- const state={ready:true,playing:false,models:{baseline:{}}},ctx=vm.createContext({state,duration:()=>2});
+test('production frame policy includes paused project hooks and suspends the model during game preview',()=>{
+ const state={ready:true,playing:false,models:{baseline:{}}},runtimePreviewDialog={open:false},runtimeStage={active:false},ctx=vm.createContext({state,runtimePreviewDialog,runtimeStage,duration:()=>2});
  vm.runInContext('let appearanceRecovery=false;'+extract('function continuousFrames(){','\nlet lastDOM='),ctx);const active=vm.runInContext('continuousFrames',ctx);
  assert.equal(active(),false);state.playing=true;assert.equal(active(),true);state.playing=false;state.models.baseline.appearance={update(){}};assert.equal(active(),true);
  state.loading=true;assert.equal(active(),false);state.loading=false;state.capturing=true;assert.equal(active(),false);state.capturing=false;state.models.baseline.appearance={render(){}};assert.equal(active(),true);
+ runtimePreviewDialog.open=true;assert.equal(active(),false);runtimePreviewDialog.open=false;assert.equal(active(),true);
+ runtimeStage.active=true;assert.equal(active(),false);runtimeStage.active=false;assert.equal(active(),true);
 });
 
 test('project snapshot staging supplies the frozen transform before adapter preparation and rebuilds both handles',async()=>{

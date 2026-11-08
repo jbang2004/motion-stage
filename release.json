@@ -1,8 +1,8 @@
 {
-  "version": "4.2.0",
-  "archive": "dist/motion-stage-v4.2.0.zip",
-  "archiveBytes": 1643909,
-  "archiveSha256": "780b93562d3392057edc5b52f0bb7f6f45ad086f4d720fbeeeaa69fa55abb2ba",
-  "files": 195,
-  "unpackedBytes": 5874228
+  "version": "4.4.0",
+  "archive": "dist/motion-stage-v4.4.0.zip",
+  "archiveBytes": 1665561,
+  "archiveSha256": "e0b88cdbad3d5e6896d21587de066fbb8606ef667e605ac0de0a6615ea7bd892",
+  "files": 202,
+  "unpackedBytes": 5933306
 }

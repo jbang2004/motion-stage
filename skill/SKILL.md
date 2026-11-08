@@ -23,6 +23,7 @@ Before launching, set `CALLER` to the actual invoking client (`codex`, `claude`,
 | Intent | Route | Read only the relevant reference |
 |---|---|---|
 | Browse / find / try actions | Select a character → 动作库 → action card; CLI `actions --asset-id ID` or MCP `motion_action_catalog` | [Action library](references/action-library.md) |
+| Preview a project-defined state | Use 游戏角色 in the main stage to follow the selected source clip, or 游戏状态 to browse project-defined presets. A trusted project manifest enables on-demand startup and automatic state discovery. | [Game state preview](references/runtime-preview.md) |
 | Fix / tweak / compare | 修改 → frozen task → candidate → user review; follow the task loop below | [Agent workflow](references/agent-workflow.md) |
 | Put an approved result into the game | `integrations` → inspect selected checkpoint/action and game → edit and verify → `integrate` | [Game integration](references/game-integration.md) |
 
