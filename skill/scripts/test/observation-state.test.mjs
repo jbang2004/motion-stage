@@ -1,3 +1,4 @@
+import {currentComparison} from '../../assets/viewer/studio-sync.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
@@ -81,7 +82,7 @@ test('production pose sampling stays idle for appearance or camera redraws and i
 test('production candidate display restores the actual input observation only after its load is still current',async()=>{
  const source={sha256:'input'},candidate={sha256:'output'},job={id:'continued',assetId:'A',slot:'candidate',clip:'Run',inputs:{baseline:{sha256:'old'},candidate:source},candidate,context:{time:.75,mode:'progress',speed:.25,rootLocked:false,cameras:{candidate:{position:[3,2,1],target:[0,1,0]}}}};
  const view=createViewState('A');view.markLoaded(view.beginLoad(),'A');const state={project:{activeAssetId:'A',slots:{baseline:job.inputs.baseline,candidate}},models:{baseline:{meta:source},candidate:{meta:candidate}}},applied=[],noop=()=>{};let release;
- const ctx=vm.createContext({state,viewState:view,appearance:{},observationFrameOptions,renderLoop:null,jobSourceAsset:j=>j.inputs[j.slot],loadPair:async(_wanted,_force,current)=>{await new Promise(resolve=>{release=resolve;});return current();},applyObservation:(...args)=>applied.push(args),$:()=>({}),clearTarget:noop,correspondingJoint:()=>null,drawLibrary:noop,updateBoneChoices:noop,drawMetadata:noop,updateDisplay:noop,drawLatestJob:noop,render:noop,notice:noop,resourcePanels:{baseline:{observe:()=>null}}});
+ const ctx=vm.createContext({state,viewState:view,appearance:{},currentComparison,observationFrameOptions,renderLoop:null,jobSourceAsset:j=>j.inputs[j.slot],loadPair:async(_wanted,_force,current)=>{await new Promise(resolve=>{release=resolve;});return current();},applyObservation:(...args)=>applied.push(args),$:()=>({}),clearTarget:noop,correspondingJoint:()=>null,drawLibrary:noop,updateBoneChoices:noop,drawMetadata:noop,updateDisplay:noop,drawLatestJob:noop,render:noop,notice:noop,resourcePanels:{baseline:{observe:()=>null}}});
  vm.runInContext(extract('async function showCandidate(','\nfunction currentJob('),ctx);const show=vm.runInContext('showCandidate',ctx);
  let pending=show(job);release();assert.equal(await pending,true);assert.equal(applied.length,1);assert.equal(applied[0][0],job.context);assert.equal(applied[0][1].inputSlot,'candidate');
  pending=show(job);view.select('B');release();assert.equal(await pending,false);assert.equal(applied.length,1);

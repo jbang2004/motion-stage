@@ -88,6 +88,10 @@ export async function importAsset(work,slot,bytes,label,options={}){
  if(!options.locked)return withWorkspaceLock(work,()=>importAsset(work,slot,bytes,label,{...options,locked:true}));
  if(!['baseline','candidate'].includes(slot))throw Error('slot 必须是 baseline 或 candidate');
  if(options.newModel&&slot!=='baseline')throw Error('新模型请先导入原版 baseline');
+ if(options.protectActive&&!options.newModel){
+  const {assertModelAvailable}=await import('./jobs.mjs');
+  await assertModelAvailable(work,options.assetId||(await readProject(work)).activeAssetId);
+ }
  const prepared=await stageAsset(work,slot,bytes,label,options);await atomic(await inside(work,'project.json'),prepared.project);return prepared.asset;
 }
 export async function stageAsset(work,slot,bytes,label,options={}){
@@ -102,6 +106,7 @@ export async function stageAsset(work,slot,bytes,label,options={}){
  if(slot==='baseline'&&!options.model?.name)model.name=String(label||'角色').slice(0,160);
  model.headRevision=(model.headRevision||0)+1;
  heads[slot]={...info,file,label:String(label||slot).slice(0,160),assetId:id,...(options.source?{source:options.source}:{})};
+ if(options.derivedByJobId)heads[slot].derivedByJobId=options.derivedByJobId;
  if(slot==='baseline'&&(options.reset||!heads.candidate||(heads.candidate.generator?.includes('original teaching rig')&&!info.generator?.includes('original teaching rig'))))heads.candidate={...heads.baseline,label:String(label||'原版').slice(0,140)+' · 尚未修改'};
  setModelSlots(cfg,id,heads,{activate:options.activate!==false});
  return {project:cfg,asset:heads[slot]};

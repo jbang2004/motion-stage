@@ -1,3 +1,4 @@
+import {createStudioEvents} from './studio-events.mjs';
 import {scanProviders,probeProvider,providerInfo} from './agent-providers.mjs';
 import {normalizeCaller,callerKey} from '../assets/viewer/caller.mjs';
 import {discoverCharacterActions,previewCharacterAction,characterActionCurves,stopCharacterActionDiscovery} from './character-actions.mjs';
@@ -39,8 +40,10 @@ export async function serve(work,port=5178,options={}){
  if(!runtime.node.supported)throw Error('需要 Node.js 22 或更高版本。请升级 Node.js 后重新启动工作台。');
  if(runtime.workspace.status!=='ready')throw Error(runtime.workspace.error||'工作区不可读写，请选择本机可写目录。');
  await readProject(work);await reconcileExecutions(work);
+ const studioEvents=createStudioEvents(work);
  const token=randomBytes(24).toString('hex');let queue=Promise.resolve();
  let agent={connected:false,active:false,state:'disconnected',provider:'codex',error:null},workerAbort=null,workerGeneration=0,connecting=null,workerRun=null;
+ const updateAgent=next=>{agent=next;studioEvents.changed();};
  const ensureAgentIdle=()=>{if(agent.active&&(agent.jobId||agent.state==='claiming'))throw Object.assign(Error(providerInfo(agent.provider).label+' 正在处理任务，完成后即可切换。'),{code:'AGENT_BUSY'});};
  const capabilityView=runtime=>({codex:runtime.codex,localEdit:runtime.features.localEdit,fbxImport:runtime.features.fbxConversion,mcp:true,automaticAgent:agent.connected,runtime});
  const getCaps=()=>capabilityView(runtime);
@@ -76,14 +79,18 @@ export async function serve(work,port=5178,options={}){
    if(p==='/api/offline-preview'&&req.method==='GET')return send(200,await offlinePreviewStatus(work,url.searchParams.get('assetId')));
    if(p==='/api/project'&&req.method==='GET')return send(200,await projectStatus(work,options));
    const pc=p.match(/^\/api\/jobs\/([a-f0-9-]{36})\/project-context$/);if(pc&&req.method==='GET')return send(200,await getJobProjectContext(work,pc[1]));
+   if(p==='/api/studio/events'&&req.method==='GET')return studioEvents.subscribe(res);
    if(p==='/api/studio'&&req.method==='GET'){
     const capabilities=await getCaps();
     if(url.searchParams.get('compact')!=='1')return send(200,await withWorkspaceLock(work,async()=>({version:2,project:projectView(await readProject(work),url.searchParams.get('assetId')||undefined),jobs:await listJobs(work),capabilities,agent:{...agent,lastError:agent.error}})));
     return send(200,await withWorkspaceLock(work,async()=>{
      const project=projectView(await readProject(work),url.searchParams.get('assetId')||undefined),index=await studioJobIndex(work),rows=index.rows.filter(j=>j.assetId===project.activeAssetId),selected=url.searchParams.get('jobId');
-     const currentCandidate=rows.find(j=>j.state==='complete'&&j.candidate?.sha256===project.slots.candidate?.sha256);
+     const head=project.slots.candidate;
+     const owner=head?.derivedByJobId||head?.source?.derivedByJobId;
+     const matchesHead=j=>j.state==='complete'&&j.candidate?.sha256===head.sha256&&j.candidate.file===head.file;
+     const currentCandidate=head&&(rows.find(j=>j.id===owner&&matchesHead(j))||rows.find(matchesHead));
      const jobs=rows.filter((j,i)=>i===0||activeJobStates.has(j.state)||j.id===selected||j.id===currentCandidate?.id);
-     const payload={version:3,project,jobs,jobCounts:index.counts,totalJobs:index.total,jobsRevision:index.revision,capabilities,agent:{...agent,lastError:agent.error}};
+     const payload={version:3,project,jobs,candidateJobId:currentCandidate?.id??null,jobCounts:index.counts,totalJobs:index.total,jobsRevision:index.revision,capabilities,agent:{...agent,lastError:agent.error}};
      const revision=sha(Buffer.from(JSON.stringify(payload)));return url.searchParams.get('since')===revision?{version:3,unchanged:true,revision,assetId:project.activeAssetId}:{...payload,revision};
     }));
    }
@@ -165,9 +172,9 @@ export async function serve(work,port=5178,options={}){
       ensureAgentIdle();
       const generation=++workerGeneration,previousRun=workerRun;
       workerAbort?.abort();
-      workerAbort=new AbortController();agent={connected:true,active:true,state:'connected',provider,error:null};
+      workerAbort=new AbortController();updateAgent({connected:true,active:true,state:'connected',provider,error:null});
       const signal=workerAbort.signal;
-      workerRun=Promise.resolve(previousRun).then(()=>{if(generation!==workerGeneration)return;return module.startWorker(work,{signal,provider,onState:state=>{if(generation!==workerGeneration)return;agent={...agent,...state,connected:!['failed','disconnected'].includes(state.state),active:state.state!=='disconnected'};}});}).then(()=>{if(generation!==workerGeneration)return;agent={...agent,connected:false,active:false,state:'disconnected'};}).catch(e=>{if(generation!==workerGeneration)return;agent={...agent,connected:false,active:false,state:'failed',error:e.message};});
+      workerRun=Promise.resolve(previousRun).then(()=>{if(generation!==workerGeneration)return;return module.startWorker(work,{signal,provider,onState:state=>{if(generation!==workerGeneration)return;updateAgent({...agent,...state,connected:!['failed','disconnected'].includes(state.state),active:state.state!=='disconnected'});}});}).then(()=>{if(generation!==workerGeneration)return;updateAgent({...agent,connected:false,active:false,state:'disconnected'});}).catch(e=>{if(generation!==workerGeneration)return;updateAgent({...agent,connected:false,active:false,state:'failed',error:e.message});});
       return agent;
      })();
      const connection={provider,pending};
@@ -176,13 +183,13 @@ export async function serve(work,port=5178,options={}){
     if(p==='/api/agent/disconnect'&&req.method==='POST'){
      workerGeneration++;connecting=null;workerAbort?.abort();
      const jobId=agent.jobId,disconnected={...agent,connected:false,active:false,state:'disconnected',jobId:null,activity:null,startedAt:null};
-     agent=disconnected;
+     updateAgent(disconnected);
      if(jobId){try{await interruptJob(work,jobId);}catch{}}
      return send(200,disconnected);
     }
     if(p.startsWith('/api/assets/')&&req.method==='POST'){
      const cfg=await readProject(work),assetId=url.searchParams.get('assetId')||cfg.activeAssetId;
-     return send(200,await importBytes(work,p.split('/').pop(),data,url.searchParams.get('name')||'model.glb',{assetId,newModel:url.searchParams.get('newModel')==='true'}));
+     return send(200,await importBytes(work,p.split('/').pop(),data,url.searchParams.get('name')||'model.glb',{assetId,newModel:url.searchParams.get('newModel')==='true',protectActive:true}));
     }
     const op=async()=>{
      if(p==='/api/marks'&&req.method==='POST'){
@@ -244,7 +251,7 @@ export async function serve(work,port=5178,options={}){
   }catch(e){if(!res.headersSent)send(e.code==='ENOENT'?404:['MODEL_JOB_ACTIVE','AGENT_BUSY'].includes(e.code)?409:400,{error:e.message,...(e.code?{code:e.code}:{}),...(e.jobId?{jobId:e.jobId}:{})});else res.end();}
  });
  server.once('close',()=>{if(workspaceServers.get(serverKey)===server)workspaceServers.delete(serverKey);serverCloseCleanup();});
- const close=server.close.bind(server);server.close=callback=>{workerGeneration++;connecting=null;workerAbort?.abort();Promise.all([workerRun,managedPreview.close(),stopCharacterActionDiscovery(work),stopCatalogScan(work),...[...children].filter(c=>c.listening).map(c=>new Promise(r=>c.close(r)))]).catch(()=>{}).finally(()=>close(callback));return server;};
+ const close=server.close.bind(server);server.close=callback=>{studioEvents.close();workerGeneration++;connecting=null;workerAbort?.abort();Promise.all([workerRun,managedPreview.close(),stopCharacterActionDiscovery(work),stopCatalogScan(work),...[...children].filter(c=>c.listening).map(c=>new Promise(r=>c.close(r)))]).catch(()=>{}).finally(()=>close(callback));return server;};
  try{await new Promise((ok,no)=>{server.once('error',no);server.listen(port,'127.0.0.1',ok);});}
  catch(error){throw Object.assign(Error(error.code==='EADDRINUSE'?'本地服务端口已被占用，请关闭旧服务或使用 --port 0 自动选择端口。':'本地服务无法启动，请检查本机网络权限后重试。',{cause:error}),{code:error.code});}
  runtime.server={status:'ready',host:'127.0.0.1',port:server.address().port};workspaceServers.set(serverKey,server);

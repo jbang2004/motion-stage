@@ -144,6 +144,8 @@ test('unchanged source refresh keeps candidates, head revisions and queued tasks
  await writeFile(file,bytes);await scan(work);await openCatalogAsset(work,entry.id,{refreshSource:true});const after=await readProject(work);
  assert.equal(after.models[entry.id].headRevision,before.models[entry.id].headRevision);assert.equal(after.slots.candidate.sha256,sha(candidate));assert.ok((await claimJob(work,job.id)).lease);
  const changed=editGlb(bytes,{clip:'Run',bone:'LeftShoulder',factor:.8}).bytes;await writeFile(file,changed);await scan(work);
+ await assert.rejects(openCatalogAsset(work,entry.id,{refreshSource:true}),{code:'MODEL_JOB_ACTIVE',jobId:job.id});
+ assert.equal((await readProject(work)).slots.candidate.sha256,sha(candidate));await cancelJob(work,job.id);
  await Promise.all([openCatalogAsset(work,entry.id),openCatalogAsset(work,entry.id,{refreshSource:true})]);assert.equal((await readProject(work)).slots.baseline.sha256,sha(changed));
 }));
 

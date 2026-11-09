@@ -2,11 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import vm from 'node:vm';
+import {activeStudioJob,currentStudioCandidate,currentComparison,canFollowCandidate} from '../../assets/viewer/studio-sync.mjs';
 import {createViewState} from '../../assets/viewer/view-state.mjs';
 
 const app=await readFile(new URL('../../assets/viewer/app.js',import.meta.url),'utf8');
 const extract=(from,to)=>{const start=app.indexOf(from),end=app.indexOf(to,start);assert.ok(start>=0&&end>start);return app.slice(start,end);};
-const poll=extract('let polling=false,pollErrors=0;','\nfunction commitJobResult(');
+const poll=extract('let polling=false,pollErrors=0,','\nfunction commitJobResult(');
 const commit=extract('function commitJobResult(','\nasync function createJob(');
 const create=extract('async function createJob(','\nasync function submitRequest(');
 const submit=extract('async function submitRequest(','\n$(\'requestForm\').onsubmit');
@@ -29,7 +30,10 @@ function harness({createGate,createError,editGate,result=complete,editError,getR
   if(path==='/api/jobs/local-job')return structuredClone(getResult||{...queued,state:'failed',error:'stored failure'});
   throw Error('Unexpected API '+path);
  };
- const ctx=vm.createContext({state,viewState:view,$:field,api,clearTimeout,structuredClone,
+ const ctx=vm.createContext({state,viewState:view,$:field,api,setTimeout,clearTimeout,structuredClone,
+  activeTask:()=>activeStudioJob(state.jobs,state.project.activeAssetId),workspaceCandidate:()=>currentStudioCandidate(state.jobs,state.project,state.candidateJobId),
+  staleWorkspaceView:()=>false,canFollowCandidate,currentComparison,candidateViewed:job=>state.models.candidate?.meta.sha256===job.candidate.sha256,viewMatchesJob:()=>false,castBrowser:{mode:()=> 'studio',draw(){}},
+  document:{querySelector:()=>null},localPreview:null,runtimeStage:{active:false},undoControls:{refresh(){}},drawStudioSync(){},
   canLocalEdit:()=>!state.submitting&&!state.switching,clearLocalPreview(){},localEditTrack(){},activeFeedbackPoints:()=>[],validateFeedbackPoints:points=>points,footRepairForSubmission:()=>null,
   localEditParameters:()=>({bone:state.target.bone,range:{...scopeValue},options:{factor:Number(field('swingFactor').value)}}),
   context:()=>({assetId:view.loadedAssetId,slot:'baseline',asset:state.models.baseline.meta}),scope:()=>({...scopeValue}),activeSlot:()=> 'baseline',activeModel:()=>state.models.baseline,parentJobId:()=>null,captureStage:()=>({toDataURL:()=> 'data:image/png;base64,fixture'}),canvas:{toDataURL:()=> 'data:image/png;base64,fixture'},
@@ -75,7 +79,7 @@ test('candidate display failure retains the complete task result without a false
 });
 
 test('a poll which starts loading geometry cannot adopt a newer foreground mutation after its await',async()=>{
- const h=harness(),reply=deferred();h.state.jobs=[queued];h.state.panelMode='task';h.state.selectedJob=queued.id;h.pollGates.push(reply);h.ctx.refreshModels=async()=>{h.view.markLoaded(h.view.beginLoad(),'A');h.view.beginMutation();h.state.submitting=true;return {};};
+ const h=harness(),reply=deferred();h.state.jobs=[queued];h.state.panelMode='task';h.state.selectedJob=queued.id;h.pollGates.push(reply);h.ctx.showCandidate=async()=>{h.view.markLoaded(h.view.beginLoad(),'A');h.view.beginMutation();h.state.submitting=true;return true;};
  const pending=h.poll();reply.resolve({project:{activeAssetId:'A',slots:{baseline:asset(),candidate:asset('A','edited')}},jobs:[complete]});await pending;assert.equal(h.shown.length,0);assert.equal(h.toasts.length,0);assert.equal(h.state.submitting,true);
 });
 
@@ -115,18 +119,18 @@ test('a delayed ordinary submit cannot clear a newly selected model draft or con
 for(const failure of ['geometry','detail'])test('compact poll retries the complete response after '+failure+' application fails',async()=>{
  const h=harness();h.state.jobs=[queued];h.state.panelMode='task';h.state.selectedJob=queued.id;let attempts=0;
  h.ctx.ensureJobDetail=async()=>{attempts++;if(failure==='detail'&&attempts===1)throw Error('Detail unavailable');return complete;};
- const goodRefresh=h.ctx.refreshModels;let geometry=0;h.ctx.refreshModels=async()=>{if(failure==='geometry'&&geometry++===0)throw Error('Geometry unavailable');return goodRefresh();};
+ const goodShow=h.ctx.showCandidate;let geometry=0;h.ctx.showCandidate=async job=>{if(failure==='geometry'&&geometry++===0)throw Error('Geometry unavailable');return goodShow(job);};
  const result={version:3,revision:'revision-1',jobsRevision:'jobs-1',jobCounts:{A:{total:1}},totalJobs:1,project:{activeAssetId:'A',slots:{baseline:asset(),candidate:asset('A','edited')}},jobs:[{...complete,summaryOnly:true,detailRevision:'detail-1'}]};
  let response=deferred();h.pollGates.push(response);const first=h.poll();response.resolve(result);await first;
- assert.equal(h.shown.length,0);assert.equal(h.state.studioRevision,null);assert.equal(h.state.pendingCandidate.id,complete.id);
+ assert.equal(h.shown.length,0);assert.equal(h.state.studioRevision,null);assert.equal(h.ctx.workspaceCandidate().id,complete.id);
  response=deferred();h.pollGates.push(response);const second=h.poll();response.resolve(result);await second;
- assert.equal(h.shown.length,1);assert.equal(h.state.studioRevision,'revision-1');assert.equal(h.state.pendingCandidate,null);
+ assert.equal(h.shown.length,1);assert.equal(h.state.studioRevision,'revision-1');
  assert.equal(h.requests.filter(r=>r.path==='/api/studio')[1].request.since,null);
 });
 test('a foreground mutation during complete-detail loading prevents automatic candidate display',async()=>{
  const h=harness(),detail=deferred();h.state.jobs=[queued];h.state.panelMode='task';h.state.selectedJob=queued.id;h.ctx.ensureJobDetail=()=>detail.promise;
  const response=deferred();h.pollGates.push(response);const pending=h.poll();response.resolve({version:3,revision:'r1',project:{activeAssetId:'A',slots:{baseline:asset(),candidate:asset('A','edited')}},jobs:[{...complete,summaryOnly:true,detailRevision:'d1'}]});await tick();h.view.beginMutation();detail.resolve(complete);await pending;
- assert.equal(h.shown.length,0);assert.notEqual(h.state.studioRevision,'r1');
+ assert.equal(h.shown.length,0);assert.equal(h.state.studioRevision,'r1','the authoritative snapshot survives the aborted geometry change');
 });
 
 test('a same-model active-task rejection retains the submitted draft and observation',async()=>{

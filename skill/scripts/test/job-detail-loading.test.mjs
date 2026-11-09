@@ -1,3 +1,4 @@
+import {currentComparison} from '../../assets/viewer/studio-sync.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
@@ -31,6 +32,6 @@ test('background history refresh preserves the entire loaded page window',async(
 const decisions=app.slice(app.indexOf('const pendingDecisions=new Map()'),app.indexOf('function drawAgent(){'));
 test('optional review feedback stays optional and a transport retry reuses the decision identity',async()=>{
  const view=createViewState('A');view.markLoaded(view.beginLoad(),'A');const job={id:'job',assetId:'A',candidate:{sha256:'new'},inputs:{baseline:{sha256:'original'}}},state={project:{activeAssetId:'A',slots:{baseline:{sha256:'original'},candidate:{sha256:'new'}}}},requests=[];let uuid=0;
- const ctx=vm.createContext({job,state,viewState:view,crypto:{randomUUID:()=> 'decision-'+(++uuid)},$:()=>null,viewMatchesJob:()=>true,commitJobResult(){},pollStudio:async()=>{},toast(){},offerUndo:async()=>{},persistView(){},api:async(path,method,body)=>{requests.push(body);if(requests.length===1)throw Error('network disconnected after commit');return {...job,artisticDecision:body.decision};}});vm.runInContext(decisions,ctx);
+ const ctx=vm.createContext({job,state,viewState:view,activeTask:()=>null,currentComparison,crypto:{randomUUID:()=> 'decision-'+(++uuid)},$:()=>null,viewMatchesJob:()=>true,commitJobResult(){},pollStudio:async()=>{},toast(){},offerUndo:async()=>{},persistView(){},api:async(path,method,body)=>{requests.push(body);if(requests.length===1)throw Error('network disconnected after commit');return {...job,artisticDecision:body.decision};}});vm.runInContext(decisions,ctx);
  await assert.rejects(vm.runInContext("recordDecision(job,'accept-candidate')",ctx),/network/);await vm.runInContext("recordDecision(job,'accept-candidate')",ctx);assert.equal(requests[0].decisionId,requests[1].decisionId);assert.equal(requests[0].outcome.includes('评审意见'),false);assert.equal(uuid,1);
 });

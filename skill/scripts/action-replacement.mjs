@@ -1,3 +1,4 @@
+import {assertModelAvailable} from './jobs.mjs';
 import {randomUUID} from 'node:crypto';
 import {ROOT,sha,readProject,modelSlots,readWorkspaceJSON,withWorkspaceLock,commitWorkspace} from './core.mjs';
 import {characterActionCurves,previewCharacterAction} from './character-actions.mjs';
@@ -69,6 +70,7 @@ export function listReplacementPlans(work,assetId){
 }
 
 async function commitPlans(work,manifest,assetId,before,after,label){
+ await assertModelAvailable(work,assetId);
  const beforeGuard=await undoGuard(work,assetId);
  manifest.characters[assetId]=after;
  const changes={[PLAN_FILE]:manifest};

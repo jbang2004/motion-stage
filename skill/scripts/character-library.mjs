@@ -200,7 +200,7 @@ async function prepareCharacter(work,id,refreshSource){
    for(const head of Object.values(heads))if(head.source?.assembly?.signature===previousSignature)head.source={...head.source,assembly};
    setModelSlots(current,id,heads);await atomic(await inside(work,'project.json'),current);return;
   }
-  await importAsset(work,'baseline',result.bytes,profile.name,{locked:true,assetId:id,reset:true,activate:false,source,model:{name:profile.name,origin:'character',relativePath:profile.model,projectId:data.link.id,characterProfileId:profile.id}});
+  await importAsset(work,'baseline',result.bytes,profile.name,{locked:true,assetId:id,reset:true,activate:false,source,protectActive:true,model:{name:profile.name,origin:'character',relativePath:profile.model,projectId:data.link.id,characterProfileId:profile.id}});
  });
  return activateModel(work,id);
 }

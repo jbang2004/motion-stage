@@ -282,7 +282,7 @@ async function prepareCatalogAsset(work,id,{refreshSource}){
    for(const head of Object.values(heads))if(head.source?.sha256===source.sha256&&source.dependencies){head.source={...head.source,dependencies:source.dependencies,dependencyKind:source.dependencyKind||'consumed-images-v1'};}
    setModelSlots(current,id,heads);await atomic(await inside(work,'project.json'),current);return;
   }
-  await importAsset(work,'baseline',bytes,entry.name,{locked:true,assetId:id,reset:true,activate:false,source,model:{name:entry.name,origin:'project',relativePath:entry.relativePath,projectId:link.id,sourceFingerprint:snapshot.fingerprint,sourceIdentity:identity,...(source.dependencies?{sourceDependencies:source.dependencies,dependencyFingerprint:dependencyStamp}:{})}});
+  await importAsset(work,'baseline',bytes,entry.name,{locked:true,assetId:id,reset:true,activate:false,source,protectActive:true,model:{name:entry.name,origin:'project',relativePath:entry.relativePath,projectId:link.id,sourceFingerprint:snapshot.fingerprint,sourceIdentity:identity,...(source.dependencies?{sourceDependencies:source.dependencies,dependencyFingerprint:dependencyStamp}:{})}});
  });
  return activateModel(work,id);
 }

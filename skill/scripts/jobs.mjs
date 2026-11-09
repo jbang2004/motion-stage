@@ -89,7 +89,7 @@ export async function reconcileExecutions(work,{index,id}={}){return withWorkspa
  }
  return {changed};
 });}
-async function assertModelAvailable(work,assetId,excludeId){
+export async function assertModelAvailable(work,assetId,excludeId){
  const index=await readJobIndex(work);if((await reconcileExecutions(work,{index})).changed)return assertModelAvailable(work,assetId,excludeId);
  const busy=index.rows.find(j=>j.id!==excludeId&&(j.assetId||'legacy')===(assetId||'legacy')&&activeStates.has(j.state));
  if(busy)throw Object.assign(Error('这个模型已有'+({'queued':'排队中','running':'执行中','needs-input':'等待补充'}[busy.state])+'的任务（'+busy.id+'）。请先处理、补充或取消该任务，再提交当前草稿；草稿尚未提交。'),{code:'MODEL_JOB_ACTIVE',jobId:busy.id});
@@ -335,7 +335,7 @@ export async function completeJob(work,id,{lease,candidatePath,summary,audit=nul
  }
  const beforeUndo=await undoGuard(work,j.assetId||'legacy');
  const upstream=j.source||j.inputs[j.slot].source;
- const staged=await stageAsset(work,'candidate',bytes,basename(candidatePath),{assetId:j.assetId||(await readProject(work)).legacyAssetId,activate:false,...(upstream?{source:{...upstream,derivedFromAssetSha256:j.inputs[j.slot].sha256,nativeSourceAtAssetSha256:upstream.nativeSourceAtAssetSha256||upstream.previewSha256||j.inputs[j.slot].sha256,nativeSourceSynchronized:false,derivedByJobId:j.id}}:{})});
+ const staged=await stageAsset(work,'candidate',bytes,basename(candidatePath),{assetId:j.assetId||(await readProject(work)).legacyAssetId,activate:false,derivedByJobId:j.id,...(upstream?{source:{...upstream,derivedFromAssetSha256:j.inputs[j.slot].sha256,nativeSourceAtAssetSha256:upstream.nativeSourceAtAssetSha256||upstream.previewSha256||j.inputs[j.slot].sha256,nativeSourceSynchronized:false,derivedByJobId:j.id}}:{})});
  j.candidate=staged.asset;j.summary=summary;j.audit=audit;j.validation=validation;j.contextVerification=drift;j.automaticArtisticApproval=false;
  j.completionReceipt={leaseSha256:sha(Buffer.from(lease))};event(j,'complete','候选已回传，等待用户比较');j.finishedAt=new Date().toISOString();j.updatedAt=j.finishedAt;delete j.lease;
  const changes={'project.json':staged.project,['jobs/'+j.id+'/job.json']:j};await advanceUndo(work,changes,j.assetId||'legacy',beforeUndo);await commitWorkspace(work,changes);return clean(j);
@@ -365,6 +365,8 @@ async function restoreReviewAsset(work,cfg,assetId,source){
  const project=structuredClone(cfg),asset={...structuredClone(source),assetId};project.models[assetId].headRevision=(project.models[assetId].headRevision||0)+1;
  setModelSlots(project,assetId,{...modelSlots(project,assetId),candidate:asset});return {project,asset};
 }
+const reviewOwner=asset=>asset?.derivedByJobId||asset?.source?.derivedByJobId;
+const sameReviewAsset=(left,right)=>left?.sha256===right?.sha256&&reviewOwner(left)===reviewOwner(right);
 export async function reviewJob(work,id,{decision,outcome='',decisionId}={},internal={}){return withWorkspaceLock(work,async()=>{
  const j=await rawJob(work,id);if(j.state!=='complete')throw Error('尚无完成的候选');if(!['accept-candidate','keep-baseline','revise'].includes(decision))throw Error('无效评审决定');
  if(decisionId){jobId(decisionId);const prior=j.reviews?.find(r=>r.id===decisionId);if(prior){if(prior.decision!==decision||prior.outcome!==String(outcome).slice(0,8000))throw Error('相同决定 ID 不能用于不同评审');return clean(j);}}
@@ -372,8 +374,13 @@ export async function reviewJob(work,id,{decision,outcome='',decisionId}={},inte
   if(j.lockOtherClips&&j.candidateDiff?.protection!=='verified')throw Error(j.candidateDiff?.protection==='violated'?'候选改动了锁定的其他动作，不能采用这版。':'锁定的其他动作尚未验证，不能采用这版。');
   const d=await contextDrift(work,j);if(d.status==='changed')throw Error('关联制作源或代码已变化，请重新核验后再接受候选');
  }
- const cfgBefore=await readProject(work),assetId=j.assetId||cfgBefore.legacyAssetId,headsBefore=modelSlots(cfgBefore,assetId),beforeGuard=await undoGuard(work,assetId),priorDecision=j.reviews?.at(-1)?.decision||'revise';
- const ownsHead=headsBefore.baseline?.sha256===j.inputs.baseline?.sha256&&[j.candidate.sha256,j.restoredSource?.sha256].includes(headsBefore.candidate?.sha256);
+ const cfgBefore=await readProject(work),assetId=j.assetId||cfgBefore.legacyAssetId;
+ await assertModelAvailable(work,assetId);
+ const headsBefore=modelSlots(cfgBefore,assetId),beforeGuard=await undoGuard(work,assetId),priorDecision=j.reviews?.at(-1)?.decision||'revise';
+ const currentCandidate=headsBefore.candidate,owner=reviewOwner(currentCandidate);
+ const ownsCandidate=currentCandidate?.sha256===j.candidate.sha256&&(!owner||owner===j.id);
+ const sameBaseline=headsBefore.baseline?.sha256===j.inputs.baseline?.sha256;
+ const ownsHead=sameBaseline&&(ownsCandidate||j.restoredSource&&sameReviewAsset(currentCandidate,j.restoredSource));
  const beforeAsset=ownsHead&&decision==='accept-candidate'&&priorDecision!=='accept-candidate'?j.inputs[j.slot]:headsBefore.candidate;
  delete j.restoredSource;
  const r={id:decisionId||randomUUID(),decision,outcome:String(outcome).slice(0,8000),assets:{baseline:j.inputs[j.slot],candidate:j.candidate,original:j.inputs.baseline},at:new Date().toISOString(),projectContextFile:j.projectContextFile||null};
@@ -381,15 +388,14 @@ export async function reviewJob(work,id,{decision,outcome='',decisionId}={},inte
  r.recordFile='decisions/'+r.id+'.json';const changes={};
  if(decision==='accept-candidate'){r.checkpointFile='checkpoints/'+r.id+'.json';changes[r.checkpointFile]={version:1,id:r.id,jobId:j.id,assetId:j.assetId||'legacy',status:'user-accepted-preview',installed:false,clip:j.clip,scope:j.scope,asset:j.candidate,source:j.inputs[j.slot],projectContextFile:j.projectContextFile||null,outcome:r.outcome,acceptedAt:r.at};}
  if(decision==='keep-baseline'){
-  const cfg=await readProject(work),assetId=j.assetId||cfg.legacyAssetId,heads=modelSlots(cfg,assetId);
-  if(heads.candidate?.sha256===j.candidate.sha256&&heads.baseline?.sha256===j.inputs.baseline?.sha256){
+  if(ownsCandidate&&sameBaseline){
    const source=j.inputs[j.slot],bytes=await readFile(await inside(work,source.file));if(sha(bytes)!==source.sha256)throw Error('本轮修改前的版本已损坏，未回退');
-   const staged=await restoreReviewAsset(work,cfg,assetId,source);
+   const staged=await restoreReviewAsset(work,cfgBefore,assetId,source);
    j.restoredSource=staged.asset;changes['project.json']=staged.project;
   }
  }
  const restore=internal.restoreAsset||(decision==='accept-candidate'&&ownsHead?j.candidate:null);
- if(restore&&modelSlots(changes['project.json']||cfgBefore,assetId).candidate?.sha256!==restore.sha256){const staged=await restoreReviewAsset(work,changes['project.json']||cfgBefore,assetId,restore);changes['project.json']=staged.project;if(restore.sha256!==j.candidate.sha256)j.restoredSource=staged.asset;}
+ if(restore&&!sameReviewAsset(modelSlots(changes['project.json']||cfgBefore,assetId).candidate,restore)){const staged=await restoreReviewAsset(work,changes['project.json']||cfgBefore,assetId,restore);changes['project.json']=staged.project;if(!sameReviewAsset(restore,j.candidate))j.restoredSource=staged.asset;}
  changes[r.recordFile]={version:1,jobId:j.id,assetId:j.assetId||'legacy',...r};
  (j.reviews??=[]).push(r);j.artisticDecision=decision;j.updatedAt=new Date().toISOString();changes['jobs/'+j.id+'/job.json']=j;
  if(internal.finish)await internal.finish(changes);

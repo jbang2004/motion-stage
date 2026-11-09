@@ -3,12 +3,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import vm from 'node:vm';
+import {activeStudioJob,currentStudioCandidate,currentComparison,canFollowCandidate} from '../../assets/viewer/studio-sync.mjs';
 import {createDraftSync} from '../../assets/viewer/draft-sync.mjs';
 import {createViewState,draftStorageKey,saveViewDraft,readViewDraft} from '../../assets/viewer/view-state.mjs';
 
 const app=await readFile(new URL('../../assets/viewer/app.js',import.meta.url),'utf8');
 function productionFunction(from,to){const start=app.indexOf(from),end=app.indexOf(to,start);assert.ok(start>=0&&end>start,'production function boundaries must exist');return app.slice(start,end);}
-const pollSource=productionFunction('async function pollStudio(){','\nasync function createJob(request');
+const pollSource=productionFunction('let polling=false,pollErrors=0,','\nfunction commitJobResult(');
 const pairSource=productionFunction('async function loadPair(','\nfunction resolveClip(');
 const persistSource=productionFunction('function persistView(){',"\nfor(const id of ['request'");
 const refreshSource=productionFunction('async function refreshModels(','\nasync function restoreContext(');
@@ -97,9 +98,19 @@ test('temporary screenshot camera positions are never saved as the user draft vi
  assert.equal(saveViewDraft(storage,view,state,()=>draft('A','temporary top view')),false);assert.equal(storage.rows.size,0);
 });
 
+function installPoll(ctx){
+ Object.assign(ctx,{clearTimeout,setTimeout,document:{querySelector:()=>null},localPreview:null,runtimeStage:{active:false},
+  $:()=>({hidden:true}),undoControls:{refresh(){}},drawStudioSync(){},updateTaskClock(){},
+  viewMatchesJob:()=>false,activeTask:()=>activeStudioJob(ctx.state.jobs,ctx.state.project.activeAssetId),
+  workspaceCandidate:()=>currentStudioCandidate(ctx.state.jobs,ctx.state.project,ctx.state.candidateJobId),
+  canFollowCandidate,currentComparison,candidateViewed:()=>false});
+ ctx.castBrowser??={mode:()=> 'studio',draw(){}};
+ ctx.castBrowser.draw??=()=>{};
+ vm.runInContext(pollSource,ctx);
+}
 function pollHarness(view,state,response){
  let redraws=0;const ctx=vm.createContext({callerKey,restoredDelivery,renderLoop:null,viewState:view,state,api:async()=>response.promise,drawAgent:()=>redraws++,drawJobs:()=>redraws++,updateDisplay:()=>redraws++,notice:()=>redraws++});
- vm.runInContext('let polling=false,pollErrors=0;\n'+pollSource,ctx);
+ installPoll(ctx);
  return {run:()=>vm.runInContext('pollStudio()',ctx),redraws:()=>redraws};
 }
 function pollingState(id){return {project:{activeAssetId:id},jobs:[{id:'existing-'+id,assetId:id,state:'running'}],allJobs:[],initialized:true,ready:false,loading:false,switching:false,models:{},archivedJobId:null};}
@@ -138,7 +149,7 @@ test('production pair loading disposes stale completed geometry without committi
 test('production pair loading releases successful siblings when one load fails, retaining the previous pair',async()=>{
  const released=[],state={models:{baseline:{meta:{sha256:'old'}},candidate:{meta:{sha256:'old'}}}};
  const ctx=vm.createContext({callerKey,restoredDelivery,renderLoop:null,state,slots:['baseline','candidate'],appearance:{mode:'neutral'},cacheKey:()=>'',recentModels:new Map(),setModelClip(){},loadSlot:slot=>slot==='baseline'?Promise.resolve({id:'prepared',clips:[]}):Promise.reject(Error('damaged geometry')),dispose:model=>released.push(model.id),commitModel:()=>assert.fail('must not commit partial pair')});
- vm.runInContext(pairSource,ctx);ctx.wanted={baseline:{sha256:'new'},candidate:{sha256:'new'}};
+ vm.runInContext(pairSource,ctx);ctx.wanted={baseline:{sha256:'new',file:'new.glb'},candidate:{sha256:'new',file:'new.glb'}};
  await assert.rejects(vm.runInContext('loadPair(wanted)',ctx),/damaged geometry/);assert.deepEqual(released,['prepared']);assert.equal(state.models.candidate.meta.sha256,'old');
 });
 
@@ -236,16 +247,16 @@ test('startup restores a saved accepted review, while an intentional new draft s
   const job={id:'accepted-task',assetId:'A',state:'complete',candidate:{sha256:'candidate'},inputs:{baseline:{sha256:'base'}},review:{decision:'accept-candidate'}};
   Object.assign(state,{initialized:false,explicitCompose,panelMode:explicitCompose?'compose':'task',selectedJob:job.id});
   const ctx=vm.createContext({state,viewState:view,api:async()=>({project:{activeAssetId:'A',slots:{baseline:{sha256:'base'},candidate:{sha256:'candidate'}}},jobs:[job]}),drawAgent(){},drawJobs(){},updateDisplay(){},showCandidate:async j=>{shown.push(j.id);return true;},notice:e=>errors.push(e)});
-  vm.runInContext('let polling=false,pollErrors=1;\n'+pollSource,ctx);await vm.runInContext('pollStudio()',ctx);
+  installPoll(ctx);vm.runInContext('pollErrors=1',ctx);await vm.runInContext('pollStudio()',ctx);
   assert.deepEqual(errors,[]);assert.equal(state.panelMode,explicitCompose?'compose':'task');assert.deepEqual(shown,explicitCompose?[]:['accepted-task']);
  }
 });
 
 test('background completion keeps browsing, external trials and compose drafts in place',async()=>{
- for(const mode of ['library','compose','trial']){
+ for(const mode of ['library','compose','trial','history']){
   const {view}=loadedView('A'),state=pollingState('A'),shown=[],errors=[];
-  const job={id:'existing-A',assetId:'A',state:'complete',candidate:{sha256:'new'},inputs:{baseline:{sha256:'base'}}};Object.assign(state,{ready:true,panelMode:mode==='compose'?'compose':'task',selectedJob:job.id,motionPreview:mode==='trial'?{}:null,models:{candidate:{meta:{sha256:'old'}}}});
-  const ctx=vm.createContext({state,viewState:view,castBrowser:{mode:()=>mode==='library'?'library':'studio'},api:async()=>({project:{activeAssetId:'A',slots:{candidate:{sha256:'new'}}},jobs:[job]}),drawAgent(){},drawJobs(){},updateDisplay(){},toast(){},refreshModels:()=>assert.fail('must keep the current scene'),showCandidate:j=>shown.push(j),notice:e=>errors.push(e)});
-  vm.runInContext('let polling=false,pollErrors=1;\n'+pollSource,ctx);await vm.runInContext('pollStudio()',ctx);assert.deepEqual(shown,[]);assert.deepEqual(errors,[]);assert.equal(state.pendingCandidate.id,job.id);assert.equal(state.models.candidate.meta.sha256,'old');
+  const job={id:'existing-A',assetId:'A',state:'complete',candidate:{sha256:'new',file:'new.glb'},inputs:{baseline:{sha256:'base'}}};Object.assign(state,{ready:true,panelMode:mode==='compose'?'compose':'task',selectedJob:job.id,archivedJobId:mode==='history'?'prior-task':null,motionPreview:mode==='trial'?{}:null,models:{candidate:{meta:{sha256:'old'}}}});
+  const ctx=vm.createContext({state,viewState:view,castBrowser:{mode:()=>mode==='library'?'library':'studio'},api:async()=>({project:{activeAssetId:'A',slots:{candidate:{sha256:'new',file:'new.glb'}}},jobs:[job]}),drawAgent(){},drawJobs(){},updateDisplay(){},toast(){},refreshModels:()=>assert.fail('must keep the current scene'),showCandidate:j=>shown.push(j),notice:e=>errors.push(e)});
+  installPoll(ctx);vm.runInContext('pollErrors=1',ctx);await vm.runInContext('pollStudio()',ctx);assert.deepEqual(shown,[]);assert.deepEqual(errors,[]);assert.equal(ctx.workspaceCandidate().id,job.id);assert.equal(state.models.candidate.meta.sha256,'old');
  }
 });

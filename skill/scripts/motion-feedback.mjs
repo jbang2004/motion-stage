@@ -59,7 +59,7 @@ try{
  }else if(cmd==='serve'){
   const port=val('port')===undefined?5178:Number(val('port'));if(!Number.isInteger(port)||port<0||port>65535)throw Error('无效端口');const s=await serve(work,port,{caller:callerFromArgs(args)});console.log('动作台 MotionStage：http://127.0.0.1:'+s.address().port+'\n工作区：'+work+'\n保持此终端运行；Ctrl+C 停止。');
  }else if(cmd==='add'){
-  if(!val('file'))throw Error('需要 --file');const p=resolve(val('file')),info=await importFile(work,val('slot'),p,{fps:val('fps')?Number(val('fps')):undefined,newModel:args.includes('--new-model'),assetId:val('asset-id')});console.log(JSON.stringify(info,null,2));
+  if(!val('file'))throw Error('需要 --file');const p=resolve(val('file')),info=await importFile(work,val('slot'),p,{fps:val('fps')?Number(val('fps')):undefined,newModel:args.includes('--new-model'),assetId:val('asset-id'),protectActive:true});console.log(JSON.stringify(info,null,2));
  }else if(cmd==='project'){
   console.log(JSON.stringify(await projectStatus(work),null,2));
  }else if(cmd==='appearance'){
