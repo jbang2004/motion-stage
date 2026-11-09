@@ -8,6 +8,37 @@ export function integrationHandoff(entry,paths){
  const identity=entry.kind==='candidate'?'认可检查点 '+entry.checkpointId:'收录动作 '+entry.actionId;
  return `请将动作台的${identity}接入对应游戏项目。\n工作区：${paths.workspace}\n角色：${entry.model||entry.assetId}；动作：${entry.clip}\n先用 integrations 核对当前状态、分支和游戏源文件，再按这条记录修改、检查游戏并记录接入结果。制作源需要同步时一起处理；存在无法确定的分支或目标文件时再向我确认。\nCLI：${paths.cli}`;
 }
+export function createRuntimeHandoff({dialog, body, request, copy}) {
+ let generation = 0;
+ return async ({assetId, selectedClip}) => {
+  if (dialog.open) return;
+  const ticket = ++generation;
+  dialog.showModal();
+  body.replaceChildren(el('p', '正在准备接入任务…'));
+  try {
+   const {task, prompt, delivery} = await request({assetId, clip:selectedClip ?? null});
+   if (ticket !== generation || !dialog.open) return;
+   const title = [task.project.name, task.character.name, task.action?.name].filter(Boolean).join(' · ');
+   const destination = task.caller ? '打开动作台的 '+callerLabel(task.caller)+' 对话' : '当前对话';
+   const status = el('p', delivery === 'sent' ? '已发送到'+destination+'。' : '复制接入任务，粘贴到'+destination+'。');
+   const text = el('textarea', undefined, 'runtime-handoff-text');
+   text.readOnly = true;
+   text.value = prompt;
+   text.setAttribute('aria-label', '接入任务内容');
+   const copyButton = createActionButton('复制接入任务', async () => {
+    await copy(prompt);
+    status.textContent = delivery === 'sent' ? '已发送到'+destination+'，接入任务也已复制。' : '已复制，粘贴到'+destination+'。';
+   }, {
+    className: 'primary-button',
+    onError(error) { status.textContent = error.message; text.focus(); text.select(); },
+   });
+   body.replaceChildren(el('h3', title), status, copyButton, text);
+  } catch (error) {
+   if (ticket === generation && dialog.open) body.replaceChildren(el('p', error.message, 'error-copy'));
+  }
+ };
+}
+
 export function createIntegrationPanel({api,getPaths,copy,onError}){
  const dialog=document.getElementById('integrationDialog'),body=document.getElementById('integrationBody');let generation=0;
  const button=(label,fn)=>createActionButton(label,fn,{onError});

@@ -393,6 +393,9 @@ dialog p { font-size: 13px; color: #656e7d; line-height: 1.85; }
 .compact-dialog>p { margin-top: 16px; }
 .compact-dialog>select { width: 100%; margin-bottom: 12px; }
 .compact-dialog>.primary-button { margin-top: 20px; }
+#replacementPreviewBar b { overflow-wrap: anywhere; }
+#replacementPreviewBar > div { flex-wrap: wrap; }
+#replacementPreviewBar [aria-pressed="true"] { border-color: #7465da; color: #5445b8; }
 .hint { font-size: 11px !important; color: #656d76 !important; }
 .scope-inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 15px; }
 .scope-inputs label { font-size: 11px; color: #616d80; }
@@ -802,7 +805,10 @@ dialog p { font-size: 13px; color: #656e7d; line-height: 1.85; }
 .runtime-stage-active > :not(.runtime-stage-layer) { visibility: hidden; }
 .runtime-stage-active .runtime-stage-layer { display: block; position: absolute; inset: 0; z-index: 15; background: #161419; }
 .runtime-stage-frame, .runtime-stage-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
-.runtime-stage-status { position: absolute; top: 12px; left: 12px; max-width: calc(100% - 24px); padding: 5px 9px; border-radius: 6px; background: #201e28ee; color: #fff; font-size: 12px; pointer-events: none; }
+.runtime-stage-notice { position: absolute; top: 12px; left: 12px; right: 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; pointer-events: none; }
+.runtime-stage-notice button { pointer-events: auto; }
+.runtime-stage-status { padding: 5px 9px; border-radius: 6px; background: #201e28ee; color: #fff; font-size: 12px; }
+.runtime-handoff-text { display: block; width: 100%; height: clamp(9rem, 40vh, 22rem); margin-top: 12px; resize: vertical; }
 .stage-column:has(.runtime-stage-active) > .preview-header { display: none; }
 .task-panel[inert] { opacity: .65; }
 .runtime-stage-active ~ .transport, .runtime-stage-active ~ .observation-conditions,

@@ -9,11 +9,11 @@ import {createViewState,draftStorageKey,saveViewDraft,readViewDraft} from '../..
 const app=await readFile(new URL('../../assets/viewer/app.js',import.meta.url),'utf8');
 function productionFunction(from,to){const start=app.indexOf(from),end=app.indexOf(to,start);assert.ok(start>=0&&end>start,'production function boundaries must exist');return app.slice(start,end);}
 const pollSource=productionFunction('async function pollStudio(){','\nasync function createJob(request');
-const pairSource=productionFunction('async function loadPair(','\nfunction selectClip(');
+const pairSource=productionFunction('async function loadPair(','\nfunction resolveClip(');
 const persistSource=productionFunction('function persistView(){',"\nfor(const id of ['request'");
 const refreshSource=productionFunction('async function refreshModels(','\nasync function restoreContext(');
-const restoreDraftSource=productionFunction('async function restoreModelDraft(){','\nasync function openCatalogModel(');
-const openSource=productionFunction('async function openCatalogModel(','\nfunction drawCatalog(');
+const restoreDraftSource=productionFunction('async function restoreModelDraft(){','\nlet nextModelOpen');
+const openSource=productionFunction('let nextModelOpen,modelOpenFlight;','\nfunction drawCatalog(');
 const importSource=productionFunction('async function importFile(slot,file){','\nfor(const [slot,id,zone]');
 const deferred=()=>{let resolve,reject;const promise=new Promise((yes,no)=>{resolve=yes;reject=no;});return {promise,resolve,reject};};
 function memoryStorage(){const rows=new Map();return {rows,setItem:(key,value)=>rows.set(key,value),getItem:key=>rows.get(key)||null};}
@@ -129,15 +129,15 @@ test('production polling applies a current response and retains other-model jobs
 test('production pair loading disposes stale completed geometry without committing it into a newer view',async()=>{
  const {view}=loadedView('A'),ticket=view.beginLoad(),one=deferred(),two=deferred(),released=[],committed=[];
  const state={models:{baseline:{meta:{sha256:'old',assetId:'A'}},candidate:{meta:{sha256:'old',assetId:'A'}}}};
- const ctx=vm.createContext({callerKey,restoredDelivery,renderLoop:null,state,slots:['baseline','candidate'],loadSlot:slot=>slot==='baseline'?one.promise:two.promise,dispose:model=>released.push(model.id),commitModel:(slot,model)=>committed.push([slot,model.id])});
+ const ctx=vm.createContext({callerKey,restoredDelivery,renderLoop:null,state,slots:['baseline','candidate'],appearance:{mode:'neutral'},cacheKey:()=>'',recentModels:new Map(),setModelClip(){},loadSlot:slot=>slot==='baseline'?one.promise:two.promise,dispose:model=>released.push(model.id),commitModel:(slot,model)=>committed.push([slot,model.id])});
  vm.runInContext(pairSource,ctx);ctx.wanted={baseline:{sha256:'new',assetId:'A'},candidate:{sha256:'new',assetId:'A'}};ctx.current=()=>view.isUnchanged(ticket,'A');
- const pending=vm.runInContext('loadPair(wanted,false,current)',ctx);view.select('B');one.resolve({id:'A-baseline'});two.resolve({id:'A-candidate'});
+ const pending=vm.runInContext('loadPair(wanted,false,current)',ctx);view.select('B');one.resolve({id:'A-baseline',clips:[]});two.resolve({id:'A-candidate',clips:[]});
  assert.equal(await pending,false);assert.deepEqual(released.sort(),['A-baseline','A-candidate']);assert.equal(committed.length,0);assert.equal(state.models.baseline.meta.sha256,'old');
 });
 
 test('production pair loading releases successful siblings when one load fails, retaining the previous pair',async()=>{
  const released=[],state={models:{baseline:{meta:{sha256:'old'}},candidate:{meta:{sha256:'old'}}}};
- const ctx=vm.createContext({callerKey,restoredDelivery,renderLoop:null,state,slots:['baseline','candidate'],loadSlot:slot=>slot==='baseline'?Promise.resolve({id:'prepared'}):Promise.reject(Error('damaged geometry')),dispose:model=>released.push(model.id),commitModel:()=>assert.fail('must not commit partial pair')});
+ const ctx=vm.createContext({callerKey,restoredDelivery,renderLoop:null,state,slots:['baseline','candidate'],appearance:{mode:'neutral'},cacheKey:()=>'',recentModels:new Map(),setModelClip(){},loadSlot:slot=>slot==='baseline'?Promise.resolve({id:'prepared',clips:[]}):Promise.reject(Error('damaged geometry')),dispose:model=>released.push(model.id),commitModel:()=>assert.fail('must not commit partial pair')});
  vm.runInContext(pairSource,ctx);ctx.wanted={baseline:{sha256:'new'},candidate:{sha256:'new'}};
  await assert.rejects(vm.runInContext('loadPair(wanted)',ctx),/damaged geometry/);assert.deepEqual(released,['prepared']);assert.equal(state.models.candidate.meta.sha256,'old');
 });
@@ -151,29 +151,30 @@ function selectionHarness({storageFailure,existingA=false}={}){
  if(existingA)storage.setItem(draftStorageKey('/review','A'),JSON.stringify({...draft('A','Older persisted A request'),preserve:'Older A preserve'}));
  if(storageFailure==='quota')storage.setItem=()=>{throw Error('QuotaExceededError');};
  const requestLog=[];
- const ctx=vm.createContext({callerKey,restoredDelivery,renderLoop:null,castBrowser:null,setFootRepairDraft:repair=>{state.footRepair=repair;},workspaceDrafts:createDraftSync({load:async()=>({revision:0,draft:null}),save:async(_id,input)=>({revision:input.expectedRevision+1})}),state,viewState:view,localStorage:storage,saveViewDraft,readViewDraft,
+ const ctx=vm.createContext({callerKey,restoredDelivery,renderLoop:null,castBrowser:null,slots:['baseline','candidate'],setFootRepairDraft:repair=>{state.footRepair=repair;},workspaceDrafts:createDraftSync({load:async()=>({revision:0,draft:null}),save:async(_id,input)=>({revision:input.expectedRevision+1})}),state,viewState:view,localStorage:storage,saveViewDraft,readViewDraft,
   $:field,clearTimeout,history:{replaceState(){}},location:{href:'http://local/?asset=A'},
   api:async(path,method,body,request)=>{
    requestLog.push({path,method,body,request});
    if(path==='/api/session')return {token:'test-token',paths:{workspace:'/review'},project:project(request.assetId||state.project.activeAssetId)};
+   if(path==='/api/catalog/C/open')return {project:project('C')};
    return prepared.promise;
   },
-  loadPair:async(wanted,force,current)=>{if(wanted.baseline.assetId==='B')await geometry.promise;if(!current())return false;state.models={baseline:{meta:wanted.baseline},candidate:{meta:wanted.candidate}};return true;},
+  loadPair:async(wanted,force,current)=>{if(wanted.baseline.assetId==='B')await geometry.promise;if(!current())return false;state.models={baseline:{meta:wanted.baseline},...(wanted.candidate&&{candidate:{meta:wanted.candidate}})};return true;},
   context:()=>({assetId:view.loadedAssetId,asset:{sha256:state.models.baseline.meta.sha256}}),duration:()=>0,
   drawLibrary(){},updateBoneChoices(){},drawMetadata(){},updateDisplay(){},render(){},view(){},drawLatestJob(){},clearTarget(){},drawJobs(){},drawCatalog(){},catalogMessage(){},toast(){},notice(){},restoreContext:async()=>{},pollStudio:async()=>{},refreshCatalog:async()=>{}
  });
  if(storageFailure==='denied')Object.defineProperty(ctx,'localStorage',{get(){throw Error('SecurityError');}});
  vm.runInContext("let cameraBusy=false,projectPreviewTimer,projectPreviewSeq=0,projectPreviewKey='',jobsRenderSignature='';\n"+persistSource+'\n'+refreshSource+'\n'+restoreDraftSource+'\n'+openSource+'\n'+importSource,ctx);
- return {view,state,storage,prepared,geometry,field,requestLog,ctx};
+ return {view,state,storage,prepared,geometry,field,requestLog,ctx,project};
 }
 
 test('production model selection restores B draft after delayed geometry, with all intermediate autosaves suppressed',async()=>{
  const h=selectionHarness(),pending=vm.runInContext("openCatalogModel('B')",h.ctx);
- assert.equal(h.state.switching,true);h.prepared.resolve({project:{activeAssetId:'B'}});await new Promise(setImmediate);
- assert.equal(h.state.loading,true);assert.equal(h.state.project.activeAssetId,'B');assert.equal(h.view.loadedAssetId,null);
+ assert.equal(h.state.switching,true);h.prepared.resolve({project:h.project('B')});await new Promise(setImmediate);
+ assert.equal(h.state.loading,true);assert.equal(h.state.project.activeAssetId,'A');assert.equal(h.view.loadedAssetId,null);
  assert.equal(vm.runInContext('persistView()',h.ctx),false);assert.equal(readViewDraft(h.storage,{workspace:'/review',assetId:'B'}).request,'Important B draft');
  h.geometry.resolve();await pending;
- assert.equal(h.view.loadedAssetId,'B');assert.equal(h.field('request').value,'Important B draft');assert.equal(h.state.switching,false);assert.equal(h.state.loading,false);
+ assert.equal(h.view.loadedAssetId,'B');assert.equal(h.state.models.candidate,undefined);assert.equal(h.field('request').value,'Important B draft');assert.equal(h.state.switching,false);assert.equal(h.state.loading,false);
  assert.equal(vm.runInContext('persistView()',h.ctx),true);assert.equal(readViewDraft(h.storage,{workspace:'/review',assetId:'A'}).request,'Original A draft');
 });
 
@@ -198,7 +199,7 @@ for(const storageFailure of ['quota','denied'])for(const existingA of [false,tru
   const h=selectionHarness({storageFailure,existingA});h.field('request').value='Latest unsaved A request';h.field('preserve').value='Latest unsaved A preserve';
   h.state.panelMode='compose';h.state.composerSource='candidate';h.state.lineageParentJobId='A-parent';h.state.comparisonPair={baseline:'A-base',candidate:'A-candidate'};
   const pending=vm.runInContext("openCatalogModel('B')",h.ctx),rejected=assert.rejects(pending,/Broken B geometry/);
-  h.prepared.resolve({project:{activeAssetId:'B'}});await new Promise(setImmediate);h.geometry.reject(Error('Broken B geometry'));await rejected;
+  h.prepared.resolve({project:h.project('B')});await new Promise(setImmediate);h.geometry.reject(Error('Broken B geometry'));await rejected;
   assert.equal(h.view.loadedAssetId,'A');assert.equal(h.state.project.activeAssetId,'A');assert.equal(h.state.switching,false);
   assert.equal(h.field('request').value,'Latest unsaved A request');assert.equal(h.field('preserve').value,'Latest unsaved A preserve');
   assert.equal(h.state.composerSource,'candidate');assert.equal(h.state.lineageParentJobId,'A-parent');assert.equal(h.state.comparisonPair.candidate,'A-candidate');
@@ -218,8 +219,16 @@ for(const storageFailure of ['quota','denied'])for(const existingA of [false,tru
 
 test('a superseded selection cannot clear the busy state owned by a newer selection',async()=>{
  const h=selectionHarness(),pending=vm.runInContext("openCatalogModel('B')",h.ctx);
- h.view.select('C');h.state.project={activeAssetId:'C'};h.state.switching=true;h.prepared.resolve({project:{activeAssetId:'B'}});await pending;
+ h.view.select('C');h.state.project={activeAssetId:'C'};h.state.switching=true;h.prepared.resolve({project:h.project('B')});await pending;
  assert.equal(h.state.project.activeAssetId,'C');assert.equal(h.state.switching,true);assert.equal(h.view.loadedAssetId,null);
+});
+test('rapid role selection keeps the last requested role and skips a superseded model load',async()=>{
+ const h=selectionHarness(),first=vm.runInContext("openCatalogModel('B')",h.ctx);
+ const latest=vm.runInContext("openCatalogModel('C')",h.ctx);
+ h.prepared.resolve({project:h.project('B')});
+ await Promise.all([first,latest]);
+ assert.equal(h.view.loadedAssetId,'C');assert.equal(h.state.models.baseline.meta.assetId,'C');
+ assert.ok(h.requestLog.some(r=>r.path==='/api/catalog/C/open'));
 });
 test('startup restores a saved accepted review, while an intentional new draft stays in compose',async()=>{
  for(const explicitCompose of [false,true]){

@@ -80,10 +80,12 @@ test('failed shared downloads are released so a later attempt actually retries',
 });
 
 test('a SHA verification failure and a parser rejection also allow a fresh download',async()=>{
- const wrong=Buffer.from(demo);wrong[wrong.length-1]^=1;let downloads=0;const load=createAssetLoader({fetchImpl:async()=>fakeResponse(++downloads===1?wrong:demo)});
+ const wrong=Buffer.from(demo);wrong[wrong.length-1]^=1;
+ const cacheModes=[],load=createAssetLoader({fetchImpl:async(_url,options)=>{cacheModes.push(options?.cache);return fakeResponse(cacheModes.length===1?wrong:demo);}});
  await assert.rejects(load(metadata(),mustNotParse),/SHA-256/);
  await assert.rejects(load(metadata(),{parseAsync:async()=>{throw Error('unsupported extension');}}),/unsupported extension/);
- assert.equal(await load(metadata(),{parseAsync:async()=> 'fresh scene'}),'fresh scene');assert.equal(downloads,3);
+ assert.equal(await load(metadata(),{parseAsync:async()=> 'fresh scene'}),'fresh scene');
+ assert.deepEqual(cacheModes,[undefined,'reload',undefined]);
 });
 
 test('invalid identity, byte count and unavailable Web Crypto fail before network or parser work',async()=>{

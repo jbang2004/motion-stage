@@ -6,8 +6,13 @@ export function findStageState(states, {file, clip}) {
  return matches.length === 1 ? matches[0] : null;
 }
 
-export function createRuntimeStage({stage, host, button, assetButton, status, transport, timeline, play, clock, load, renew, release, current, onMode, onReturn}) {
- let active = false, asset, session, source, frame, origin, selection, pending, timer, observed;
+export function runtimeStageSource(source, clip) {
+ const original = source?.assembly?.clips?.[clip];
+ return {file:original?.file ?? source?.projectRelativePath, clip:original?.sourceClip ?? clip};
+}
+
+export function createRuntimeStage({stage, host, button, assetButton, status, transport, timeline, play, clock, setup, retry, handoff, load, renew, release, current, onMode, onReturn}) {
+ let active = false, asset, session, source, frame, origin, selection, pending, timer, observed, framePath, frameAsset;
  const lease = createPreviewLease({renew, release, onExpired: () => { session = null; fail('预览服务已停止，重新切换可连接。'); }});
 
  function send(message) {
@@ -15,13 +20,16 @@ export function createRuntimeStage({stage, host, button, assetButton, status, tr
  }
  function clearFrame() {
   clearTimeout(timer);
-  frame = origin = selection = pending = observed = null;
+  frame = origin = selection = pending = observed = framePath = frameAsset = null;
   host.replaceChildren();
   transport.hidden = true;
+  setup.hidden = retry.hidden = true;
  }
- function fail(message) {
+ function fail(message, canSetUp = false) {
   clearFrame();
   status.textContent = message;
+  setup.hidden = !canSetUp;
+  retry.hidden = false;
  }
  function stop() {
   if (!active) return;
@@ -41,33 +49,37 @@ export function createRuntimeStage({stage, host, button, assetButton, status, tr
   if (!session?.states) return;
   const match = findStageState(session.states, input);
   if (!match) {
-   fail('当前动作没有对应的游戏角色预览。');
+   fail(session.message || '当前动作没有对应的游戏效果预览。', Boolean(session.states.length) ||
+    ['PREVIEW_SETUP_REQUIRED','PREVIEW_CHARACTER_UNMAPPED'].includes(session.code));
    return;
   }
   observed = null;
-  status.textContent = '正在载入游戏角色…';
+  status.textContent = '正在载入游戏效果…';
   transport.hidden = true;
   const url = new URL(match.url);
-  const command = {type:'select', key:match.stage.key, time:input.time, playing:input.playing,
+  const command = {type:'select', key:match.stage.key, character:match.stage.character, time:input.time, playing:input.playing,
    loop:input.loop, speed:input.speed, view:input.view};
-  if (!frame || origin !== url.origin) {
+  const reuseCharacter=match.stage.character&&selection?.switchCharacter;
+  if (!frame || origin !== url.origin || framePath !== url.pathname || frameAsset!==input.assetId&&!reuseCharacter) {
    clearFrame();
    origin = url.origin;
+   framePath=url.pathname;
    url.searchParams.set('motionStage', '1');
    url.searchParams.set('parentOrigin', window.location.origin);
-   frame = createPreviewFrame({label:'游戏角色 · '+match.label, url:url.href});
+   frame = createPreviewFrame({label:'游戏效果 · '+match.label, url:url.href});
    host.append(frame);
   }
+  frameAsset=input.assetId;
   pending = {...command, request:crypto.randomUUID()};
   if (selection) send(pending);
   clearTimeout(timer);
-  timer = setTimeout(() => fail('游戏角色预览未响应。可切回资产检查后重试。'), 20000);
+  timer = setTimeout(() => fail('游戏效果预览未响应。可切回素材预览后重试。'), 20000);
  }
 
  async function open(input) {
   const ticket = {id:crypto.randomUUID()};
   session = ticket;
-  status.textContent = '正在连接游戏角色预览…';
+  status.textContent = '正在连接游戏效果预览…';
   try {
    const result = await load(input.assetId, false, undefined, ticket.id);
    if (!active || session !== ticket) {
@@ -76,13 +88,12 @@ export function createRuntimeStage({stage, host, button, assetButton, status, tr
    }
    lease.end();
    if (result.managed) lease.keep(ticket.id);
-   ticket.states = result.states;
-   if (!result.states.length) fail(result.message || '当前角色没有游戏预览。');
-   else apply(current());
+   Object.assign(ticket, {states:result.states, code:result.code, message:result.message});
+   apply(current());
   } catch (error) {
    if (active && session === ticket) {
     lease.end();
-    fail(error.message || '无法连接游戏预览。');
+    fail(error.message || '无法连接游戏预览。', error.code === 'PREVIEW_TRUST_REQUIRED');
    }
   }
  }
@@ -94,7 +105,7 @@ export function createRuntimeStage({stage, host, button, assetButton, status, tr
   if (asset !== input.assetId) {
    asset = input.assetId;
    source = input.sourceId;
-   clearFrame();
+   clearTimeout(timer);pending=observed=null;transport.hidden=true;
    void open(input);
   } else if (source !== input.sourceId) {
    source = input.sourceId;
@@ -115,17 +126,23 @@ export function createRuntimeStage({stage, host, button, assetButton, status, tr
   if (!active || !frame || event.source !== frame.contentWindow || event.origin !== origin) return;
   const data = event.data;
   if (data?.channel !== 'motion-stage') return;
-  if (data.type === 'ready') { selection = true; if (pending) send(pending); }
-  if (data.request !== pending?.request) return;
+  if (data.type === 'ready') { selection = {switchCharacter:data.switchCharacter===true}; if (pending) send(pending); }
+  if (!pending||data.request !== pending.request) return;
   if (data.type === 'error') { fail('游戏无法播放当前动作。'); return; }
   if (data.type === 'state') {
    clearTimeout(timer);
-   status.textContent = '游戏角色 · 切回资产检查可标记';
+   status.textContent = '游戏效果 · 切回素材预览可标记';
    transport.hidden = false;
    observe(data);
   }
  });
  assetButton.onclick = stop;
+ setup.onclick = () => { if (active && !setup.hidden) void handoff(current()); };
+ retry.onclick = () => {
+  if (!active || retry.hidden) return;
+  clearFrame();
+  void open(current());
+ };
  button.onclick = () => {
   if (active) return;
   if (current().ineligible) return;

@@ -7,6 +7,7 @@ import {tmpdir} from 'node:os';
 import {importAsset, readProject} from '../core.mjs';
 import {linkProject} from '../project-context.mjs';
 import {initializeWorkspace} from '../project-workspaces.mjs';
+import {serve} from '../server.mjs';
 import {connectRuntimePreview, offlinePreviewStatus, runtimePreviewStatus} from '../runtime-preview.mjs';
 import {findStageState} from '../../assets/viewer/runtime-stage.mjs';
 import {createManagedPreview, trustManagedPreview} from '../managed-preview.mjs';
@@ -53,6 +54,13 @@ test('runtime catalog is opt-in, refreshed from the game and scoped to the linke
   assert.equal(findStageState(staged, state.stage), staged[0]);
   assert.equal(findStageState(staged, {...state.stage,file:'models/other.glb'}), null);
   assert.equal(findStageState([...staged, ...staged], state.stage), null);
+  state.stage.character='hero';
+  assert.equal((await runtimePreviewStatus(work, hero.assetId)).states[0].stage.character,'hero');
+  state.capabilities = {characterMaterials:true, liveCloth:false, futureExtension:true};
+  assert.deepEqual((await runtimePreviewStatus(work, hero.assetId)).states[0].capabilities, {characterMaterials:true, liveCloth:false});
+  state.capabilities.liveCloth = 'yes';
+  assert.match((await runtimePreviewStatus(work, hero.assetId)).message, /能力声明无效/);
+  delete state.capabilities;
   state.stage.file = '../outside.glb';
   assert.match((await runtimePreviewStatus(work, hero.assetId)).message, /动作来源无效/);
   delete state.stage;
@@ -71,6 +79,61 @@ test('runtime catalog is opt-in, refreshed from the game and scoped to the linke
  } finally {
   if (game.listening) await new Promise(resolve => game.close(resolve));
   await rm(root, {recursive: true, force: true});
+ }
+});
+
+test('first-time setup sends only the selected project role and original action to the bound caller, or returns a copyable handoff', async () => {
+ const root = await realpath(await mkdtemp(join(tmpdir(), 'motion-preview-handoff-')));
+ const work = join(root, 'workspace'), project = join(root, 'game');
+ const caller = {client:'codex',sessionId:'original-chat'};
+ let server, delivered, deliveryConfirmed = false, deliveries = 0;
+ try {
+  await mkdir(project);
+  await initializeWorkspace(work);
+  await linkProject(work, project);
+  const bytes = await readFile(new URL('../../assets/demo/baseline.glb', import.meta.url));
+  const source = {projectRelativePath:'models/pilot.glb',assembly:{profileId:'pilot',clips:{}}};
+  const pilot = await importAsset(work, 'baseline', bytes, 'Pilot', {newModel:true, source});
+  const model = (await readProject(work)).models[pilot.assetId];
+  const clip = model.slots.baseline.clips[0].name;
+  source.assembly.clips[clip] = {file:'moves/pilot.glb',sourceClip:'Wave'};
+  await importAsset(work, 'baseline', bytes, 'Pilot', {assetId:pilot.assetId, source});
+  const before = await readProject(work);
+  server = await serve(work, 0, {caller, sendToCaller: async message => {
+   deliveries++;
+   delivered = message;
+   if (!deliveryConfirmed) throw Error('Host unavailable');
+   return true;
+  }});
+  const origin = 'http://127.0.0.1:' + server.address().port;
+  const session = await fetch(origin+'/api/session').then(res => res.json());
+  const post = (action, input, token = session.token) => fetch(origin+'/api/runtime-preview/'+action, {
+   method:'POST', headers:{'x-motion-token':token,'content-type':'application/json'}, body:JSON.stringify(input),
+  });
+  const unconfigured = await post('open', {assetId:pilot.assetId,lease:'11111111-1111-1111-1111-111111111111'});
+  assert.equal((await unconfigured.json()).code, 'PREVIEW_SETUP_REQUIRED');
+  assert.equal(deliveries, 0);
+  const input = {assetId:pilot.assetId, clip, caller:{client:'codex',sessionId:'other-chat'}};
+  assert.equal((await post('handoff', input, 'bad-token')).status, 403);
+  assert.equal((await post('handoff', {...input,clip:'wrong-clip'})).status, 400);
+  assert.equal(deliveries, 0);
+  const fallback = await post('handoff', input).then(res => res.json());
+  assert.equal(fallback.delivery, 'copy');
+  assert.equal(fallback.task.project.root, project);
+  assert.equal(fallback.task.character.assetId, pilot.assetId);
+  assert.equal(fallback.task.character.profileId, 'pilot');
+  assert.deepEqual(fallback.task.action, {name:clip,file:'moves/pilot.glb',clip:'Wave'});
+  assert.equal(delivered.caller.sessionId, 'original-chat');
+  assert.ok(fallback.prompt.includes('moves/pilot.glb'));
+  deliveryConfirmed = true;
+  const sent = await post('handoff', input).then(res => res.json());
+  assert.equal(sent.delivery, 'sent');
+  assert.deepEqual(sent.task, fallback.task);
+  assert.equal(deliveries, 2);
+  assert.deepEqual(await readProject(work), before);
+ } finally {
+  if (server) await new Promise(resolve => server.close(resolve));
+  await rm(root, {recursive:true,force:true});
  }
 });
 

@@ -1,7 +1,7 @@
 import {resourceCapabilities,curveDescriptor,curveClips} from './resource-capabilities.mjs';
 
 // Use only the scene and transforms authored in the resource. No template rig.
-export async function prepareResource(gltf,T){
+export async function prepareResource(gltf,T,clipMetadata){
  const doc=gltf.parser.json,capabilities=resourceCapabilities(doc);curveClips(doc);
  let root=gltf.scene;
  if(!root){root=new T.Group();const children=new Set((doc.nodes||[]).flatMap(n=>n.children||[]));
@@ -9,8 +9,9 @@ export async function prepareResource(gltf,T){
   if(!doc.nodes?.length)for(let i=0;i<(doc.meshes||[]).length;i++)root.add(await gltf.parser.getDependency('mesh',i));
  }
  root.updateMatrixWorld(true);const meshes=[],joints=[],seen=new Set(),indices=new Set(capabilities.jointIndices);
+ if(clipMetadata)for(const animation of doc.animations||[])for(const channel of animation.channels||[])if(channel.target?.node!==undefined)indices.add(channel.target.node);
  const add=o=>{if(!seen.has(o.uuid)){seen.add(o.uuid);joints.push(o);}};
- root.traverse(o=>{if(o.isMesh){meshes.push(o);for(const b of o.skeleton?.bones||[])add(b);}const index=gltf.parser.associations?.get(o)?.nodes;if(o.isBone||indices.has(index)||!capabilities.hasMesh&&index!==undefined)add(o);});
+ root.traverse(o=>{if(o.isMesh){meshes.push(o);for(const b of o.skeleton?.bones||[])add(b);}const index=gltf.parser.associations?.get(o)?.nodes;if(o.isBone||indices.has(index)&&o!==root&&!o.isMesh||!capabilities.hasMesh&&index!==undefined)add(o);});
  // Segmented models can animate real transform nodes without a skin.
  for(const clip of gltf.animations)for(const track of clip.tracks){const binding=T.PropertyBinding.parseTrackName(track.name),node=root.getObjectByName(binding.nodeName);if(node&&node!==root&&!node.isMesh)add(node);}
  if(joints.length>5000)throw Error('节点预览超过 5000 个可交互节点，请导出所需骨架或拆分资源；已有版本保持。');
@@ -18,7 +19,12 @@ export async function prepareResource(gltf,T){
  if(bbox.isEmpty())bbox.expandByPoint(new T.Vector3());const span=bbox.getSize(new T.Vector3()),height=span.y>1e-6?span.y:Math.max(span.x,span.z,1);
  if(![...bbox.min.toArray(),...bbox.max.toArray(),height].every(Number.isFinite))throw Error('资源的空间变换无效');
  const curves=await Promise.all((curveDescriptor(doc)?.clips||[]).map(async clip=>({...clip,tracks:await Promise.all(clip.tracks.map(async t=>({...t,times:await gltf.parser.getDependency('accessor',t.input),values:await gltf.parser.getDependency('accessor',t.output)})))})));
- return {root,capabilities,meshes,joints,bbox,height,curves,clips:curves.length?curves.map(c=>new T.AnimationClip(c.name,c.duration,[])):gltf.animations};
+ const clips=curves.length?curves.map(c=>new T.AnimationClip(c.name,c.duration,[])):clipMetadata?.map(clip=>({...clip,load:async()=>{
+  const loaded=await gltf.parser.getDependency('animation',clip.index);
+  loaded.name=clip.name;
+  return loaded;
+ } }))??gltf.animations;
+ return {root,capabilities,meshes,joints,bbox,height,curves,clips};
 }
 const read=(a,i)=>a.getX(i);
 export function curveValue(track,time,component=0){

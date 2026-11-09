@@ -8,9 +8,40 @@ import {readProject,modelSlots,importAsset,sha} from '../core.mjs';
 import {motionLibrary,registerMotionPack,previewMotion,adoptMotion,materializeMotion,saveMotionMapping,motionRigOptions} from '../motion-library.mjs';
 import {parseGlb,encodeGlb} from '../asset-tools.mjs';
 import {serve} from '../server.mjs';
+import {previewReplacement,replaceAction,listReplacementPlans,withdrawReplacementPlan} from '../action-replacement.mjs';
+import {applyUndo,undoStatus} from '../undo.mjs';
 async function setup(fn){const w=await mkdtemp(join(tmpdir(),'motion-separated-'));try{await initializeWorkspace(w);const cfg=await readProject(w),assetId=cfg.activeAssetId;return await fn(w,{assetId,slot:'baseline',expectedModelSha:modelSlots(cfg,assetId).baseline.sha256});}finally{await rm(w,{recursive:true,force:true});}}
 async function register(w,target){return registerMotionPack(w,{...target,expectedRevision:0,name:'公共人形动作'});}
 const request=(target,p)=>({...target,packId:p.pack.id,versionId:p.version.id,clip:p.version.clips[0].name});
+test('replacement plans leave model heads and assets intact, accumulate by clip, and support undo and redo',()=>setup(async(w,t)=>{
+ const input={...t,clip:'Run',source:{kind:'own',name:'Salute'}};
+ const project=await readFile(join(w,'project.json')),files=await readdir(join(w,'assets')),preview=await previewReplacement(w,input);
+ const first=await replaceAction(w,{...input,previewId:preview.previewId});
+ assert.deepEqual(await readFile(join(w,'project.json')),project);
+ assert.deepEqual(await readdir(join(w,'assets')),files);
+ assert.equal(first.plan.source.clip,'Salute');
+ await assert.rejects(replaceAction(w,{...input,previewId:preview.previewId}),/方案已更新/);
+ const replay=await previewReplacement(w,{...input,source:{kind:'plan',id:first.plan.id}});
+ assert.equal(replay.action.name,'Salute');
+ const lib=await registerMotionPack(w,{...t,expectedRevision:0});
+ const source={...request(t,lib),clip:'Run'};
+ const sample=await previewMotion(w,source),adopted=await adoptMotion(w,{...source,previewId:sample.recipe.id,expectedRevision:1});
+ const next={...input,clip:'Salute',source:{kind:'saved',id:adopted.action.id}};
+ const second=await replaceAction(w,{...next,previewId:(await previewReplacement(w,next)).previewId});
+ assert.deepEqual(second.plans.map(plan=>plan.clip),['Run','Salute']);
+ assert.deepEqual(await readFile(join(w,'project.json')),project);
+ const undo=await undoStatus(w,t.assetId);
+ const rolledBack=await applyUndo(w,{assetId:t.assetId,expectedRevision:undo.revision,entryId:undo.undo.id});
+ assert.deepEqual(rolledBack.replacementPlans,[first.plan]);
+ const redo=await undoStatus(w,t.assetId);
+ await applyUndo(w,{assetId:t.assetId,direction:'redo',expectedRevision:redo.revision,entryId:redo.redo.id});
+ assert.deepEqual((await listReplacementPlans(w,t.assetId)).plans,second.plans);
+ const withdrawal=await withdrawReplacementPlan(w,{assetId:t.assetId,id:first.plan.id});
+ assert.deepEqual(withdrawal.plans.map(plan=>plan.clip),['Salute']);
+ const restore=await undoStatus(w,t.assetId);
+ await applyUndo(w,{assetId:t.assetId,expectedRevision:restore.revision,entryId:restore.undo.id});
+ assert.deepEqual((await listReplacementPlans(w,t.assetId)).plans,second.plans);
+}));
 test('shared motion contains reference skeleton and curves without geometry or skin',()=>setup(async(w,t)=>{
  const p=await register(w,t),d=parseGlb(await readFile(join(w,p.version.file))).doc;
  assert.equal(d.meshes,undefined);assert.equal(d.materials,undefined);assert.equal(d.skins,undefined);assert.ok(d.nodes.length);assert.equal(d.animations.length,2);

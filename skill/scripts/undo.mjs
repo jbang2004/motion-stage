@@ -1,6 +1,7 @@
 import {randomUUID} from 'node:crypto';
-import {readProject,modelSlots,readWorkspaceJSON,withWorkspaceLock,commitWorkspace,sha,projectView} from './core.mjs';
+import {readProject,modelSlots,setModelSlots,readWorkspaceJSON,withWorkspaceLock,commitWorkspace,sha,projectView} from './core.mjs';
 import {readJobIndex,activeJobStates} from './job-index.mjs';
+import {PLAN_FILE,readReplacementPlans} from './action-replacement.mjs';
 
 const file=id=>{if(!/^[a-zA-Z0-9_-]{1,80}$/.test(id||'')||['__proto__','prototype','constructor'].includes(id))throw Error('无效模型 ID');return 'undo/'+id+'.json';};
 const empty=()=>({version:1,revision:0,undo:[],redo:[],guard:null});
@@ -13,7 +14,8 @@ export async function undoGuard(work,id,changes={}){
  const rows=(await readJobIndex(work)).rows.filter(j=>j.assetId===id),reviews=[];
  for(const row of rows){const changed=changes['jobs/'+row.id+'/job.json'],review=changed?changed.reviews?.at(-1):row.review;if(review)reviews.push([row.id,review.id||review.at]);}
  reviews.sort((a,b)=>a[0].localeCompare(b[0]));const heads=modelSlots(cfg,id);
- return sha(Buffer.from(JSON.stringify([cfg.models[id]?.headRevision,heads.baseline?.sha256,heads.candidate?.sha256,reviews,lib.characters[id]||[]])));
+ const plans=(changes[PLAN_FILE]||await readReplacementPlans(work)).characters[id]||[];
+ return sha(Buffer.from(JSON.stringify([cfg.models[id]?.headRevision,heads.baseline?.sha256,heads.candidate?.sha256,reviews,lib.characters[id]||[],...(plans.length?[plans]:[])])));
 }
 export async function appendUndo(work,changes,{assetId,beforeGuard,...entry}){
  const h=await read(work,assetId);if(h.guard!==beforeGuard)h.undo=[];
@@ -42,6 +44,14 @@ export async function applyUndo(work,{assetId,direction='undo',expectedRevision,
   const {reviewJob}=await import('./jobs.mjs');job=await reviewJob(work,entry.jobId,{decision:target.decision,outcome:(direction==='undo'?'撤销':'重做')+entry.label},{restoreAsset:target.asset,finish,recovery:{direction,label:entry.label}});
  }else if(entry.kind==='actions'){
   const lib=await library(work);lib.characters[assetId]=structuredClone(target);lib.revision++;changes['motion-library.json']=lib;await finish(changes);await commitWorkspace(work,changes);
+ }else if(entry.kind==='replacement'){
+  const cfg=await readProject(work),heads=modelSlots(cfg,assetId);
+  cfg.models[assetId].headRevision++;
+  setModelSlots(cfg,assetId,{...heads,candidate:target});
+  changes['project.json']=cfg;await finish(changes);await commitWorkspace(work,changes);
+ }else if(entry.kind==='replacement-plan'){
+  const plans=await readReplacementPlans(work);plans.characters[assetId]=structuredClone(target);
+  changes[PLAN_FILE]=plans;await finish(changes);await commitWorkspace(work,changes);
  }else throw Error('不支持的撤销记录');
- return {assetId,job,project:projectView(await readProject(work),assetId),history:await status(work,assetId),message:(direction==='undo'?'已撤销':'已重做')+entry.label};
+ return {assetId,job,replacementClip:entry.clip,replacementPlans:entry.kind==='replacement-plan'?target:undefined,project:projectView(await readProject(work),assetId),history:await status(work,assetId),message:(direction==='undo'?'已撤销':'已重做')+entry.label};
 });}

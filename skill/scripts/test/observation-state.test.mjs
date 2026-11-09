@@ -51,14 +51,14 @@ test('appearance-only animation keeps frames alive while paused and caps a delay
 
 const app=await readFile(new URL('../../assets/viewer/app.js',import.meta.url),'utf8');
 const extract=(from,to)=>app.slice(app.indexOf(from),app.indexOf(to,app.indexOf(from)));
-test('production snapshot application restores settings and camera FOV before deriving progress transport time',()=>{
+test('production snapshot application restores settings and camera FOV before deriving progress transport time',async()=>{
  const fields=new Map(),$=id=>{if(!fields.has(id))fields.set(id,{value:'shared'});return fields.get(id);};
  const state={models:structuredClone(models),playing:true},cameras={},controls={};let normalized=0;
  const vector=()=>({value:null,fromArray(a){this.value=[...a];}});
  for(const slot of ['baseline','candidate']){cameras[slot]={position:vector(),updateProjectionMatrix(){}};controls[slot]={target:vector(),update(){}};}
  const ctx=vm.createContext({state,slots:['baseline','candidate'],$,cameras,controls,planObservationRestore,restoredTransportTime,activeModel:()=>state.models.candidate,selectClip(slot,name){state.models[slot].clip=name;},normalizePair(){normalized++;},drawLoop(){},setViewButtons(){},restoreOfflinePreset(){}});
- vm.runInContext('let cameraBusy=false;'+extract('function applyObservation(','\nasync function restoreContext('),ctx);
- vm.runInContext('applyObservation',ctx)({slot:'candidate',time:1,mode:'progress',rootLocked:false,linkedCameras:false,speed:.5,loop:false,cameras:{candidate:{position:[2,3,4],target:[0,2,0],fov:55}}},{inputSlot:'candidate'});
+ vm.runInContext('let cameraBusy=false;'+extract('async function applyObservation(','\nasync function restoreContext('),ctx);
+ await vm.runInContext('applyObservation',ctx)({slot:'candidate',time:1,mode:'progress',rootLocked:false,linkedCameras:false,speed:.5,loop:false,cameras:{candidate:{position:[2,3,4],target:[0,2,0],fov:55}}},{inputSlot:'candidate'});
  assert.equal(state.playing,false);assert.equal(state.display,'split');assert.equal(state.time,1); // new baseline duration is 4; source local second stays 1
  assert.equal($('progress').checked,true);assert.equal($('lockRoot').checked,false);assert.equal($('linkCameras').checked,false);assert.equal(state.speed,.5);assert.equal(state.loop,false);assert.equal(normalized,1);
  assert.deepEqual(cameras.baseline.position.value,[2,3,4]);assert.equal(cameras.baseline.fov,55);assert.equal(cameras.candidate.fov,55);
@@ -105,9 +105,9 @@ test('production frame policy includes paused project hooks and suspends the mod
 });
 
 test('project snapshot staging supplies the frozen transform before adapter preparation and rebuilds both handles',async()=>{
- const load=extract('async function loadPair(','\nfunction selectClip('),box={min:{x:0,y:0,z:0},max:{x:2,y:4,z:2}},wanted={baseline:{sha256:'input'},candidate:{sha256:'output'}},state={models:{baseline:{meta:wanted.baseline},candidate:{meta:wanted.candidate}}},staged=[],frames=[];
+ const load=extract('async function loadPair(','\nfunction resolveClip('),box={min:{x:0,y:0,z:0},max:{x:2,y:4,z:2}},wanted={baseline:{sha256:'input'},candidate:{sha256:'output'}},state={models:{baseline:{meta:wanted.baseline},candidate:{meta:wanted.candidate}}},staged=[],frames=[];
  const options={scaleMode:'shared',normalization:{scale:.25,restOffset:[2,-1,0]}};
- const ctx=vm.createContext({slots:['baseline','candidate'],state,pairFrame:(models,options)=>observationFrame(models.baseline.bbox,options?.scaleMode,options?.normalization),observationFrame,$:()=>({value:'raw'}),appearance:{mode:'project',async prepare(models){assert.equal(models.length,2);assert.ok(models.every(m=>m.frame.factor===.25));assert.ok(models.every(m=>m.frame.offset[0]===2));return 'ready';}},loadSlot:async(slot,meta)=>{const m={meta,bbox:box,capabilities:{hasMesh:true},appearanceContext:{camera:{}}};staged.push(m);return m;},normalize:(m,frame)=>m.frame=frame,normalizePair:(_models,frameOptions)=>frames.push(frameOptions),renderer:{debug:{},compile(){}},T:{},withRendererState:(_r,_t,run)=>run(),dispose(){},commitModel:(slot,m)=>state.models[slot]=m});
+ const ctx=vm.createContext({slots:['baseline','candidate'],state,cacheKey:()=>'',recentModels:new Map(),setModelClip(){},retireModel(){},pairFrame:(models,options)=>observationFrame(models.baseline.bbox,options?.scaleMode,options?.normalization),observationFrame,$:()=>({value:'raw'}),appearance:{mode:'project',async prepare(models){assert.equal(models.length,2);assert.ok(models.every(m=>m.frame.factor===.25));assert.ok(models.every(m=>m.frame.offset[0]===2));return 'ready';}},loadSlot:async(slot,meta)=>{const m={meta,clips:[],bbox:box,capabilities:{hasMesh:true},appearanceContext:{camera:{}}};staged.push(m);return m;},normalize:(m,frame)=>m.frame=frame,normalizePair:(_models,frameOptions)=>frames.push(frameOptions),renderer:{debug:{},compile(){}},T:{},withRendererState:(_r,_t,run)=>run(),dispose(){},commitModel:(slot,m)=>state.models[slot]=m});
  vm.runInContext(load,ctx);assert.equal(await vm.runInContext('loadPair',ctx)(wanted,false,()=>true,options),true);assert.equal(staged.length,2);assert.equal(frames[0],options);
 });
 

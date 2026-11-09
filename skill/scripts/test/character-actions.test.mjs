@@ -9,6 +9,7 @@ import {startCatalogScan,waitForCatalogScan,stopCatalogScan} from '../asset-cata
 import {readProject,modelSlots} from '../core.mjs';
 import {parseGlb,encodeGlb,editGlb} from '../asset-tools.mjs';
 import {discoverCharacterActions,waitForCharacterActions,previewCharacterAction,ACTION_CACHE_DIR} from '../character-actions.mjs';
+import {previewReplacement,replaceAction,listReplacementPlans,replacementHandoff,recordReplacementIntegration} from '../action-replacement.mjs';
 import {spawnSync} from 'node:child_process';
 const base=await readFile(new URL('../../assets/demo/baseline.glb',import.meta.url));
 function foreign(factor=.5,rest=false){const edited=editGlb(base,{clip:'Run',bone:'LeftShoulder',factor}),p=parseGlb(edited.bytes);p.doc.animations=[p.doc.animations.find(a=>a.name==='Run')];p.doc.animations[0].name='Borrowed';if(rest)p.doc.nodes.find(n=>n.name==='LeftShoulder').translation=[30,0,0];return encodeGlb(p.doc,p.bin);}
@@ -26,6 +27,27 @@ test('one-click trial resolves its hidden motion reference but does not adopt or
 }));
 test('changed source files and stale character identities cannot play an indexed action',()=>fixture(async({work,project,input})=>{
  const path=join(project,'foreign.glb');await writeFile(path,foreign());await scan(work);const data=await waitForCharacterActions(work,input);await writeFile(path,foreign(.7));await assert.rejects(previewCharacterAction(work,{...input,actionId:data.actions[0].id}),/来源已变化/);await assert.rejects(discoverCharacterActions(work,{...input,expectedModelSha:'wrong'}),/角色版本已变化/);
+}));
+test('matched action replacement previews read-only and pins the actual curves on confirmation',()=>fixture(async({work,project,input})=>{
+ const file=join(project,'foreign.glb');await writeFile(file,foreign());await scan(work);
+ const data=await waitForCharacterActions(work,input),request={...input,expectedCandidateSha:input.expectedModelSha,clip:'Run',source:{kind:'matched',id:data.actions[0].id}};
+ const config=await readFile(join(work,'project.json')),files=await readdir(join(work,'assets')),preview=await previewReplacement(work,request);
+ assert.ok(preview.action.tracks.length);assert.deepEqual(await readdir(join(work,'assets')),files);
+ const result=await replaceAction(work,{...request,previewId:preview.previewId});
+ assert.equal(result.plan.source.clip,'Borrowed');
+ assert.deepEqual(await readFile(join(work,'project.json')),config);
+ await writeFile(file,foreign(.7));
+ const replay=await previewReplacement(work,{...request,source:{kind:'plan',id:result.plan.id}});
+ assert.deepEqual(replay.action.tracks,preview.action.tracks);
+ const own={...request,clip:'Salute',source:{kind:'own',name:'Run'}};
+ const second=await replaceAction(work,{...own,previewId:(await previewReplacement(work,own)).previewId});
+ const ids=[result.plan.id,second.plan.id],handoff=await replacementHandoff(work,ids);
+ assert.deepEqual(handoff.task.plans.map(plan=>plan.clip),['Run','Salute']);
+ assert.match(handoff.prompt,/replacement-integrated/);
+ await assert.rejects(recordReplacementIntegration(work,{ids,files:[file],summary:'替换两个动作'}),/游戏验证/);
+ await recordReplacementIntegration(work,{ids,files:[file],summary:'替换两个动作',gameCheck:'已在游戏预览确认'});
+ assert.ok((await listReplacementPlans(work,input.assetId)).plans.every(plan=>plan.integration?.files[0].path==='foreign.glb'));
+ await assert.rejects(replacementHandoff(work,ids),/已接入/);
 }));
 test('HTTP discovery and direct trial preserve token checks and close cleanly with background matching',()=>fixture(async({work,project,input})=>{
  await writeFile(join(project,'foreign.glb'),foreign());await scan(work);const {serve}=await import('../server.mjs'),server=await serve(work,0);try{
@@ -51,7 +73,7 @@ test('match results persist across processes, follow source changes and ignore a
  // A rewritten source has a new identity stamp: it is matched again and the stale entry is pruned.
  await writeFile(path,foreign(.7));await scan(work);assert.deepEqual(freshProcessActions(work,input),['Borrowed']);
  const after=JSON.parse(await readFile(file,'utf8'));assert.equal(Object.keys(after.entries).length,1);assert.ok(!after.entries[keys[0]]);
- await writeFile(file,'{not json');assert.deepEqual(freshProcessActions(work,input),['Borrowed']);assert.equal(JSON.parse(await readFile(file,'utf8')).version,1);
+ await writeFile(file,'{not json');assert.deepEqual(freshProcessActions(work,input),['Borrowed']);assert.equal(JSON.parse(await readFile(file,'utf8')).version,2);
 }));
 test('read-ahead keeps inventory order: listing order and the duplicate source label match a one-by-one scan',()=>fixture(async({work,project,input})=>{
  const variant=(factor,name)=>{const p=parseGlb(foreign(factor));p.doc.animations[0].name=name;return encodeGlb(p.doc,p.bin);};

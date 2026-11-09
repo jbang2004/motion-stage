@@ -75,7 +75,7 @@ function disposeObject(root) {
   });
 }
 
-export function createThumbnailStudio({api, loader, loadAsset, onError = console.error}) {
+export function createThumbnailStudio({api, loader, loadAsset, foreground = () => false, onError = console.error}) {
   const known = new Map();
   const pending = new Map();
   const queue = [];
@@ -299,7 +299,7 @@ export function createThumbnailStudio({api, loader, loadAsset, onError = console
     busy = true;
     try {
       while (queue.length) {
-        if (live?.running) { await sleep(150); continue; }
+        if (live?.running || foreground()) { await sleep(150); continue; }
         if (document.hidden) { await sleep(400); continue; }
         queue.sort((a, b) => (a.priority - b.priority) || (a.order - b.order));
         const task = queue.shift();
@@ -397,7 +397,14 @@ export function createThumbnailStudio({api, loader, loadAsset, onError = console
     try {
       compose.width = width; compose.height = height;
       ctx.clearRect(0, 0, width, height);
-      const clip = portraitClip(gltf.animations || []);
+      const doc = gltf.parser.json;
+      const metadata = (doc.animations || []).map((animation, index) => ({
+        name: animation.name || 'animation_' + index,
+        duration: Math.max(0, ...animation.samplers.map(sampler => doc.accessors?.[sampler.input]?.max?.[0] || 0)),
+        index
+      }));
+      const preferred = portraitClip(metadata);
+      const clip = preferred && await gltf.parser.getDependency('animation', preferred.index);
       if (clip) {
         play(subject, clip);
         poseAt(subject, clip.duration * 0.35);
@@ -517,10 +524,10 @@ export function createThumbnailStudio({api, loader, loadAsset, onError = console
       return url ? {url, key, tint: tintFor(key)} : null;
     },
 
-    async ownAction(subject, clip, {priority = 1, wanted} = {}) {
+    async ownAction(subject, clip, {priority = 1, wanted, resolve} = {}) {
       const category = classifyAction(clip.name, {duration: clip.duration}).category;
       const key = await thumbnailKey('a', subject.id, 'own', clip.name);
-      return cached(key, () => drawAction(subject, clip, category), {priority, wanted});
+      return cached(key, async () => drawAction(subject, clip.load ? await resolve(clip.name) : clip, category), {priority, wanted});
     },
 
     async sharedAction(subject, target, row, {priority = 2, wanted} = {}) {

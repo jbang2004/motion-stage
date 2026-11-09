@@ -129,7 +129,9 @@ export function createManagedPreview(work, {trustDirectory = defaultTrust(), lea
    let fingerprint;
    try { ({fingerprint} = JSON.parse((await smallFile(trustFile(spec.root, trustDirectory), 4096)).toString('utf8'))); }
    catch (error) { if (error.code !== 'ENOENT') throw error; }
-   if (fingerprint !== spec.fingerprint) throw Error('请先审阅项目的预览入口，再用 runtime-trust 登记此项目');
+   if (fingerprint !== spec.fingerprint) {
+    throw Object.assign(Error('请先审阅项目的预览入口，再用 runtime-trust 登记此项目'), {code: 'PREVIEW_TRUST_REQUIRED'});
+   }
    if (stopping) await stopping;
    if (closed) throw Error('动作台正在关闭');
    if (service && (service.root !== spec.root || service.fingerprint !== spec.fingerprint)) {

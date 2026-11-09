@@ -50,6 +50,7 @@ export function describeRow(kind, source) {
 
 export function createCastBrowser({
   api, studio, getStage, openCharacter, playOwn, playShared, playSaved, onEdit,
+  onReplace, onReplacementSource, onCancelReplacement, onWithdrawReplacement, onAssetChange,
   onModeChange = () => {}, onError = console.error, documentRef = globalThis.document
 }) {
   const $ = id => documentRef.getElementById(id);
@@ -63,6 +64,7 @@ export function createCastBrowser({
   let category = readStored(CATEGORY_KEY) || 'all', query = '', pages = {};
   let subject = null, subjectSha = null;
   let activeId = null, pendingId = null, openingId = null;
+  let replacementScroll = false, replacementAsset = null;
   let hoverTimer = null, liveCard = null;
   const portraits = new Map();
   const portraitNodes = new Map();
@@ -227,8 +229,7 @@ export function createCastBrowser({
 
   async function chooseCharacter(entry, {fromGallery = false} = {}) {
     const stage = getStage();
-    if (entry.id === stage?.assetId) { if (fromGallery) $('castGallery')?.close(); setMode('library'); return; }
-    if (openingId) return;
+    if (entry.id === stage?.assetId && !openingId) { if (fromGallery) $('castGallery')?.close(); setMode('library'); return; }
     openingId = entry.id;
     drawRail();
     if (fromGallery) $('castGallery')?.close();
@@ -238,9 +239,7 @@ export function createCastBrowser({
     } catch (error) {
       onError(error);
     } finally {
-      openingId = null;
-      drawRail();
-      void loadCast();
+      if (openingId === entry.id) { openingId = null; drawRail(); void loadCast(); }
     }
   }
 
@@ -318,7 +317,7 @@ export function createCastBrowser({
 
   function readOwnClips() {
     const stage = getStage();
-    return (stage?.ownClips || []).filter(clip => clip.tracks?.length).map(clip => ({...describeRow('own', clip), clip}));
+    return (stage?.ownClips || []).filter(clip => clip.load || clip.tracks?.length).map(clip => ({...describeRow('own', clip), clip}));
   }
 
   async function loadActions(force = false) {
@@ -330,10 +329,13 @@ export function createCastBrowser({
     try {
       const result = await api('/api/actions?' + new URLSearchParams({...value, ...(force ? {refresh: '1'} : {})}));
       if (!current(ticket, key)) return;
+      const sameRows = scan && result.actions?.length === scan.actions?.length &&
+        result.actions?.every((row,index) => row.id === scan.actions[index].id && row.sourceCount === scan.actions[index].sourceCount) &&
+        JSON.stringify(result.saved) === JSON.stringify(scan.saved);
       scan = result;
       matched = (result.actions || []).map(row => describeRow('matched', row));
       saved = (result.saved || []).filter(a => result.saved.findLast(x => x.name === a.name)?.id === a.id).map(a => describeRow('saved', a));
-      draw();
+      if (sameRows && !replacementScroll) drawStatus(); else draw();
       clearTimeout(pollTimer);
       if (result.state === 'scanning') pollTimer = setTimeout(() => loadActions(), 1200);
     } catch (error) {
@@ -370,6 +372,10 @@ export function createCastBrowser({
       if (fresh.map(r => r.name).join('\n') !== names) own = fresh;
     }
     const stage = getStage();
+    if (value && replacementAsset !== value.assetId) {
+      replacementAsset = value.assetId;
+      onAssetChange?.(value.assetId);
+    }
     if (stage && !stage.previewing && pendingId === null) activeId = stage.currentClip ? 'own:' + stage.currentClip : null;
     const signature = [identity, own.length, matched.length, saved.length, scan?.state, stage?.name].join('|');
     if (signature !== drawnSignature) draw(); else { markActive(); drawStatus(); }
@@ -432,6 +438,7 @@ export function createCastBrowser({
     const host = $('abSections');
     if (!host) return;
     const stage = getStage();
+    drawReplacementSelection(stage);
     drawnSignature = [identity, own.length, matched.length, saved.length, scan?.state, stage?.name].join('|');
     if ($('abTitle')) $('abTitle').textContent = stage?.name ? stage.name + '的动作' : '动作库';
     const {sections, counts} = buildSections({own, matched, saved, category, query});
@@ -441,7 +448,7 @@ export function createCastBrowser({
     cardObserver?.disconnect();
     pageObserver?.disconnect();
     if (!target()) {
-      host.replaceChildren(emptyState(stage?.loading ? '正在打开角色' : '选择角色', stage?.loading ? '首次打开会整理角色的全部动作。' : '从左侧选择角色，即可浏览它能做的所有动作。'));
+      host.replaceChildren(emptyState(stage?.loading ? '正在打开角色' : '选择角色', stage?.loading ? '角色出现在舞台后即可选择动作。' : '从左侧选择角色，即可浏览它能做的所有动作。'));
       return;
     }
     if (!sections.length) {
@@ -458,6 +465,29 @@ export function createCastBrowser({
       return;
     }
     host.replaceChildren(...sections.map(drawSection));
+    if (replacementScroll && stage?.replacement) {
+      const section = host.querySelector('[data-section="matched"]');
+      if (section) { replacementScroll = false; section.scrollIntoView?.({block:'start'}); }
+    }
+  }
+
+  function drawReplacementSelection(stage) {
+    const handoff = $('handoffReplacements'), banner = $('replacementSelection');
+    if (handoff) {
+      const count = (stage?.plans || []).filter(plan => !plan.integration).length;
+      handoff.hidden = !count || !stage?.ready || Boolean(stage?.replacement);
+      handoff.textContent = '交给 Agent 接入 · ' + count;
+    }
+    if (!banner) return;
+    const trial = stage?.replacement;
+    banner.hidden = !trial;
+    if (!trial) { replacementScroll = false; return; }
+    const cancel = el('button', '退出', 'text-button');
+    cancel.type = 'button'; cancel.onclick = () => void onCancelReplacement?.();
+    const message = trial.error || (trial.pending?'正在读取替换动作…':trial.preview?
+      '「' + trial.targetLabel + '」正在对比 ' + trial.sourceLabel:'为「' + trial.targetLabel + '」选择替换动作');
+    const preview = el('a','查看试播','ab-view-trial'); preview.href='#replacementPreviewBar';
+    banner.replaceChildren(el('span',message),...(trial.preview?[preview]:[]),cancel);
   }
 
   function emptyState(title, text) {
@@ -475,7 +505,7 @@ export function createCastBrowser({
     if (section.id === 'saved') head.append(el('p', '已加入常用的固定版本。'));
     const grid = el('div', undefined, 'ab-grid');
     const limit = pages[section.id] || PAGE;
-    for (const row of section.rows.slice(0, limit)) grid.append(card(row));
+    for (const row of section.rows.slice(0, limit)) grid.append(actionItem(row));
     node.append(head, grid);
     if (section.rows.length > limit) {
       const sentinel = el('div', undefined, 'ab-sentinel');
@@ -485,15 +515,50 @@ export function createCastBrowser({
       more.onclick = () => { pages[section.id] = limit + PAGE * 2; draw(); };
       sentinel.append(more);
       node.append(sentinel);
-      pageObserver?.observe(sentinel);
+      if (!getStage()?.replacement) pageObserver?.observe(sentinel);
     }
     return node;
+  }
+
+  function actionItem(row) {
+    const button = card(row);
+    if (row.kind !== 'own' || !onReplace) return button;
+    const stage = getStage(), plan = stage?.plans?.find(plan => plan.clip === row.name);
+    const canPreviewPlan = plan && Object.values(stage.heads || {}).some(asset=>asset?.sha256===plan.modelSha);
+    const item = el('div', undefined, 'ab-action-item');
+    const chosen = stage?.replacement?.request.clip === row.name;
+    item.classList.toggle('replacement-target', chosen);
+    item.append(button);
+    const controls = el('div', undefined, 'ab-action-options');
+    const control = (label, description, action) => {
+      const node = el('button', label, 'text-button');
+      node.type = 'button'; node.setAttribute('aria-label', description);
+      node.disabled = !stage?.canReplace;
+      node.onclick = async () => { try { await action(); } catch (error) { onError(error); } };
+      controls.append(node);
+    };
+    control('⇄ 替换', '替换 ' + row.name, () => onReplace(row.name));
+    if (canPreviewPlan) control('对比方案', '对比 ' + row.name + ' 的替换方案', () => onReplace(row.name,plan));
+    if (plan && !stage?.replacement) control('原动作', '播放 ' + row.name + ' 的原动作', () => choose(row));
+    if (plan && !plan.integration && !stage?.replacement && onWithdrawReplacement) {
+      control('撤回', '撤回 ' + row.name + ' 的替换方案', () => onWithdrawReplacement(plan));
+    }
+    item.append(controls);
+    if (plan) {
+      const state = plan.integration ? '已接入' : !canPreviewPlan ? '需重新确认' : '待接入';
+      const caption = el('span', (plan.integration?'已替换为 ':'拟替换为 ') +
+        [plan.source.clip,plan.source.sourceName].filter(Boolean).join(' · '), 'ab-plan-label');
+      caption.title = caption.textContent;
+      const planStatus=el('div',undefined,'ab-plan-status');
+      planStatus.append(el('span',state,'ab-plan-state'),caption);item.append(planStatus);
+    }
+    return item;
   }
 
   function card(row) {
     const reused = cards.get(row.id);
     if (reused) {
-      const selected = row.id === activeId;
+      const selected = row.id === selectedAction();
       reused.classList.toggle('active', selected);
       reused.classList.toggle('pending', row.id === pendingId);
       reused.setAttribute('aria-pressed', String(selected));
@@ -505,7 +570,7 @@ export function createCastBrowser({
     button.type = 'button';
     button.dataset.id = row.id;
     button.dataset.cat = row.info.category;
-    const selected = row.id === activeId;
+    const selected = row.id === selectedAction();
     button.classList.toggle('active', selected);
     button.classList.toggle('pending', row.id === pendingId);
     button.setAttribute('aria-pressed', String(selected));
@@ -558,6 +623,7 @@ export function createCastBrowser({
   }
 
   function onSentinel(entries) {
+    if (getStage()?.replacement) return;
     for (const entry of entries) {
       if (!entry.isIntersecting) continue;
       const id = entry.target.dataset.section;
@@ -575,7 +641,7 @@ export function createCastBrowser({
     const key = keyOf(value), wanted = () => button.isConnected && key === keyOf(target());
     try {
       let url = null;
-      if (row.kind === 'own') url = await studio.ownAction(rig, row.clip, {priority: 1, wanted});
+      if (row.kind === 'own') url = await studio.ownAction(rig, row.clip, {priority: 1, wanted, resolve: getStage().model?.resolveClip});
       else if (row.kind === 'matched') url = await studio.sharedAction(rig, value, row.source, {priority: 2, wanted});
       else if (row.kind === 'saved' && row.source.recipe?.id && studio.savedAction) {
         const {packId, versionId, clip, mappingId} = row.source.recipe;
@@ -592,7 +658,7 @@ export function createCastBrowser({
   // ---------------------------------------------------------------- hover ---
   function scheduleHover(button, row) {
     clearTimeout(hoverTimer);
-    if (row.kind === 'saved') return;
+    if (row.kind === 'saved' || getStage()?.replacement) return;
     hoverTimer = setTimeout(() => void startHover(button, row), HOVER_DELAY);
   }
 
@@ -601,6 +667,7 @@ export function createCastBrowser({
     if (!value || !rig || !button.isConnected || body.dataset.mode !== 'library') return;
     let clip = row.clip;
     try {
+      if (clip?.load) clip = await getStage().model.resolveClip(clip.name);
       if (!clip) {
         const samples = Math.min(120, Math.max(12, Math.ceil(row.duration * 30) + 1));
         clip = await studio.sharedClip(rig, value, row.id, samples);
@@ -625,11 +692,16 @@ export function createCastBrowser({
     const value = target();
     if (!value) return;
     stopHover();
+    if (getStage()?.replacement && onReplacementSource) {
+      if (row.kind==='own') await onReplacementSource({kind:'own',name:row.name});
+      else await onReplacementSource({kind:row.kind,id:row.source.id});
+      return;
+    }
     const ticket = generation, key = keyOf(value), mine = ++playTicket;
     if (row.kind === 'own') {
       pendingId = null;
       activeId = row.id;
-      playOwn(row.name);
+      await playOwn(row.name);
       markActive();
       return;
     }
@@ -649,9 +721,19 @@ export function createCastBrowser({
     }
   }
 
+  function selectedAction() {
+    const trial = getStage()?.replacement;
+    if (!trial) return activeId;
+    const source = trial.selection?.source;
+    if (source?.kind==='matched') return source.id;
+    if (source?.kind==='saved') return 'saved:' + source.id;
+    if (source?.kind==='own') return 'own:' + source.name;
+    return 'own:' + trial.request.clip;
+  }
   function markActive() {
+    const selected=selectedAction();
     for (const node of cards.values()) {
-      const on = node.dataset.id === activeId;
+      const on = node.dataset.id === selected;
       node.classList.toggle('active', on);
       node.classList.toggle('pending', node.dataset.id === pendingId);
       node.setAttribute('aria-pressed', String(on));
@@ -676,6 +758,14 @@ export function createCastBrowser({
     mode: () => body.dataset.mode,
     loadCast,
     openGallery,
+    revealAction(name) { cards.get('own:' + name)?.scrollIntoView?.({block:'nearest'}); },
+    updateReplacement() { drawReplacementSelection(getStage()); markActive(); },
+    focusReplacementSources(scroll = true) {
+      clearTimeout(searchTimer);
+      category = 'all'; query = ''; pages = {};
+      if ($('abSearch')) $('abSearch').value = '';
+      replacementScroll = scroll; draw();
+    },
     refresh() { clearTimeout(pollTimer); void loadActions(); },
     cancelPreview() { playTicket++; pendingId = null; markActive(); },
     activeRow() {

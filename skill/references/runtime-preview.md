@@ -63,7 +63,7 @@ node scripts/motion-feedback.mjs runtime-states --workspace "$WORKSPACE" --asset
 
 ## 按需启动项目预览
 
-项目可以在根目录提供 `motion-stage.preview.json`，让动作台自动发现预览入口。
+项目可以在根目录提供 `motion-stage.preview.json`，让动作台自动发现预览入口。这份声明、游戏服务的角色目录和下方的视口消息组成通用接入协议。项目可以复用已有的角色加载和渲染模块。
 
 ```json
 {
@@ -81,13 +81,13 @@ node scripts/motion-feedback.mjs runtime-states --workspace "$WORKSPACE" --asset
 node scripts/motion-feedback.mjs runtime-trust --workspace "$WORKSPACE"
 ```
 
-切换到「游戏运行时」会启动预览并读取目录。多个窗口共用同一个服务，最后一个窗口关闭或切回离线时，动作台关闭服务。浏览器异常退出时，未续期的会话会在约一分钟后过期。手动连接的服务仍由使用者管理。`runtime-states` 读取手动连接的目录。按需服务从动作台的预览窗口访问。
+切换到「游戏效果」或「游戏运行时」会启动预览并读取目录。多个窗口共用同一个服务，最后一个窗口关闭或切回资产预览时，动作台关闭服务。浏览器异常退出时，未续期的会话会在约一分钟后过期。手动连接的服务仍由使用者管理。`runtime-states` 读取手动连接的目录。按需服务从动作台的预览窗口访问。
 
 运行时预览由项目的预览场景决定，例如可以复用游戏角色的装备、着色器和实时布料，同时使用专门的检查灯光。预览的是项目当前注册的游戏资产。动作台的未接入候选可在离线预览中对照。
 
-## 主视窗的游戏角色模式
+## 主视窗的游戏效果模式
 
-在主视窗选择「游戏角色」，动作台会按当前原版动作的项目相对文件路径和原始动作名称寻找对应状态。切换同角色的其他动作时会复用预览实例。初次切换会带入当前时间、播放状态和标准视角。游戏角色有自己的时间轴，切回「资产检查」可继续原来的观察、标记和版本对比。没有对应动作时会在主视窗提示，「游戏状态」菜单仍可预览项目登记的其他状态。
+在主视窗选择「游戏效果」，动作台会按当前原版动作的项目相对文件路径和原始动作名称寻找对应状态。切换同角色的其他动作时会复用预览实例。初次切换会带入当前时间、播放状态和标准视角。游戏角色有自己的时间轴，切回「素材预览」可继续原来的观察、标记和版本对比。没有对应动作时会在主视窗提示，「游戏状态」菜单仍可预览项目登记的其他状态。
 
 目录条目可加入以下字段来支持主视窗。提供该字段的预览页需要实现下方消息接口。
 
@@ -96,7 +96,8 @@ node scripts/motion-feedback.mjs runtime-trust --workspace "$WORKSPACE"
   "id": "idle",
   "label": "待机",
   "path": "/dev/preview.html?character=hero&clip=Idle",
-  "stage": { "file": "public/models/hero.glb", "clip": "Hero_Idle", "key": "Idle" }
+  "stage": { "file": "public/models/hero.glb", "clip": "Hero_Idle", "key": "Idle" },
+  "capabilities": { "characterMaterials": true, "equipment": true, "liveCloth": true }
 }
 ```
 
@@ -105,3 +106,15 @@ node scripts/motion-feedback.mjs runtime-trust --workspace "$WORKSPACE"
 - 动作台发送 `{channel:"motion-stage",type:"select",request,key,time,playing,loop,speed,view}`。 `time` 以秒为单位， `view` 取 `front`、`side`、`back` 或 `top`。
 - 预览页发送 `{channel:"motion-stage",type:"state",request,time,duration,playing}`。加载失败时发送 `{channel:"motion-stage",type:"error",request}`。 `request` 原样回传，动作台据此丢弃上一动作的迟到事件。
 - 动作台发送 `{channel:"motion-stage",type:"play",playing}` 或 `{channel:"motion-stage",type:"seek",time}`。暂停和跳转由预览页执行并回报状态。有历史依赖的布料预览可以从已知初始状态推进到指定时间。
+
+支持在同一页面切换角色的项目可以在 `stage.character` 提供角色 ID，并在 `ready` 消息中声明 `switchCharacter: true`。同源且路径相同的预览页可继续使用同一个渲染器，后续 `select` 会带上 `character`。按请求 ID 忽略过时的角色载入结果，并限制常驻角色资源。旧预览页仍会在跨角色时重新打开。
+
+`capabilities` 可省略，已有目录可以继续使用。已知字段是布尔值。字段分别表示此状态复用角色材质（`characterMaterials`）、装备挂点（`equipment`）、实时衣料（`liveCloth`）、项目场景灯光（`sceneLighting`），或项目具备临时加载候选曲线的能力（`candidateClips`）。未知字段留给协议扩展。声明描述项目能力，当前视口的消息仍只播放注册的动作。
+
+## 首次接入与对话交接
+
+项目缺少入口、入口需要本机登记或当前动作缺少映射时，主视口会显示「让 Agent 接入」。点开后，动作台从工作区读取已关联项目、当前原版角色及选中动作的源文件与源动作名。组合角色同时带上动作台显示的动作名。接入任务要求复用现有加载与渲染逻辑，登记入口后回到原动作验证。完成后点「重新连接预览」，当前页面会重读目录。
+
+本机 HTTP 接口 `POST /api/runtime-preview/handoff` 沿用会话令牌，接收 `{assetId,clip}`，无动作的素材使用 `clip:null`。返回 `{task,prompt,delivery}`。版本 1 的 `task.kind` 为 `runtime-preview-setup`，含 `workspace`、`project`、`character`、`action` 和启动会话的 `caller`。
+
+能向已有对话发送消息的宿主，可在调用 `serve(work, port, options)` 时同时提供 `caller` 和异步 `sendToCaller({caller,task,prompt})`。宿主只向该绑定会话投递，确认收到后返回 `true`。未提供发送桥、未绑定会话或无法确认发送时，页面提供「复制接入任务」，也能手动选择任务文字。项目的预览代码无需实现对话发送。

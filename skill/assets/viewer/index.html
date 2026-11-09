@@ -69,11 +69,12 @@
       </div>
       <div class="recovery-bar" aria-label="预览与历史"><div role="group" aria-label="预览">
         <div class="stage-preview-modes" role="group" aria-label="主视窗模式">
-          <button id="assetStageMode" type="button" class="text-button" aria-pressed="true">资产检查</button>
-          <button id="runtimeStageMode" type="button" class="text-button" aria-pressed="false" disabled>游戏角色</button>
+          <button id="assetStageMode" type="button" class="text-button" aria-pressed="true" title="查看原动作、替换方案和标记">素材预览</button>
+          <button id="runtimeStageMode" type="button" class="text-button" aria-pressed="false" disabled title="查看项目当前接入的版本">游戏效果</button>
         </div><button id="previousMotion" type="button" class="text-button" disabled>返回上一动作</button><button id="openRuntimePreview" type="button" class="text-button" aria-haspopup="dialog">游戏状态</button></div><div role="group" aria-label="内容撤销"><button id="undoAction" type="button" class="text-button" disabled>撤销</button><button id="redoAction" type="button" class="text-button" disabled>重做</button></div></div>
       <div id="exampleBanner" class="example-banner" hidden><span>原创练习角色，试着收小一点左臂摆幅。</span><button id="importMine" class="text-button">导入我的角色 ↗</button></div>
       <div id="motionPreviewBar" class="mw-preview-bar" hidden aria-label="公共动作试播"></div>
+      <div id="replacementPreviewBar" class="mw-preview-bar" hidden aria-label="替换动作对比"></div>
       <div class="preview-header studio-only">
         <div id="versionModes" class="version-modes" role="group" aria-label="查看版本"><button data-version="baseline" class="active">修改前</button><button data-version="candidate">修改后</button><button data-version="compare">并排对照</button></div>
         <div id="singleVersion" class="single-version">正在观察原版</div>
@@ -82,7 +83,11 @@
       <div id="stage" class="stage" aria-label="模型三维预览" tabindex="-1">
         <div class="runtime-stage-layer">
           <div id="runtimeStageFrame" class="runtime-stage-frame"></div>
-          <span id="runtimeStageStatus" class="runtime-stage-status" role="status"></span>
+          <div class="runtime-stage-notice">
+            <span id="runtimeStageStatus" class="runtime-stage-status" role="status"></span>
+            <button id="runtimeStageSetup" type="button" class="primary-button" aria-haspopup="dialog" hidden>让 Agent 接入</button>
+            <button id="runtimeStageRetry" type="button" class="secondary-button" hidden>重新连接预览</button>
+          </div>
         </div>
         <div class="stage-vignette"></div>
         <canvas id="canvas" aria-label="三维模型预览，点击身体定位，拖动旋转，滚轮缩放"></canvas>
@@ -114,9 +119,9 @@
           </div>
         </div>
       </section>
-      <section id="runtimeStageTransport" class="runtime-stage-transport" aria-label="游戏角色播放控制" hidden>
+      <section id="runtimeStageTransport" class="runtime-stage-transport" aria-label="游戏效果播放控制" hidden>
         <button id="runtimeStagePlay" type="button" class="text-button">播放</button>
-        <input id="runtimeStageTimeline" type="range" min="0" max="1" step=".001" value="0" aria-label="游戏角色时间轴">
+        <input id="runtimeStageTimeline" type="range" min="0" max="1" step=".001" value="0" aria-label="游戏效果时间轴">
         <output id="runtimeStageClock"></output>
       </section>
       <p id="observationConditions" class="observation-conditions studio-only" role="status"></p>
@@ -126,10 +131,10 @@
     </main>
     <section id="actionBrowser" class="action-browser library-only" aria-label="动作库">
       <header class="ab-head">
-        <div class="ab-title-row"><h2 id="abTitle">动作库</h2><span id="abCount" class="ab-count"></span></div>
+        <div class="ab-title-row"><h2 id="abTitle">动作库</h2><span id="abCount" class="ab-count"></span><button id="handoffReplacements" type="button" class="text-button" hidden>交给 Agent 接入</button></div>
         <label class="ab-search"><span data-icon="search"></span><input id="abSearch" type="search" placeholder="搜索动作、类别或原名" aria-label="搜索动作（快捷键 /）" autocomplete="off" spellcheck="false"></label>
         <div id="abCategories" class="ab-chips" role="tablist" aria-label="动作类别"></div>
-        <div id="abStatus" class="ab-status" role="status"></div>
+        <div id="abStatus" class="ab-status" role="status"></div><div id="replacementSelection" class="ab-replacement" hidden></div>
       </header>
       <div id="abScroll" class="ab-scroll"><div id="abSections"></div></div>
     </section>
@@ -227,6 +232,21 @@
   <div id="runtimePreviewFrame" class="runtime-preview-frame" hidden></div>
 </dialog>
 <dialog id="integrationDialog" class="integration-dialog" aria-labelledby="integrationTitle"><div class="dialog-heading"><div><span class="section-kicker">从认可版本继续</span><h2 id="integrationTitle">接入游戏</h2></div><button data-close class="icon-button" aria-label="关闭接入游戏">×</button></div><p class="dialog-intro">核对版本与目标文件，复制接入请求交给当前对话。页面不会直接替换游戏文件。</p><div id="integrationBody" aria-live="polite"></div></dialog>
+<dialog id="runtimeHandoffDialog" class="integration-dialog" aria-labelledby="runtimeHandoffTitle">
+  <div class="dialog-heading">
+    <h2 id="runtimeHandoffTitle">接入游戏效果预览</h2>
+    <button type="button" data-close class="icon-button" aria-label="关闭预览接入" data-icon="close"></button>
+  </div>
+  <div id="runtimeHandoffBody" aria-live="polite"></div>
+</dialog>
+<dialog id="replacementHandoffDialog" class="compact-dialog" aria-labelledby="replacementHandoffTitle">
+ <div class="dialog-heading"><h2 id="replacementHandoffTitle">交给 Agent 接入</h2><button data-close type="button" class="icon-button" aria-label="关闭接入方案">×</button></div>
+ <p class="dialog-intro">选择本次要接入的方案，复制请求交给当前对话。</p>
+ <fieldset id="replacementHandoffPlans"><legend>待接入方案</legend></fieldset>
+ <button id="copyReplacementHandoff" type="button" class="primary-button">复制接入请求</button>
+ <textarea id="replacementHandoffText" aria-label="接入请求" rows="5" readonly hidden></textarea>
+ <p id="replacementHandoffStatus" class="dialog-intro" role="status"></p>
+</dialog>
 <dialog id="castGallery" class="cast-gallery" aria-labelledby="castGalleryTitle">
  <header class="cg-head"><div class="cg-title"><span class="cg-kicker">动作台 · 角色</span><h2 id="castGalleryTitle">选择角色</h2></div><label class="cg-search"><span data-icon="search"></span><input id="castGallerySearch" type="search" placeholder="搜索角色或路径" aria-label="搜索角色" autocomplete="off"></label><button data-close class="icon-button" aria-label="关闭角色列表"></button></header>
  <div id="castGalleryBody" class="cg-body"></div>

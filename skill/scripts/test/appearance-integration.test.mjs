@@ -4,14 +4,15 @@ import vm from 'node:vm';
 import {readFile} from 'node:fs/promises';
 import {observationFrame,observationFrameOptions} from '../../assets/viewer/observation-state.mjs';
 const source=await readFile(new URL('../../assets/viewer/app.js',import.meta.url),'utf8');
-const body=source.slice(source.indexOf('async function loadPair('),source.indexOf('\nfunction selectClip('));
+const body=source.slice(source.indexOf('async function loadPair('),source.indexOf('\nfunction resolveClip('));
 const draw=source.slice(source.indexOf('function drawModel('),source.indexOf('\nfunction render('));
 const deferred=()=>{let resolve;const promise=new Promise(r=>{resolve=r;});return {promise,resolve};};
 function fixture({fallback=false,compileError=false,prepareGate=null}={}){
- const original={baseline:{meta:{sha256:'old',assetId:'A'}},candidate:{meta:{sha256:'candidate',assetId:'A'}}},state={models:{...original}},disposed=[],committed=[],created=[];let attempts=0,failures=0;
+ const original={baseline:{meta:{sha256:'old',assetId:'A'}},candidate:{meta:{sha256:'candidate',assetId:'A'}}},disposed=[],committed=[],created=[];
+ const state={models:new Proxy({...original},{set(target,slot,model){committed.push(model);target[slot]=model;return true;}})};let attempts=0,failures=0;
  const appearance={mode:'project',async prepare(){attempts++;if(prepareGate)await prepareGate.promise;if(fallback&&attempts===1){this.mode='neutral';return 'fallback';}return 'ready';},fail(){failures++;this.mode='neutral';}};
  const renderer={debug:{onShaderError:undefined},compile(){if(compileError)throw Error('shader failed');}};
- const ctx=vm.createContext({pairFrame:(models,options)=>observationFrame(models.baseline.bbox,options?.scaleMode||'shared',options?.normalization),observationFrame,normalize(){},normalizePair(){},$:()=>({value:'shared'}),slots:['baseline','candidate'],state,appearance,renderer,T:{},withRendererState:(_r,_t,fn)=>fn(),loadSlot:async(slot,meta)=>{const m={slot,meta,bbox:{min:{x:0,y:0,z:0},max:{x:1,y:2,z:1}},capabilities:{hasMesh:true,preview:'model'},appearanceContext:{camera:{}}};created.push(m);return m;},dispose:m=>disposed.push(m),commitModel:(slot,m)=>{committed.push(m);state.models[slot]=m;}});vm.runInContext(body,ctx);
+ const ctx=vm.createContext({pairFrame:(models,options)=>observationFrame(models.baseline.bbox,options?.scaleMode||'shared',options?.normalization),observationFrame,normalize(){},normalizePair(){},$:()=>({value:'shared'}),slots:['baseline','candidate'],state,appearance,cacheKey:()=>'',recentModels:new Map(),setModelClip(){},retireModel(){},renderer,T:{},withRendererState:(_r,_t,fn)=>fn(),loadSlot:async(slot,meta)=>{const m={slot,meta,clips:[],bbox:{min:{x:0,y:0,z:0},max:{x:1,y:2,z:1}},capabilities:{hasMesh:true,preview:'model'},appearanceContext:{camera:{}}};created.push(m);return m;},dispose:m=>disposed.push(m),commitModel:(slot,m)=>{committed.push(m);state.models[slot]=m;}});vm.runInContext(body,ctx);
  return {state,original,disposed,committed,created,renderer,ctx,get failures(){return failures;},run:isCurrent=>vm.runInContext('loadPair',ctx)({baseline:{sha256:'new',assetId:'A'},candidate:{sha256:'new-candidate',assetId:'A'}},false,isCurrent)};
 }
 

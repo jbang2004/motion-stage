@@ -6,8 +6,10 @@ import {undoStatus,applyUndo} from './undo.mjs';
 import {readDraft,saveDraft} from './drafts.mjs';
 import {integrationStatus} from './game-integration.mjs';
 import {motionLibrary,registerMotionPack,saveMotionMapping,previewMotion,adoptMotion,removeMotion,materializeMotion,motionRigOptions} from './motion-library.mjs';
+import {previewReplacement,replaceAction,listReplacementPlans,withdrawReplacementPlan,replacementHandoff} from './action-replacement.mjs';
 import {createServer} from 'node:http';
 import {readFile,stat,realpath} from 'node:fs/promises';
+import {createReadStream} from 'node:fs';
 import {extname} from 'node:path';
 import {randomBytes} from 'node:crypto';
 import {ROOT,json,inside,atomic,validateNote,importAsset,readMarks,sha,withWorkspaceLock,hasClip,readProject,projectView,modelSlots,activateModel} from './core.mjs';
@@ -17,7 +19,7 @@ import {listJobs,getJob,createJob,cancelJob,localEditJob,reviewJob,inspectSlot,d
 import {projectStatus,prepareProject,chooseProjectFolder,revealWorkspace} from './project-workspaces.mjs';
 import {diagnoseRuntime} from './runtime-diagnostics.mjs';
 import {appearanceStatus,appearanceFile} from './project-appearance.mjs';
-import {offlinePreviewStatus,runtimePreviewStatus} from './runtime-preview.mjs';
+import {offlinePreviewStatus,runtimePreviewStatus,runtimePreviewHandoff} from './runtime-preview.mjs';
 import {createManagedPreview} from './managed-preview.mjs';
 import {readJobIndex,jobsPage,activeJobStates} from './job-index.mjs';
 import * as jobLifecycle from './jobs.mjs';
@@ -55,6 +57,7 @@ export async function serve(work,port=5178,options={}){
    const draftRoute=p.match(/^\/api\/drafts\/([a-zA-Z0-9_-]{1,80})$/);
    if(draftRoute&&req.method==='GET')return send(200,await readDraft(work,draftRoute[1]));
    if(p==='/api/undo'&&req.method==='GET')return send(200,await undoStatus(work,url.searchParams.get('assetId')));
+   if(p==='/api/actions/replacement-plans'&&req.method==='GET')return send(200,await listReplacementPlans(work,url.searchParams.get('assetId')));
    if(p==='/api/integrations'&&req.method==='GET')return send(200,await integrationStatus(work));
    if(p==='/api/session'&&req.method==='GET')return send(200,{token,caller,paths:{workspace:work,cli:ROOT+'/scripts/motion-feedback.mjs'},project:projectView(await readProject(work),url.searchParams.get('assetId')||undefined),feedback:await json(await inside(work,'feedback.json')),marks:await readMarks(work)});
    if(p==='/api/agents'&&req.method==='GET')return send(200,await scanProviders());
@@ -95,7 +98,9 @@ export async function serve(work,port=5178,options={}){
     if(req.headers['x-motion-token']!==token)return send(403,{error:'请刷新页面后重试'});
     const data=await body(req,p.startsWith('/api/assets/')?200*1024*1024:12*1024*1024);
     if(p.startsWith('/api/runtime-preview/')&&req.method==='POST'){
-     const {lease,assetId}=JSON.parse(data);
+     const input=JSON.parse(data);
+     if(p==='/api/runtime-preview/handoff')return send(200,await runtimePreviewHandoff(work,input,caller,options.sendToCaller));
+     const {lease,assetId}=input;
      if(typeof lease!=='string'||!/^[-\w]{36}$/.test(lease))return send(400,{error:'游戏预览会话无效'});
      if(p==='/api/runtime-preview/renew')return send(200,{active:managedPreview.renew(lease)});
      if(p==='/api/runtime-preview/release'){await managedPreview.release(lease);return send(200,{});}
@@ -115,6 +120,10 @@ export async function serve(work,port=5178,options={}){
     if(p==='/api/actions/curves'&&req.method==='POST')return send(200,await characterActionCurves(work,JSON.parse(data)));
     if(p==='/api/actions/foot-diagnostics'&&req.method==='POST')return send(200,await diagnoseFootSlip(work,JSON.parse(data)));
     if(p==='/api/actions/preview'&&req.method==='POST')return send(200,await previewCharacterAction(work,JSON.parse(data)));
+    if(p==='/api/actions/replacement-preview'&&req.method==='POST')return send(200,await previewReplacement(work,JSON.parse(data)));
+    if(p==='/api/actions/replace'&&req.method==='POST')return send(200,await replaceAction(work,JSON.parse(data)));
+    if(p==='/api/actions/replacement-withdraw'&&req.method==='POST')return send(200,await withdrawReplacementPlan(work,JSON.parse(data)));
+    if(p==='/api/actions/replacement-handoff'&&req.method==='POST')return send(200,await replacementHandoff(work,JSON.parse(data).ids));
     if(p.startsWith('/api/motions/')&&req.method==='POST'){const action=p.slice('/api/motions/'.length),input=JSON.parse(data),fn={register:registerMotionPack,mapping:saveMotionMapping,rigs:motionRigOptions,preview:previewMotion,adopt:adoptMotion,remove:removeMotion,prepare:materializeMotion}[action];if(fn)return send(200,await fn(work,input));}
     if(p==='/api/catalog/scan'&&req.method==='POST')return send(200,await startCatalogScan(work,{force:true}));
     const modelName=p.match(/^\/api\/models\/([a-zA-Z0-9_-]{1,80})\/name$/);if(modelName&&req.method==='POST')return send(200,await withWorkspaceLock(work,async()=>{const input=JSON.parse(data),cfg=await readProject(work),m=cfg.models[modelName[1]];if(!m||typeof input.name!=='string'||!input.name.trim()||input.name.length>160)throw Error('模型名称需为 1–160 个字符');if(input.expectedHeadRevision!==m.headRevision||input.expectedName!==m.name)throw Error('模型版本已变化，请刷新后重试');m.name=input.name.trim();cfg.revision=(cfg.revision||0)+1;await atomic(await inside(work,'project.json'),cfg);return {project:projectView(cfg,m.id)};}));
@@ -228,7 +237,10 @@ export async function serve(work,port=5178,options={}){
    else if(p.startsWith('/workspace/thumbnails/')){root=work;name=thumbnailPath(p);if(!name)return send(404,{error:'Not found'});}
    else return send(404,{error:'Not found'});
    const file=await inside(root,name),s=await stat(file);if(!s.isFile())return send(404,{error:'Not found'});
-   const bytes=await readFile(file);res.writeHead(200,{'Content-Type':MIME[extname(file)]||'application/octet-stream','Content-Length':bytes.length,'Cache-Control':name.startsWith('cache/thumbnails/')?'private, max-age=31536000, immutable':'no-store','X-Content-Type-Options':'nosniff'});res.end(req.method==='HEAD'?undefined:bytes);
+   const immutable=name.startsWith('cache/thumbnails/')||name.startsWith('assets/');
+   res.writeHead(200,{'Content-Type':MIME[extname(file)]||'application/octet-stream','Content-Length':s.size,'Cache-Control':immutable?'private, max-age=31536000, immutable':'no-store','X-Content-Type-Options':'nosniff'});
+   if(req.method==='HEAD')return res.end();
+   const stream=createReadStream(file);res.on('close',()=>stream.destroy());stream.on('error',()=>res.destroy());stream.pipe(res);
   }catch(e){if(!res.headersSent)send(e.code==='ENOENT'?404:['MODEL_JOB_ACTIVE','AGENT_BUSY'].includes(e.code)?409:400,{error:e.message,...(e.code?{code:e.code}:{}),...(e.jobId?{jobId:e.jobId}:{})});else res.end();}
  });
  server.once('close',()=>{if(workspaceServers.get(serverKey)===server)workspaceServers.delete(serverKey);serverCloseCleanup();});

@@ -94,7 +94,7 @@ export async function integrationStatus(work){return withWorkspaceLock(work,asyn
  return {project:link?{name:link.name,root:link.root,available:link.exists}:null,pending,candidates,actions,
   next:!link?.exists?'工作区没有关联可用的游戏项目；接入前先用 project-open 关联项目。':pending?'只接入用户这次要求的条目。改完游戏文件并在游戏里检查后，用 integrate 记录改了哪些文件。':'没有等待接入的认可候选或收录动作。'};
 });}
-async function projectFiles(link,files){
+export async function projectFiles(link,files){
  const list=[...new Set((Array.isArray(files)?files:[files]).filter(f=>typeof f==='string'&&f.trim()).map(f=>f.trim()))];
  if(!list.length||list.length>MAX_FILES)throw Error(`请列出这次接入改动的游戏文件（1 到 ${MAX_FILES} 个）`);
  const out=new Map();

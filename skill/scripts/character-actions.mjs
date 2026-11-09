@@ -42,12 +42,23 @@ function animationReader(fh,meta){
   let range;try{range=viewRange(meta,index);}catch{continue;}const key=range.start+':'+range.length;if(seen.has(key))continue;seen.add(key);
   lo=Math.min(lo,range.start);hi=Math.max(hi,range.start+range.length);total+=range.length;
  }
- const useSpan=hi>lo&&hi-lo<=MAX_SPAN&&hi-lo<=total*2+1024*1024,views=new Map();let span=null,cached=0;
+ const useSpan=hi>lo&&hi-lo<=MAX_SPAN&&hi-lo<=total*2+1024*1024,views=new Map();let span=null;
  return async(start,length)=>{
-  if(useSpan&&start>=lo&&start+length<=hi){if(!span){const bytes=Buffer.allocUnsafe(hi-lo);required((await fh.read(bytes,0,bytes.length,meta.binOffset+lo)).bytesRead===bytes.length,'动画数据未完整读取');span=bytes;}return span.subarray(start-lo,start-lo+length);}
-  const key=start+':'+length;let data=views.get(key);
-  if(!data){data=Buffer.allocUnsafe(length);required((await fh.read(data,0,length,meta.binOffset+start)).bytesRead===length,'动画数据未完整读取');if(cached+length<=MAX_VIEW_CACHE){views.set(key,data);cached+=length;}}
-  return data;
+  const key=start+':'+length,cached=views.get(key);
+  if(cached)return cached;
+  let data;
+  if(useSpan&&start>=lo&&start+length<=hi){
+   if(!span){const bytes=Buffer.allocUnsafe(hi-lo);required((await fh.read(bytes,0,bytes.length,meta.binOffset+lo)).bytesRead===bytes.length,'动画数据未完整读取');span=bytes;}
+   data=span.subarray(start-lo,start-lo+length);
+  }else{
+   data=Buffer.allocUnsafe(length);
+   required((await fh.read(data,0,length,meta.binOffset+start)).bytesRead===length,'动画数据未完整读取');
+  }
+  // Many accessors can reference the same multi-megabyte buffer view. Hash
+  // those bytes once and reuse the fixed-length digest in each curve identity.
+  const hash=createHash('sha256').update(data).digest();
+  if(views.size<MAX_VIEW_CACHE/32)views.set(key,hash);
+  return hash;
  };
 }
 // Hash animation bytes and target bindings, never mesh/texture payloads. Only
@@ -81,7 +92,7 @@ async function inventory(work){
 // model under the git-ignored cache/, keyed by each source's identity stamp.
 // Bump the version whenever curve hashing or bone resolution changes.
 export const ACTION_CACHE_DIR='cache/actions';
-const ACTION_CACHE_VERSION=1,MAX_CACHE_FILE=64*1024*1024,HEX=/^[0-9a-f]{64}$/;
+const ACTION_CACHE_VERSION=2,MAX_CACHE_FILE=64*1024*1024,HEX=/^[0-9a-f]{64}$/;
 const validEntry=e=>e&&Array.isArray(e.rows)&&Number.isSafeInteger(e.incompatible)&&e.rows.every(r=>r&&typeof r.clip==='string'&&HEX.test(r.curve)&&Number.isFinite(r.duration));
 async function loadActionCache(work,targetSha){
  const store={file:await inside(work,ACTION_CACHE_DIR+'/'+targetSha+'.json'),entries:{},used:{}};
@@ -107,6 +118,7 @@ async function matchSource(work,job,source,base,store){
    for(const [index,clip]of (meta.doc.animations||[]).entries()){
     if(!live(job))return null; // a cancelled file is never cached half-read
     try{required(clip.channels?.length,'空动作');const curve=await curveHash(meta,clip,resolver,read);rows.push({clip:clip.name||'animation_'+index,curve,duration:Math.max(0,...clip.samplers.map(s=>meta.doc.accessors?.[s.input]?.max?.[0]||0))});}catch{incompatible++;}
+    if(index%4===3)await new Promise(resolve=>setImmediate(resolve));
    }
    required((gltf?await sourceStamp(source):stamp(await fh.stat()))===fingerprint,'读取期间来源变化');entries={rows,incompatible};
   }finally{await fh.close();}
@@ -118,7 +130,7 @@ async function scan(work,job){
  const pending=new Map();
  try{
   const targetFile=await inside(work,job.target.asset.file),fh=await open(targetFile,'r');let base,preset=new Set();
-  try{base=await header(fh);job.presetNames=new Set((base.doc.animations||[]).map(a=>a.name));const actual=await readFile(targetFile);required(sha(actual)===job.target.asset.sha256,'角色快照已损坏');const resolver=motionTargetResolver(base.doc,base.doc),read=animationReader(fh,base);for(const clip of base.doc.animations||[]){if(job.retired)return;try{preset.add(await curveHash(base,clip,resolver,read));}catch{}} }finally{await fh.close();}
+  try{base=await header(fh);job.presetNames=new Set((base.doc.animations||[]).map(a=>a.name));const actual=await readFile(targetFile);required(sha(actual)===job.target.asset.sha256,'角色快照已损坏');const resolver=motionTargetResolver(base.doc,base.doc),read=animationReader(fh,base);for(const [index,clip] of (base.doc.animations||[]).entries()){if(job.retired)return;try{preset.add(await curveHash(base,clip,resolver,read));}catch{}if(index%4===3)await new Promise(resolve=>setImmediate(resolve));} }finally{await fh.close();}
   const store=await loadActionCache(work,job.target.asset.sha256),unique=new Map(),deadline=Date.now()+120000;
   // A few sources are read ahead while results merge strictly in inventory
   // order, so labels and dedup winners match a one-at-a-time scan.
@@ -194,7 +206,7 @@ export async function characterActionCurves(work,input={}){
     const clip=clips.find(c=>c.name===entry.clip);if(!clip?.tracks.length){results[id]={error:'所选动作没有可用轨道'};continue;}
     const duration=Math.max(0,...clip.tracks.map(t=>t.times.at(-1)||0));
     const times=samples?Array.from({length:samples},(_,i)=>duration*i/(samples-1)):null;
-    results[id]={name:clip.name,duration,tracks:times?clip.tracks.map(t=>resampleTrack(t,times)):clip.tracks};
+    results[id]={name:clip.name,duration,sourceName:entry.source.name,tracks:times?clip.tracks.map(t=>resampleTrack(t,times)):clip.tracks};
    }
   }catch(error){for(const [id]of list)results[id]={error:error.message};}
  }

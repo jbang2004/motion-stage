@@ -78,3 +78,13 @@ It writes `integrations/<id>.json`; for a candidate it also appends to `job.inte
 The model's game file now differs from what the studio imported, which the studio treats as a source change: an open task on the old version goes stale, and accepting a candidate built on it is refused. To keep editing from the integrated version, the user loads the new source (载入源文件新版本, or `open-model --asset-id ID --refresh-source`), which makes the integrated file the new original.
 
 Report the files you changed, how they were produced (copied candidate, export, replayed in source), what you checked in the game, and anything left: a source that is now behind, an unrun game, other pending rows.
+
+## 接入动作替换方案
+
+用户在角色动作卡选择并试播来源，按 **保存替换方案** 记录目标和固定版本。点 **交给 Agent 接入** 并选择一条或多条待接入方案，复制请求交给当前对话。请求列出角色、目标动作、固定来源文件和 SHA，以及已知的项目动作所有者。核对运行时实际引用，再按项目制作流程应用，保持目标动作的游戏引用，检查时长、循环、事件、根位移及过渡。完成游戏验证后记录实际结果。
+
+```sh
+node "$CLI" replacement-integrated --workspace "$WORKSPACE" --plan "$PLAN_ID" --file GAME_PATH --summary "实际改动" --game-check "实际游戏验证"
+```
+
+一批一起验证的方案可以重复传 `--plan`。多个改动文件可以重复传 `--file`。记录完成后，动作卡显示 **已接入**。动作台撤销记录只管理保存的方案。
