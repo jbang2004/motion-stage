@@ -1,113 +1,77 @@
 # 安装与运行
 
-## 打开
+以下命令均在安装包根目录运行；从源码仓库使用时先 `cd skill`。
 
-需要 Node.js 22+ 和支持 WebGL2 的浏览器（纯曲线预览用 Canvas2D，无 WebGL2 也可查看）。查看器、解码器和原创练习已随包提供，无需 npm install 或模型密钥。导入 FBX 另需本机 Blender 4.2+；自动处理任务可选已登录的 Codex CLI。
+## 启动
 
-解压完整的 motion-stage 文件夹后，macOS 双击 `Open MotionStage.command`，Windows 双击 `Open MotionStage.cmd`。若系统不能直接打开脚本，在终端运行：
+需要 Node.js 22+ 和支持 WebGL2 的浏览器，无需 `npm install`。macOS 双击 `Open MotionStage.command`，Windows 双击 `Open MotionStage.cmd`，或运行：
 
 ```sh
 node scripts/start.mjs
 ```
 
-启动器在用户目录的 motion-stage-workspace 创建首次练习，第二次继续原工作区；若已有改名前的 motion-feedback-workspace，则继续使用它。只在新工作区创建原创练习；自动选择空闲本机端口并打开浏览器（加 `--no-open` 只打印地址）；不要双击 index.html。保持终端运行，Ctrl+C 停止。指定其他工作区：
+自动选择空闲端口并打开浏览器。首次在 `~/motion-stage-workspace/` 创建练习，下次恢复最近的可用项目；已有旧版 `motion-feedback-workspace` 会继续沿用。保持终端运行，`Ctrl+C` 停止，不要直接打开 `index.html`。
+
+按需指定项目或独立工作区（二选一）：
 
 ```sh
-node scripts/start.mjs --workspace "/absolute/path/my-review"
+node scripts/start.mjs --project "/absolute/path/to/game"
+node scripts/start.mjs --workspace "/absolute/path/to/review"
 ```
 
-Windows 可使用 `C:\Users\你的名字\motion-review`，包含空格的路径加引号。
+加 `--no-open` 可只打印地址。Windows 路径如 `C:\Users\你的名字\motion-review`，包含空格时加引号。
 
-## 关联游戏项目
+## 安装为 Skill
 
-在顶栏的项目切换器中选择自动识别建议或项目文件夹，也可粘贴路径。首次将当前已完成资料复制到项目 `.motion-studio/`，原目录保留；已有项目工作区直接打开。切换已关联项目不会带入另一项目资料。下次启动自动恢复最近可用项目。
-
-这一个文件夹保存每次任务、候选、用户决定、验收检查点、按任务提取的工程上下文和缩略图缓存。点击“打开记录文件夹”即可在文件管理器查看。关联不会直接替换正式游戏文件。当前还有排队/运行任务时，先完成或停止，再迁入，避免复制成两份执行。
-
-Agent也可直接运行 `node scripts/start.mjs --project "/absolute/path/game"`。更多说明见 [项目工作区](project-workspace.md)。
-
-## 安装成 Skill
-
-完整文件夹可放进项目 `.agents/skills/`，或复制到宿主的用户 Skill 目录：
+选择对应客户端的命令；目标目录须不存在，升级前先停止旧服务并保留旧目录：
 
 ```sh
+# Codex
 node scripts/motion-feedback.mjs install --target "$HOME/.codex/skills/motion-stage"
+# Claude Code
+node scripts/motion-feedback.mjs install --target "$HOME/.claude/skills/motion-stage"
 ```
 
-Claude Code 可换成 `$HOME/.claude/skills/motion-stage`。Windows PowerShell 使用 `$env:USERPROFILE` 代替 `$HOME`。目标已存在时不会覆盖；先保留旧目录，再选择新目标。安装不改权限、模型设置或其他服务配置。新会话中调用 `$motion-stage` 或让 Agent 读取本包 SKILL.md；查看器也可独立运行。
+Windows PowerShell 将 `$HOME` 换为 `$env:USERPROFILE`。新开对话调用 `$motion-stage`，或让 Agent 读取本包 [SKILL.md](../SKILL.md)。查看器可独立运行。
 
-## 导入自己的角色和动作
+## 项目与导入
 
-关联项目后，项目角色出现在左侧 **角色** 栏；**⋯ → 项目文件** 浏览目录及子目录中的全部模型与动作，打开时恢复各自版本与任务。也可点击 **＋导入** 添加独立模型或动作。原版和候选分别保存，导入不会替换源文件。支持：
+左上角「关联项目」选择工程文件夹。首次关联可迁入当前素材和记录，原目录保留；已有项目直接打开。迁入前先完成或停止排队、运行中的任务。
 
-| 输入 | 处理 |
+素材、任务、候选、草稿和决定都在 `<项目>/.motion-studio/`，迁移时复制整个文件夹。制作源可能记录绝对路径，换机器后需核对源文件映射。详见 [项目工作区](project-workspace.md)。
+
+用「＋导入」添加素材，「⋯ → 项目文件」浏览项目文件：
+
+| 输入 | 要求 |
 |---|---|
-| 自包含带动画 GLB | 直接预览、反馈和比较 |
-| 自包含静态 GLB | 检查外形、表面、骨架；可提交制作任务 |
-| 带角色及贴图的 FBX | 用本机 Blender 转为 GLB，保留原文件、可编辑 blend 与时间映射 |
-| 只有骨架的动作 FBX | 提示下载当前角色的 With Skin，或提供实际角色和映射进行重定向 |
-| UE uasset、Unity Prefab | 使用对应制作源导出；普通 GLB 不携带引擎行为 |
+| 自包含 GLB（静态或带动画） | 直接查看，支持随包解码器可处理的 Meshopt、Draco、KTX2 |
+| FBX（角色、动作及贴图） | 本机 Blender 4.2+；自动查找，或用 `BLENDER_EXECUTABLE` 指定 |
+| 只有骨架的动作 FBX | 需同角色的 With Skin 模型，或提供目标角色做重定向 |
+| UE uasset、Unity Prefab | 先从对应制作工具导出 |
 
-FBX 导入需要 Blender 4.2+；优先自动发现本机 Blender，或设置 BLENDER_EXECUTABLE。素材缺贴图时会说明原因，不把灰色替代材质当作正确结果。FBX 默认保留导入帧率；仅确认原下载设置后用 CLI `--fps 30` 等覆盖。
+FBX 转换保留原文件、可编辑 `.blend` 和时间映射；默认沿用导入帧率。不同骨架不能仅靠格式转换匹配。更多格式说明见 [资源库](asset-library.md)。
 
-```sh
-node scripts/motion-feedback.mjs add --workspace "/absolute/path/my-review" --slot baseline --file "/absolute/path/character.fbx" --new-model
-node scripts/motion-feedback.mjs inspect --workspace "/absolute/path/my-review" --slot baseline
-```
+## 提交与比较
 
-查看支持随包解码器可处理的 Meshopt、Draco、KTX2 等 GLB。确定性本地曲线编辑目前仅支持可读取的 LINEAR 四元数轨道；遇到压缩、STEP、CUBICSPLINE 或缺轨道时会拒绝，交给实际制作工具处理。
+选角色 → 点动作卡片 →「修改这个动作」→ 暂停、选部位、写要求。局部修改可选时间范围，多处问题可逐一「标记当前画面」。
 
-## 浏览角色动作
+| 处理方式 | 操作 |
+|---|---|
+| 当前对话处理（默认） | 保存后复制任务给当前 Agent；保存本身不会唤醒对话 |
+| 本机后台处理 | 选择已配置的 Codex CLI、Claude Code 或 DeepSeek Harness，提交后运行独立任务，使用该客户端的模型与账号额度 |
 
-在 **动作库** 模式选择左侧角色，右侧列出它能播放的全部动作：**常用**、**角色自带**、**匹配动作**（自动在项目中找到的兼容动作）。点卡片立即播放，悬停看小预览，用分类标签或搜索筛选。详见 [动作库](action-library.md)。
+后台扫描只检查可执行接口；登录、额度和权限在执行时验证。未接入执行适配器的应用不可选，失败时不会自动切换客户端。DeepSeek Harness 可自动发现 PATH 或 macOS 应用内的 `dsh`，其他位置用 `DEEPSEEK_EXECUTABLE` 指定。执行细节见 [Agent 工作流](agent-workflow.md)。
 
-## 提出修改
+由 Agent 打开时，会绑定调用客户端与当前会话。旧任务继续交给原会话；若原会话无法继续，取消旧任务，再从新会话打开动作台并提交。
 
-在动作卡片上点 **修改这个动作**，或切到 **修改** 模式。先找到动作和时刻。可点击角色表面定位，或在部位列表中确认。写一句话，例如“左手摆得太大，收一点，另一只手和脚步保持”。范围默认整个动作，局部修改请选一段时间。保留条件可选；不用填写三份技术表格。
+候选回来后，在同一时刻与镜头下比较，选择「采用这版」「继续调整」或「不用这版」。原版保留；正式游戏文件通过「接入游戏…」另行处理。只想体验可用「本地微调」调整摆幅或旋转偏移；仅支持可读取的 LINEAR 四元数轨道。
 
-默认选择 **当前对话处理**，保存后复制任务给当前 Agent 对话，领取后开始执行。若选择 **本机 Codex 自动处理** 再提交，则连接已登录的 Codex CLI，后台启动真实 worker。自动 worker 不会领取当前对话的任务。它使用你的模型配置和正常账号额度，任务在独立目录中执行，完成后候选自动返回。任务面板会切换为当前状态，显示真实阶段、最近活动、已用时间与上次更新时间，不显示推测的完成百分比。需要补充时直接回复一句话；失败时可保留原要求重新编辑。可以断开或停止任务。首次登录由用户在官方 CLI 流程中完成；不要把密钥粘贴进聊天。
+## 常见问题
 
-没有连接 worker 时，Agent 可在现有会话中用 CLI 或 stdio MCP 领取任务。选区和保存意见本身不会让未连接的 Agent 自动开始思考。操作见 agent-workflow.md。
+- **三维画面打不开**：查看「⋯ → 环境检查」，确认 WebGL2 与浏览器图形加速可用。
+- **缩略图或匹配动作过旧**：删除工作区 `cache/thumbnails/` 或 `cache/actions/`，重新打开角色后自动生成。
+- **任务一直等待或失败**：检查是否已交给 Agent，打开任务记录读取具体原因；后台模式需确认客户端已登录且可执行。
+- **候选过期**：素材在执行期间发生变化，回到新版本重新提交。
+- **源帧号或变速后对不上**：按秒核对范围、制作源起始帧和帧率。
 
-## 文件与迁移
-
-- project.json 与 assets/：当前版本和按 SHA 保存的素材副本。
-- jobs/：每条任务的冻结输入身份、context.json、task.md、截图、状态和执行结果。
-- sources/：FBX 原始副本、转换结果、可编辑源和时间映射（实际目录以项目记录为准）。
-- feedback.json、marks.json、snapshots/：兼容旧版的反馈、截图与评审历史。
-
-复制工作区时保留所有素材和任务目录。原始导入的 GLB 记录相对路径；制作源记录可能包含当前机器的绝对路径，迁移后应检查 source 映射再执行原生编辑。查看和历史数据不依赖原游戏项目。
-
-## 排错
-
-- 页面无法渲染：检查 WebGL2、浏览器图形加速与页面显示的具体错误；**⋯ → 环境检查** 显示真实渲染器状态。
-- 缩略图缺失或过旧：可直接删除工作区 `cache/thumbnails/`，下次查看时在浏览器中重新生成。
-- 匹配动作看起来过旧：可直接删除工作区 `cache/actions/`，下次打开角色时重新匹配。
-- Codex 无法连接：先在终端运行 `codex --version`、`codex login status`；已有任务保留，可继续通过当前聊天处理。
-- 需要补充信息或执行失败：打开修改记录读取具体原因。不要把等待、失败或缺源当作已完成。
-- 候选返回：页面自动进入同一时刻与镜头的对照，显示具体修改摘要和检查范围。可下载 GLB、选择保留，或点击 **基于这版继续调整**。历史结果在顶部 **修改记录** 查看。
-- 候选过期：任务执行期间更换了素材。回到新版本定位后重新提交；旧结果不能覆盖新工作。
-- 不同动作或变速后对不上：以秒为主检查范围、源起始帧与帧率；审阅帧号不是制作源帧号。
-- 本地动作微调不可用：先确认具体旋转目标和支持的轨道；它不是任意角色的通用动作修复器。
-
-程序只监听 127.0.0.1，模型与历史留在本机。连接在线 Agent 后，请求、选区信息和观察截图会进入该 Agent 的正常模型上下文。普通 GLB 不复现实时布料、引擎 IK、战斗混合或自定义材质；正式游戏效果仍需检查。
-
-## 跟随调用客户端
-
-由 Agent 启动时使用 `start.mjs --workspace PATH --caller CLIENT --session ID`（`serve` 同样支持）。客户端填写实际宿主，例如 `codex`、`claude`、`workbuddy`；会话标识由 Agent 读取或生成并在原对话保留，不需要用户配置模型密钥。可选 `--caller-model NAME` 仅记录模型名称。界面默认显示“当前 Claude 对话”等来源，保存后等待原会话领取。
-
-这不等于浏览器已接通客户端消息接口；当前通用方式是复制任务到原对话，或由该对话通过 CLI/MCP 领取。普通 DeepSeek 聊天若不能调用本机工具，不能直接编辑本机文件。模型选择仍由宿主控制。手动双击启动、没有调用信息时显示“当前对话处理”。“本机后台处理”始终是单独明确选择。
-
-任务的来源固定，重开其他会话不会更改旧任务归属。原会话无法继续时，取消旧任务，再在新会话打开的动作台中沿用要求提交新任务；不会静默转交。
-
-## 扫描本机后台执行器
-
-在修改面板将“处理方式”切换到“本机后台处理”，选择扫描到的 Codex、Claude Code 或 DeepSeek Harness。重新扫描不会启动模型请求。已发现但没有执行适配器的应用（如 WorkBuddy、Ollama）会显示不可选状态。当前扫描覆盖 PATH、显式可执行路径，以及 macOS 常见应用目录，不读取账号密钥或遍历全部磁盘。CLI 可用不代表已登录或有额度；首次任务按客户端自身权限执行，失败会保留现场且不切换模型。后台使用该客户端配置的模型，不强制选择模型名。
-
-## DeepSeek Harness 后台执行
-
-自动识别 PATH 中的 `dsh`，或 macOS `/Applications`、`~/Applications` 内 DeepSeek Harness 自带的 `Contents/Resources/runtime/cli/bin/dsh`。其他位置可通过 `DEEPSEEK_EXECUTABLE`（或 `DSH_EXECUTABLE`）指定真实可执行文件。扫描检查版本和 `headless --help`，不调用模型。旧版缺少 headless JSON/权限接口时显示不可用。
-
-提交后运行独立 `headless` 任务，输出目录采用 `workspace-write`，`approval-policy never` 会拒绝需要额外批准的操作，不会绕过权限。Harness 官方 headless 默认关闭已保存登录；动作台通过每轮输出目录中的 `harness-profile.json` 单次覆盖启用官方凭据服务，并读取桌面 `agent-default-model` 的普通名称字段。账号凭据由 Harness 自己读取，动作台不读取或复制密钥，也不改全局 profile。`harness-runtime.json` 记录实际采用的模型配置来源。复杂配置表达式不会被执行，需在 Harness 中配置普通模型名称。没有桌面默认选择时保留 headless 默认。
-
-任务详情可复制独立 Harness 会话编号；这不是当前桌面聊天的续聊。缺少登录、额度或工具时保留错误与现场，不切换到 Codex。停止生成会终止本轮进程树并使租约失效。只有匹配会话的正常结束事件、有效任务 JSON 和通过校验的新 GLB 才能回传为候选。
+更多恢复操作见 [环境诊断与恢复](reliability.md)。程序只监听 `127.0.0.1`，模型与历史保存在本机；连接在线 Agent 后，要求、选区和截图会进入其模型上下文。普通预览不复现游戏中的实时布料、IK 或战斗混合。
