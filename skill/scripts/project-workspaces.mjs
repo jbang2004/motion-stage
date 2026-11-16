@@ -39,21 +39,30 @@ async function remember(project,options){
 }
 export async function projectStatus(work,options={}){
  const project=await getProjectLink(work);const root=project?null:await detectProjectRoot(work)||await detectProjectRoot(process.cwd());
- return{status:project?.status==='missing'?'missing':project?'linked':'unlinked',project,suggested:root?{root,name:basename(root)}:null,recent:await recentProjects(options)};
+ return{status:project?.status||'unlinked',project,suggested:root?{root,name:basename(root)}:null,recent:await recentProjects(options)};
 }
 
 export async function prepareProject(work,path,{adoptCurrent=true,settingsPath}={}){
  if(typeof path!=='string'||!path.trim())throw Error('请选择或粘贴项目文件夹路径');
  const projectRoot=await realpath(resolve(path.trim()));if(!(await lstat(projectRoot)).isDirectory())throw Error('项目路径必须是文件夹');
  let target=join(projectRoot,projectWorkspaceName);const oldLink=work?await getProjectLink(work):null;
+ // Only the top-level workspace pointer may leave the project. Keep nested
+ // asset/migration containment unchanged, and never replace the pointer itself.
+ const pointer=await lstat(target).catch(e=>{if(e.code==='ENOENT')return null;throw e;});
+ if(pointer?.isSymbolicLink()){
+  target=await realpath(target).catch(()=>{throw Error('项目工作区符号链接的目标不可用，原链接已保留');});
+  const linked=await getProjectLink(target),cfg=await readProject(target);
+  if(!linked||!cfg.slots||!cfg.models)throw Error('符号链接目标不是已关联的动作台工作区，未覆盖');
+  if(linked.status==='linked'&&linked.root!==projectRoot||linked.expectedRoot&&linked.expectedRoot!==projectRoot&&await exists(linked.expectedRoot))throw Error('符号链接指向另一个项目的工作区，未修改其关联或历史');
+ }
  // Reuse an explicitly linked external workspace after an artist moves their
  // review data out of the game. Reopening must not recreate files in the game.
  const outside=p=>{const r=relative(projectRoot,p);return r==='..'||r.startsWith('..'+sep)||isAbsolute(r);};
  const registered=[...(oldLink?.root===projectRoot?[oldLink]:[]),...(await recentProjects({settingsPath})).filter(r=>r.root===projectRoot)];
- for(const row of registered){
+ for(const row of pointer?.isSymbolicLink()?[]:registered){
   if(typeof row.workspace!=='string'||!outside(resolve(row.workspace)))continue;
   const linked=await getProjectLink(row.workspace);
-  if(!linked||linked.root!==projectRoot||row.id&&linked.id!==row.id)continue;
+  if(!linked?.exists||linked.root!==projectRoot||row.id&&linked.id!==row.id)continue;
   const cfg=await json(join(linked.workspace,'project.json'));if(!cfg.slots)throw Error('已关联的外部工作区数据无效，未在游戏目录创建新资料');
   target=linked.workspace;break;
  }

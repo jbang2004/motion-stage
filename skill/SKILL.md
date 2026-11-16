@@ -26,6 +26,7 @@ Before launching, set `CALLER` to the actual invoking client (`codex`, `claude`,
 | Preview or set up a project-defined state | Use 游戏效果 in the main stage, or 游戏状态 for presets. For first-time setup, use 让 Agent 接入 and verify the selected role and clip after reconnecting. | [Game state preview](references/runtime-preview.md) |
 | Fix / tweak / compare | 修改 → frozen task → candidate → user review; follow the task loop below | [Agent workflow](references/agent-workflow.md) |
 | Put an approved result into the game | `integrations` → inspect selected checkpoint/action and game → edit and verify → `integrate` | [Game integration](references/game-integration.md) |
+| Studio shows an old model / verify delivery | Check project identity, runtime registry and `character-source`; refresh only the selected verified source | [Character source verification](references/character-map.md#source-verification-and-delivery) |
 
 The UI defaults to the invoking client’s conversation: save the task, copy its handoff, then the current agent reads and claims it. Saving does not wake a chat. **本机后台处理** scans known local executors and lets the user choose Codex CLI, Claude Code or DeepSeek Harness. The choice freezes as `job.provider`; each worker consumes only its own tasks. Discovery checks executable/version capabilities, not authentication, quota or tool permissions. Installed apps without a supported adapter stay disabled. Do not silently switch providers after a failed scan or execution. The automatic worker excludes tasks addressed to the current chat. Each chat task freezes `caller.client` and `caller.sessionId`; retries and replies retain that routing. A different client or session cannot claim it accidentally. This is routing metadata, not authentication. Existing tasks without `delivery` retain worker compatibility. Do not start a second consumer for a claimed task.
 
@@ -76,6 +77,7 @@ If requested to integrate a chosen result, continue through the integration rout
 ## Invariants and recovery
 
 - Read unknown project code and registries without executing them. Keep scanner rules project-neutral.
+- A directory scan detects changes; it does not replace frozen previews. After a model install, verify the declared main model and external owners against the actual game registry and compare source hashes. Follow the source-verification route above; never call a temporary import or a retained candidate the current game model.
 - Embedded clips belong to their model; external ownership requires registry or user evidence. Bone-name mapping is not retargeting. A skeleton-only FBX cannot demonstrate mesh deformation.
 - `target.nodeIndex` identifies a node only within the frozen SHA; duplicate names must never redirect an edit. Composite characters require the selected clip's frozen owner/dependency.
 - Trial playback is transient. Adopt only on user intent; prepare a separate working model when the user asks to edit a matched action. Preserve `source.motionBinding`. Publish shared packs only when requested.

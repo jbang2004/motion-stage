@@ -22,6 +22,15 @@ async function assetFixture(root,work){
 }
 const all=p=>[...p.code,...p.sources,...p.history];
 
+test('a relocated workspace never scans an existing but unverified relative root',()=>fixture(async({base,root,work})=>{
+ await linkProject(work,root);const external=join(base,'media','review');await cp(work,external,{recursive:true});
+ // The old ".." now points to media, which exists and even has project markers.
+ await put(base,'media/package.json',{});await put(base,'media/src/main.js','UNRELATED_PROJECT_SENTINEL');
+ const link=await getProjectLink(external);assert.equal(link.status,'unverified');assert.equal(link.available,true);assert.equal(link.exists,false);
+ const packet=await buildProjectContext(external,{});assert.equal(packet.status,'unverified');assert.equal(packet.scan.visitedFiles,0);assert.equal(packet.code.length,0);
+ assert.ok(packet.warnings.some(w=>w.includes('路径无法确认')));
+}));
+
 test('project detection is nearest-marker only and unlinked context does not index',()=>fixture(async({base,root,work})=>{
  const nested=join(root,'src/feature');await mkdir(nested,{recursive:true});await put(root,'.git','gitdir: /not/read/or/followed');assert.equal(await detectProjectRoot(nested),root);
  const inner=join(nested,'subproject');await put(inner,'project.godot','config_version=5');assert.equal(await detectProjectRoot(inner),inner);

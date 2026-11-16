@@ -57,6 +57,31 @@ Read this before you declare which model, variants and external motions belong t
 
 **载入源文件新版本** 明确采用源文件变化并归档上一对版本；刷新目录只发现变化，不替换候选。
 
+## Source verification and delivery
+
+游戏模型安装后，先从实际运行时注册表确认角色的主模型、外部动作所有者和依据文件，再核对 map。不要按文件名、修改时间或同骨架关系推测正式版本，也不要把工程路径写死为某个引擎的目录。保存 map 前读取并保留其他角色；依据变化须重新阅读，不能只删除旧 SHA 来绕过确认。
+
+对一个已声明角色执行只读来源检查（`profile-id` 是 map 中的角色 ID）：
+
+```sh
+node "$CLI" character-source --workspace "$WORKSPACE" --profile-id "$PROFILE_ID"
+```
+
+结果分别给出 `sourceSha256`（当前主源）、`snapshotSourceSha256`（快照的主源）和 `previewSha256`（合成预览）。GLB 的源 SHA 是正式文件 SHA；glTF 的源 SHA 是 JSON 主文件 SHA，另用 `sourceDependencies` 和 `sourceFingerprint` 核对引用的 buffer/纹理；仅 JSON SHA 相等不足以证明版本相同。合成预览加入外部动作后，其 SHA 通常不同，不能要求预览 GLB 与游戏主 GLB 完全相同。`motionSources` 记录各外部来源状态；`blockers` 列出草稿、独立候选、未完成任务和未确认依据。
+
+`current` 表示声明与已载入源一致，尚不证明声明就是游戏实际使用的路径。`stale`、`unopened`、`mapping-mismatch`、`source-mismatch`、`unavailable`、`incomplete` 均未通过交付同步验收。未打开的角色只读检查不会自动导入。CLI 仅 `current` 返回成功。
+
+在用户已授权的角色安装/同步范围内，用经注册表核实的主模型路径和安装版本 SHA 显式刷新所选角色：
+
+```sh
+node "$CLI" character-source --workspace "$WORKSPACE" --profile-id "$PROFILE_ID" \
+  --model "$RUNTIME_MODEL" --source-sha256 "$INSTALLED_SOURCE_SHA" --refresh-source
+```
+
+刷新拒绝预期路径或 SHA 不符、未处理草稿、独立候选及活动任务；不会自动清除这些内容。先处理相应工作，或在已有明确归档授权下使用现有版本操作，再重新校验。通过时原版本进入历史，projectId、角色 ID 和已有任务不变。重复刷新同一源不重置版本。glTF 刷新必须额外传 `--source-fingerprint`（从已核对的安装版本检查结果取得），以固定 JSON 及全部引用依赖；旧依赖指纹会拒绝刷新。命令支持 GLB/glTF 主源；FBX 沿用转换和依赖验证流程。外部源未能完整合成会报告 `incomplete`，不能声称已同步完成。
+
+无法访问外置盘、来源有冲突或尚未解决草稿时，交付报告明确写出“游戏已更新、动作台待同步”及原因。仅扫描目录、修改 map 或打开临时导入都不算同步验收。机器检查之后，在实际动作台 URL 核对角色身份、脸/服装与代表动作；游戏效果仍需实际游戏验证。
+
 ```sh
 node scripts/motion-feedback.mjs character-map --workspace "$WORKSPACE" --file reviewed-map.json
 node scripts/motion-feedback.mjs characters --workspace "$WORKSPACE"

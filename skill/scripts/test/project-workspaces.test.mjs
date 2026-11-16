@@ -13,6 +13,31 @@ import {linkProject} from '../project-context.mjs';
 async function fixture(run){const base=await realpath(await mkdtemp(join(tmpdir(),'motion-project-flow-')));try{const work=join(base,'standalone'),root=join(base,'Game A'),settingsPath=join(base,'settings.json');await mkdir(join(root,'src'),{recursive:true});await writeFile(join(root,'package.json'),'{}');await writeFile(join(root,'src','motion.js'),'export const heroSpeed=1;\n');await initializeWorkspace(work);await run({base,work,root,settingsPath});}finally{await rm(base,{recursive:true,force:true});}}
 async function enqueue(w,{slot='baseline',parentJobId,...rest}={}){const p=await json(join(w,'project.json'));return createJob(w,{request:'收小左肩摆动，其他数据保持',preserve:'腿脚、右臂和所有原有动作保持',slot,parentJobId,target:{bone:'LeftShoulder'},scope:{wholeClip:true,start:0,end:1},context:{slot,asset:p.slots[slot],clip:'Run',time:.3,fps:30},...rest});}
 
+test('reopening an external symlink repairs legacy root drift without changing identity, drafts or accepted history',()=>fixture(async({base,work,root,settingsPath})=>{
+ const opened=await prepareProject(work,root,{settingsPath}),j=await enqueue(opened.workspace);
+ await localEditJob(opened.workspace,j.id,{bone:'LeftShoulder',factor:.7});
+ const accepted=await reviewJob(opened.workspace,j.id,{decision:'accept-candidate',outcome:'Synthetic accepted history'});
+ await saveDraft(opened.workspace,j.assetId,{expectedRevision:0,draft:{assetId:j.assetId,context:{assetId:j.assetId},request:'Preserve this draft',preserve:''}});
+ const config=await json(join(opened.workspace,'project-link.json'));delete config.rootHint;delete config.rootIdentity;
+ config.assetLinks=[{asset:{sha256:'a'.repeat(64)},code:['src/motion.js']}];await atomic(join(opened.workspace,'project-link.json'),config);
+ const external=join(base,'media','review');await cp(opened.workspace,external,{recursive:true});await rm(opened.workspace,{recursive:true});
+ await symlink(external,opened.workspace,process.platform==='win32'?'junction':'dir');
+ const files=['project.json','jobs/'+j.id+'/job.json',accepted.reviews.at(-1).checkpointFile,'drafts/'+j.assetId+'.json'];
+ const before=await Promise.all(files.map(f=>readFile(join(external,f))));
+ assert.equal((await projectStatus(external,{settingsPath})).status,'unverified');
+ const repaired=await prepareProject(null,root,{settingsPath});assert.equal(repaired.workspace,external);assert.equal(repaired.project.root,root);assert.equal(repaired.project.id,config.projectId);assert.equal(repaired.project.linkedAt,config.linkedAt);assert.equal(repaired.reused,true);assert.equal(repaired.migrated,false);assert.deepEqual(repaired.project.assetLinks,config.assetLinks.map(a=>({...a,sources:[],history:[]})));
+ for(let i=0;i<files.length;i++)assert.deepEqual(await readFile(join(external,files[i])),before[i]);
+ assert.equal(await realpath(opened.workspace),external);assert.equal((await projectStatus(external,{settingsPath})).status,'linked');
+}));
+
+test('an unrelated project cannot claim another linked workspace via a symlink',()=>fixture(async({base,work,root,settingsPath})=>{
+ const a=await prepareProject(work,root,{settingsPath}),other=join(base,'Other');await mkdir(other);
+ await symlink(a.workspace,join(other,'.motion-studio'),process.platform==='win32'?'junction':'dir');
+ const before=await readFile(join(a.workspace,'project-link.json'));
+ await assert.rejects(prepareProject(null,other,{settingsPath}),/另一个项目/);
+ assert.deepEqual(await readFile(join(a.workspace,'project-link.json')),before);
+}));
+
 test('project association copies owned history atomically, reuses existing data and survives project move',()=>fixture(async({base,work,root,settingsPath})=>{
  const before=await readFile(join(work,'project.json'));const j=await enqueue(work);await cancelJob(work,j.id);
  await saveDraft(work,j.assetId,{expectedRevision:0,draft:{assetId:j.assetId,context:{assetId:j.assetId},request:'随项目迁移的草稿',preserve:''}});

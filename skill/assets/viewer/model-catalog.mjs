@@ -107,6 +107,7 @@ function scanDescription(scan) {
 }
 
 function badge(row, selected) {
+  if (row.character && row.sourceChanged) return '预览版本待同步';
   if (selected) return '当前模型';
   if (row.origin === 'teaching') return '教学示例';
   if (row.status === 'source-only') return '制作源';
@@ -174,6 +175,7 @@ export function createModelCatalog({
       clips ? (clips.length ? clips.length + ' 个动作' : resourceLabel(row.metadata?.capabilities)) : ''
     ];
     copy.append(el('small', info.filter(Boolean).join(' · ')));
+    if(row.sourceChanged)copy.append(el('small','源文件或角色关联已更新；当前仍保留上次载入的版本。','catalog-error'));
     if (row.character) {
       copy.append(el('small', '模型内 ' + row.embeddedCount + ' 个动作' +
         (row.variants?.length ? ' · ' + row.variants.length + ' 个模型版本' : '')));

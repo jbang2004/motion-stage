@@ -75,7 +75,7 @@ It writes `integrations/<id>.json`; for a candidate it also appends to `job.inte
 
 ## After integrating
 
-The model's game file now differs from what the studio imported, which the studio treats as a source change: an open task on the old version goes stale, and accepting a candidate built on it is refused. To keep editing from the integrated version, the user loads the new source (载入源文件新版本, or `open-model --asset-id ID --refresh-source`), which makes the integrated file the new original.
+The model's game file now differs from what the studio imported, which the studio treats as a source change: an open task on the old version goes stale, and accepting a candidate built on it is refused. Check the runtime registry and declared source, then follow [source verification and delivery](character-map.md#source-verification-and-delivery). Within the authorized installation/sync scope, refresh the selected character using the exact installed source identity, preserving previous versions. Otherwise report why the studio remains behind. File-level models still use `open-model --asset-id ID --refresh-source`; never replace a composite main model with its assembled review GLB.
 
 Report the files you changed, how they were produced (copied candidate, export, replayed in source), what you checked in the game, and anything left: a source that is now behind, an unrun game, other pending rows.
 

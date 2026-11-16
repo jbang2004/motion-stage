@@ -35,19 +35,27 @@ export async function detectProjectRoot(start){
 }
 
 function mappings(value){if(!Array.isArray(value))return[];return value.slice(0,64).filter(v=>v&&typeof v==='object'&&!Array.isArray(v)).map(v=>({asset:{...(typeof v.asset?.sha256==='string'?{sha256:shorten(v.asset.sha256,64).toLowerCase()}:{}),...(typeof v.asset?.originalName==='string'?{originalName:shorten(v.asset.originalName,240)}:{}),...(typeof v.asset?.path==='string'?{path:shorten(v.asset.path,1000)}:{})},...Object.fromEntries(['code','sources','history'].map(k=>[k,Array.isArray(v[k])?v[k].filter(x=>typeof x==='string').slice(0,24).map(x=>shorten(x,1000)):[]]))}));}
+async function ownsWorkspace(root,workspace){try{return await realpath(join(root,'.motion-studio'))===workspace;}catch{return false;}}
 export async function getProjectLink(work){
  const workspace=await canonical(work);let config;
  try{config=await smallJSON(await inside(workspace,'project-link.json'));}catch(e){if(e.code==='ENOENT')return null;throw Error('无法读取项目关联：'+e.message);}
  if(!uuid(config.projectId)||typeof config.rootRelative!=='string'||!config.rootRelative||config.rootRelative.length>4096||isAbsolute(config.rootRelative))throw Error('项目关联格式无效：需要 projectId 与相对 rootRelative');
  const root=await canonical(resolve(workspace,config.rootRelative)),available=await exists(root,'dir');
- return{version:1,status:available?'linked':'missing',id:config.projectId,name:shorten(config.projectName||basename(root),160),root,workspace,rootRelative:config.rootRelative,exists:available,linkedAt:config.linkedAt||null,assetLinks:mappings(config.assetLinks)};
+ const expectedRoot=typeof config.rootHint==='string'&&isAbsolute(config.rootHint)?await canonical(config.rootHint):null;
+ const identity=available?await stat(root):null;
+ // Relative paths survive moving a whole project. A reciprocal workspace link
+ // or the recorded directory identity also survives external storage moves.
+ const verified=available&&(await ownsWorkspace(root,workspace)||expectedRoot===root||config.rootIdentity&&String(identity.dev)===config.rootIdentity.dev&&String(identity.ino)===config.rootIdentity.ino||!expectedRoot&&!config.rootIdentity&&await detectProjectRoot(root)===root);
+ const status=!available?'missing':verified?'linked':'unverified';
+ return{version:1,status,id:config.projectId,name:shorten(config.projectName||basename(root),160),root,workspace,rootRelative:config.rootRelative,exists:Boolean(verified),available,expectedRoot,linkedAt:config.linkedAt||null,assetLinks:mappings(config.assetLinks),...(status==='unverified'?{warning:'项目路径无法确认，可能因工作区搬迁而偏移；请用 --project 或项目选择器重新打开实际工程。已有预览和历史仍保留。'}:{})};
 }
 export async function linkProject(work,root,{name}={}){
  const workspace=await realpath(resolve(work)),projectRoot=await realpath(resolve(root));if(!await exists(projectRoot,'dir'))throw Error('选择的项目不是文件夹');
  let previous=null;try{previous=await getProjectLink(workspace);}catch{}
  let inherited=null;try{const p=await realpath(join(projectRoot,'.motion-studio','project-link.json'));if(inRoot(projectRoot,p))inherited=await smallJSON(p);}catch{}
- const same=previous?.root===projectRoot,id=same?previous.id:uuid(inherited?.projectId)?inherited.projectId:randomUUID();
- const config={version:1,projectId:id,projectName:shorten(typeof name==='string'&&name.trim()?name.trim():same?previous.name:inherited?.projectName||basename(projectRoot),160),rootRelative:relative(workspace,projectRoot)||'.',linkedAt:same?previous.linkedAt||new Date().toISOString():new Date().toISOString()};
+ const same=previous&&(previous.root===projectRoot||previous.status!=='linked'&&await ownsWorkspace(projectRoot,workspace)),id=same?previous.id:uuid(inherited?.projectId)?inherited.projectId:randomUUID();
+ const identity=await stat(projectRoot);
+ const config={version:1,projectId:id,projectName:shorten(typeof name==='string'&&name.trim()?name.trim():same?previous.name:inherited?.projectName||basename(projectRoot),160),rootRelative:relative(workspace,projectRoot)||'.',rootHint:projectRoot,rootIdentity:{dev:String(identity.dev),ino:String(identity.ino)},linkedAt:same?previous.linkedAt||new Date().toISOString():new Date().toISOString()};
  const assetLinks=same?previous.assetLinks:mappings(inherited?.assetLinks);if(assetLinks.length)config.assetLinks=assetLinks;
  await atomic(await inside(workspace,'project-link.json'),config);return getProjectLink(workspace);
 }
@@ -76,7 +84,7 @@ export async function buildProjectContext(work,job={}, {preview=false}={}){
  const evidence=async(kind,path,load)=>{if(!preview)return load();const result=await projectPreviewIndex.read(kind,path,load);if(result.hit)packet.scan.previewCacheHits=(packet.scan.previewCacheHits||0)+1;return result.value;};
  const link=await getProjectLink(work),ids=identity(job),packet={version:1,status:link?.status||'unlinked',project:link?Object.fromEntries(Object.entries(link).filter(([k])=>k!=='assetLinks')):null,suggestion:null,task:{slot:job.slot||null,clip:shorten(job.clip,120),assetIdentities:ids},code:[],sources:[],history:[],references:[],scan:{visitedFiles:0,visitedDirectories:0,readFiles:0,hashedFiles:0,readBytes:0,hashedBytes:0,skippedFiles:0,truncated:false,limits:{...LIMITS}},budget:{maxCharacters:LIMITS.maxCharacters,usedCharacters:0,truncated:false},warnings:[]};
  if(!link){const root=await detectProjectRoot(work);packet.suggestion=root?{root,name:basename(root),reason:'nearest-project-marker'}:null;packet.budget.usedCharacters=JSON.stringify(packet).length;return packet;}
- if(!link.exists){packet.warnings.push('已关联的项目文件夹不存在；请重新选择或恢复项目位置。');packet.budget.usedCharacters=JSON.stringify(packet).length;return packet;}
+ if(!link.exists){packet.warnings.push(link.warning||'已关联的项目文件夹不存在；请重新选择或恢复项目位置。');packet.budget.usedCharacters=JSON.stringify(packet).length;return packet;}
  const root=link.root,workspace=await realpath(resolve(work)),index=new Map(),hashCache=new Map(),ranked=new Map(),anchors=new Map(),hashes=new Set(),names=new Set(),query=new Set(),refResults=new Set(),activeIds=ids.filter(a=>a.role==='source'),projectCharacterNames=new Set();let binaryHashes=0;
  const warn=s=>{if(packet.warnings.length<16&&!packet.warnings.includes(s))packet.warnings.push(shorten(s,260));};
  const excluded=path=>{if(path===workspace||inRoot(workspace,path)||path===ROOT||inRoot(ROOT,path))return true;const rel=slash(relative(root,path)),parts=rel.split('/');return parts.some(excludedName)||sensitive(path)||/^(?:AGENTS|SKILL|CLAUDE)\.md$/i.test(basename(path))||/^tools\/builda(?:\/|$)/.test(rel);};

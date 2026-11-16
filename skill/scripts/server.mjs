@@ -13,7 +13,7 @@ import {readFile,stat,realpath} from 'node:fs/promises';
 import {createReadStream} from 'node:fs';
 import {extname} from 'node:path';
 import {randomBytes} from 'node:crypto';
-import {ROOT,json,inside,atomic,validateNote,importAsset,readMarks,sha,withWorkspaceLock,hasClip,readProject,projectView,modelSlots,activateModel} from './core.mjs';
+import {ROOT,VERSION,json,inside,atomic,validateNote,importAsset,readMarks,sha,withWorkspaceLock,hasClip,readProject,projectView,modelSlots,activateModel} from './core.mjs';
 import {catalogPage,startCatalogScan,openCatalogAsset,stopCatalogScan} from './asset-catalog.mjs';
 import {characterPage,castRoster,characterModelBytes,openCharacter,associateCharacterMotion,saveCharacterMap} from './character-library.mjs';
 import {listJobs,getJob,createJob,cancelJob,localEditJob,reviewJob,inspectSlot,diagnoseFootSlip,importBytes,replyJob,updateJobProgress,getJobProjectContext,previewProjectContext,retryJob,restoreJob,interruptJob,jobArtifacts,reconcileExecutions} from './jobs.mjs';
@@ -62,7 +62,7 @@ export async function serve(work,port=5178,options={}){
    if(p==='/api/undo'&&req.method==='GET')return send(200,await undoStatus(work,url.searchParams.get('assetId')));
    if(p==='/api/actions/replacement-plans'&&req.method==='GET')return send(200,await listReplacementPlans(work,url.searchParams.get('assetId')));
    if(p==='/api/integrations'&&req.method==='GET')return send(200,await integrationStatus(work));
-   if(p==='/api/session'&&req.method==='GET')return send(200,{token,caller,paths:{workspace:work,cli:ROOT+'/scripts/motion-feedback.mjs'},project:projectView(await readProject(work),url.searchParams.get('assetId')||undefined),feedback:await json(await inside(work,'feedback.json')),marks:await readMarks(work)});
+   if(p==='/api/session'&&req.method==='GET')return send(200,{token,caller,runtime:{version:VERSION,installedVersion:(await json(ROOT+'/package.json')).version},paths:{workspace:work,cli:ROOT+'/scripts/motion-feedback.mjs'},project:projectView(await readProject(work),url.searchParams.get('assetId')||undefined),feedback:await json(await inside(work,'feedback.json')),marks:await readMarks(work)});
    if(p==='/api/agents'&&req.method==='GET')return send(200,await scanProviders());
    if(p==='/api/doctor'&&req.method==='GET')return send(200,url.searchParams.get('cached')==='1'?runtime:await recheck());
    if(p==='/api/actions'&&req.method==='GET')return send(200,await discoverCharacterActions(work,Object.fromEntries(url.searchParams)));

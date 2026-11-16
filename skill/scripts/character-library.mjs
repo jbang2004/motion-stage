@@ -14,6 +14,7 @@ const MAP='character-map.json',cache=new Map(),flights=new Map(),CACHE_LIMIT=409
 const requireValue=(ok,message)=>{if(!ok)throw Error(message);};
 const stamp=s=>[s.size,s.mtimeMs,s.ctimeMs,s.ino,s.dev].join(':');
 const assetId=(project,id)=>'character-'+sha(Buffer.from(project+'\0'+id)).slice(0,32);
+const mainSourceFingerprint=(model,source)=>characterProfileDigest({model,sha256:source.sha256,dependencies:consumedDependencies(source).map(d=>[d.projectRelativePath,d.sha256]).sort((a,b)=>a[0].localeCompare(b[0]))});
 const modelFormat=file=>({'.glb':'glb','.gltf':'gltf'})[extname(file).toLowerCase()]||'unsupported';
 function path(value){requireValue(typeof value==='string'&&value.length>0&&value.length<=2000,'需要项目内相对文件路径');const p=value.replaceAll('\\','/');requireValue(!p.startsWith('/')&&!/^[a-z]:/i.test(p)&&!p.split('/').some(n=>n==='..'||n==='.git'||n==='.ssh'||n==='.aws'),'资源路径必须位于项目内');return p;}
 export function normalizeCharacterMap(value){
@@ -157,11 +158,11 @@ async function characterModel(work,id){
 export async function characterModelFile(work,id){const {root,file}=await characterModel(work,id);return inside(root,file);}
 // GLB bytes; a .gltf is packed in memory with the files it references.
 export async function characterModelBytes(work,id){const {root,file}=await characterModel(work,id);return (await readProjectModel(root,file)).bytes;}
-export async function openCharacter(work,id,{refreshSource=false}={}){
- const key=work+'|'+id+'|'+refreshSource;if(flights.has(key))return flights.get(key);
- const promise=prepareCharacter(work,id,refreshSource);flights.set(key,promise);try{return await promise;}finally{flights.delete(key);}
+export async function openCharacter(work,id,{refreshSource=false,expectedSource}={}){
+ const key=work+'|'+id+'|'+refreshSource+'|'+JSON.stringify(expectedSource);if(flights.has(key))return flights.get(key);
+ const promise=prepareCharacter(work,id,refreshSource,expectedSource);flights.set(key,promise);try{return await promise;}finally{flights.delete(key);}
 }
-async function prepareCharacter(work,id,refreshSource){
+async function prepareCharacter(work,id,refreshSource,expectedSource){
  const initial=await readProject(work),old=initial.models[id];
  if(old?.origin==='character'&&modelSlots(initial,id).baseline&&!refreshSource)return activateModel(work,id);
  const data=await library(work,{onlyId:id}),row=data.rows.find(r=>r.id===id);requireValue(row?.profile&&data.link?.exists,'角色关联不存在；已有预览可继续打开');
@@ -175,6 +176,7 @@ async function prepareCharacter(work,id,refreshSource){
   const model=await readProjectModel(root,profile.model);base={bytes:model.bytes,sha256:model.sha256};
   baseSource={format:modelFormat(profile.model)==='gltf'?'gltf':'glb',sha256:model.sha256,projectRelativePath:profile.model,originalName:basename(profile.model),...(model.dependencyKind?{dependencies:model.dependencies,dependencyKind:model.dependencyKind}:{})};
  }
+ if(expectedSource)requireValue(profile.model===expectedSource.model&&baseSource.sha256===expectedSource.sha256&&(!expectedSource.fingerprint||mainSourceFingerprint(profile.model,baseSource)===expectedSource.fingerprint),'角色来源与预期安装版本不一致，未刷新');
  const sources=[],reads=[];
  for(const source of profile.animations){
   if(!row.readyEvidence){sources.push({...source});continue;}
@@ -203,6 +205,47 @@ async function prepareCharacter(work,id,refreshSource){
   await importAsset(work,'baseline',result.bytes,profile.name,{locked:true,assetId:id,reset:true,activate:false,source,protectActive:true,model:{name:profile.name,origin:'character',relativePath:profile.model,projectId:data.link.id,characterProfileId:profile.id}});
  });
  return activateModel(work,id);
+}
+
+// Delivery check for one explicitly declared runtime character. Discovery never
+// establishes production ownership; the caller supplies a registry-verified path
+// and installed source hash before opting into a refresh.
+export async function characterSource(work,{profileId,expectedModel,expectedSha256,expectedFingerprint,refreshSource=false}={}){
+ requireValue(typeof profileId==='string'&&profileId.length>0,'需要 --profile-id 指定已声明角色');
+ if(expectedSha256)requireValue(/^[a-f0-9]{64}$/.test(expectedSha256),'源 SHA256 无效');
+ if(expectedFingerprint)requireValue(/^[a-f0-9]{64}$/.test(expectedFingerprint),'来源指纹无效');
+ if(refreshSource)requireValue(expectedModel&&expectedSha256,'刷新需要经游戏注册表核对的 --model 和 --source-sha256');
+ const inspect=async()=>{
+  const link=await getProjectLink(work);requireValue(link?.exists,link?.warning||'项目目录不可用，请重新打开实际工程');
+  const map=await mapping(work),profile=map.characters.find(c=>c.id===profileId);requireValue(profile,'角色未声明；请先核对游戏注册表并保存 character-map');
+  const id=assetId(link.id,profile.id),cfg=await readProject(work),heads=modelSlots(cfg,id),row=(await library(work,{onlyId:id})).rows.find(r=>r.id===id);
+  const result={version:1,profileId,assetId:id,projectRoot:link.root,workspace:link.workspace,model:profile.model,opened:Boolean(heads.baseline),snapshotSourceSha256:heads.baseline?.source?.sha256||null,previewSha256:heads.baseline?.sha256||null,sourceChanged:Boolean(row?.sourceChanged),motionSources:row?.motionSources||[],blockers:[]};
+  if(expectedModel&&profile.model!==path(expectedModel))return {...result,status:'mapping-mismatch'};
+  requireValue(['glb','gltf'].includes(modelFormat(profile.model)),'来源校验支持 GLB/glTF；FBX 请走转换与来源依赖验收');
+  let current;try{current=await readProjectModel(link.root,profile.model);}catch(error){return {...result,status:'unavailable',error:error.message};}
+  result.sourceSha256=current.sha256;result.sourceDependencies=current.dependencies;
+  result.sourceFingerprint=mainSourceFingerprint(profile.model,current);
+  result.snapshotSourceFingerprint=heads.baseline?.source?mainSourceFingerprint(heads.baseline.source.projectRelativePath,heads.baseline.source):null;
+  if(expectedSha256&&current.sha256!==expectedSha256||expectedFingerprint&&result.sourceFingerprint!==expectedFingerprint)return {...result,status:'source-mismatch'};
+  if(refreshSource&&modelFormat(profile.model)==='gltf')requireValue(expectedFingerprint,'glTF 刷新还需要 --source-fingerprint 固定主文件及其依赖');
+  if(!row?.readyEvidence)result.blockers.push('项目注册依据已变化，请重新阅读并确认角色关联');
+  if(heads.candidate&&heads.baseline?.sha256!==heads.candidate.sha256)result.blockers.push('已有独立候选，请先处理或明确归档后再载入新源');
+  if(heads.baseline){
+   const {readDraft}=await import('./drafts.mjs'),{listJobs}=await import('./jobs.mjs');
+   const {draft}=await readDraft(work,id);
+   if(draft&&(draft.request?.trim()||draft.preserve?.trim()||draft.feedbackPoints?.length||draft.footRepair))result.blockers.push('已有未提交草稿，请先处理；草稿仍保留');
+   if((await listJobs(work)).some(j=>j.assetId===id&&['queued','running','needs-input'].includes(j.state)))result.blockers.push('角色仍有待处理任务，请先完成或停止');
+  }
+  const stale=!heads.baseline||heads.baseline.source?.sha256!==current.sha256||row.sourceChanged;
+  return {...result,status:stale?heads.baseline?'stale':'unopened':result.motionSources.some(s=>s.status!=='ready')?'incomplete':'current'};
+ };
+ return withWorkspaceLock(work,async()=>{
+  const before=await inspect();if(!refreshSource||before.status==='current')return {...before,refreshed:false};
+  requireValue(['stale','unopened'].includes(before.status),'来源校验未通过：'+before.status);
+  requireValue(!before.blockers.length,before.blockers.join('；'));
+  await openCharacter(work,before.assetId,{refreshSource:true,expectedSource:{model:path(expectedModel),sha256:expectedSha256,fingerprint:expectedFingerprint}});
+  return {...await inspect(),refreshed:true};
+ });
 }
 
 export async function associateCharacterMotion(work,id,{assetId:sourceId}={}){

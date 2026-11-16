@@ -131,6 +131,7 @@ async function loadProjectIdentity(){state.projectLink=await api('/api/project')
 function projectStatus(message,error=false){$('projectLinkStatus').textContent=message;$('projectLinkStatus').hidden=!message;$('projectLinkStatus').classList.toggle('error',error);}
 function drawProjectDialog(){
  const d=state.projectLink||{},linked=d.status==='linked',p=d.project,suggested=d.suggested;
+ if(p?.warning)projectStatus(p.warning,true);
  $('projectDialogTitle').textContent=linked?'当前项目与最近项目':'关联游戏项目';$('projectDialogIntro').textContent=linked?'已关联的项目会自动沿用，不需要重复选择。打开另一个项目时，会进入独立工作区，不会把这里的素材与记录混过去。':'只需关联一次。当前素材与记录会复制到项目的 .motion-studio，原文件保持。以后在这里保存候选、观察现场与验收记录。';
  $('projectCurrent').hidden=!linked;$('projectCurrent').replaceChildren();if(linked){$('projectCurrent').append(el('b','当前项目：'+p.name),el('small',p.root));const actions=el('div',undefined,'project-current-actions');actions.append(actionButton('打开记录文件夹 ↗',async()=>{try{const result=await api('/api/project/reveal','POST',{});if(!result.opened)throw Error('系统未能打开记录文件夹，请使用“复制记录路径”。');projectStatus('已在文件管理器中打开当前项目的记录文件夹。');}catch(error){projectStatus(error.message,true);}},'text-button'),actionButton('复制记录路径',()=>copyText(p.workspace),'text-button'));$('projectCurrent').append(actions);}
  const pending=state.jobs.filter(j=>['queued','running','needs-input'].includes(j.state)).length;$('projectPending').hidden=!pending;$('projectPending').textContent=linked?'这里的 '+pending+' 条待处理记录仍保留在当前项目，正在执行的任务可返回原页面查看。':'待执行或运行中的任务需先完成或停止，再复制到项目；等待补充的任务会随资料保留。';
@@ -975,7 +976,7 @@ async function refreshModels({preserve=true,force=false,selectionTicket=null,obs
  try{
   const d=preparedProject?{project:preparedProject}:await api('/api/session','GET',undefined,{assetId:ticket.assetId,signal:ticket.signal});
   if(!d.project?.activeAssetId||!viewState.isUnchanged(ticket,d.project.activeAssetId))return null;
-  if(!preparedProject){state.token=d.token;state.paths=d.paths||{};state.caller=d.caller||null;}
+  if(!preparedProject){state.token=d.token;state.paths=d.paths||{};state.caller=d.caller||null;const runtime=d.runtime;$('runtimeVersion').textContent=runtime?'MotionStage '+runtime.version+(runtime.installedVersion!==runtime.version?' · 已安装 '+runtime.installedVersion+'，请重启工作台服务':''):'无法确认服务版本，请重启工作台服务';}
   const current=()=>viewState.isUnchanged(ticket,d.project.activeAssetId)&&stillWanted();
   const wanted={baseline:d.project.slots.baseline};
   if(needCandidate||preserve&&(savedFocus==='candidate'||savedDisplay!=='single'||state.models.candidate?.meta.assetId===d.project.activeAssetId))wanted.candidate=d.project.slots.candidate;
