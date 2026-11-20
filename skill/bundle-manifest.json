@@ -1,7 +1,7 @@
 {
   "name": "motion-stage",
   "version": "4.6.0",
-  "createdAt": "2026-11-16T16:49:53.003842+00:00",
+  "createdAt": "2026-11-20T04:13:44.086027+00:00",
   "runtime": "Node.js >=22 / Canvas2D curves; WebGL2 spatial previews",
   "externalRuntimeDependencies": {
     "base": [],
@@ -34,7 +34,7 @@
     {
       "path": "README.md",
       "bytes": 2791,
-      "sha256": "dc8a6de528936d73ef194a1ec5fd8b5043ea77095e875d5b7f6499f77fc5f254"
+      "sha256": "8fffc6f9aa973927eb4023ccec2936a1c7341975c8c72c2879bbe8e05256ccb7"
     },
     {
       "path": "SKILL.md",
@@ -63,8 +63,8 @@
     },
     {
       "path": "assets/community/ai-sailing-wechat.png",
-      "bytes": 217389,
-      "sha256": "c4b437408f1cab1f6803939a3c3a09c8b3ca28ad840583489f265b22ab4ff9f3"
+      "bytes": 260409,
+      "sha256": "fecf14a7316e68aee2b9fec9189967ed5ef9382bb536cbe1489b11ce2f32d405"
     },
     {
       "path": "assets/demo/baseline.glb",
