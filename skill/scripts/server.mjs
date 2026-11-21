@@ -15,7 +15,8 @@ import {extname} from 'node:path';
 import {randomBytes} from 'node:crypto';
 import {ROOT,VERSION,json,inside,atomic,validateNote,importAsset,readMarks,sha,withWorkspaceLock,hasClip,readProject,projectView,modelSlots,activateModel} from './core.mjs';
 import {catalogPage,startCatalogScan,openCatalogAsset,stopCatalogScan} from './asset-catalog.mjs';
-import {characterPage,castRoster,characterModelBytes,openCharacter,associateCharacterMotion,saveCharacterMap} from './character-library.mjs';
+import {characterPage,castRoster,characterModelBytes,openCharacter,associateCharacterMotion,saveCharacterMap,characterSource} from './character-library.mjs';
+import {createSourceWatcher} from './source-watch.mjs';
 import {listJobs,getJob,createJob,cancelJob,localEditJob,reviewJob,inspectSlot,diagnoseFootSlip,importBytes,replyJob,updateJobProgress,getJobProjectContext,previewProjectContext,retryJob,restoreJob,interruptJob,jobArtifacts,reconcileExecutions} from './jobs.mjs';
 import {projectStatus,prepareProject,chooseProjectFolder,revealWorkspace} from './project-workspaces.mjs';
 import {diagnoseRuntime} from './runtime-diagnostics.mjs';
@@ -41,6 +42,12 @@ export async function serve(work,port=5178,options={}){
  if(runtime.workspace.status!=='ready')throw Error(runtime.workspace.error||'工作区不可读写，请选择本机可写目录。');
  await readProject(work);await reconcileExecutions(work);
  const studioEvents=createStudioEvents(work);
+ // (the game's character files, followed: source-watch.mjs; on for the stage a person opens — start.mjs, the CLI's serve —
+ // and for a test that asks for it)
+ const sourceWatch=options.watchSources?createSourceWatcher(work,{onChange:()=>studioEvents.changed(),...(options.sourcePoll||{}),
+  inspect:profileId=>characterSource(work,{profileId}),
+  refresh:async assetId=>{await openCharacter(work,assetId,{refreshSource:true,activate:false});return (await readProject(work)).models[assetId]?.sourceUpdate||null;}}):null;
+ const sourceState=(cfg,id)=>({sourceSync:sourceWatch?.status(id)||null,sourceUpdate:cfg.models?.[id]?.sourceUpdate||null});
  const token=randomBytes(24).toString('hex');let queue=Promise.resolve();
  let agent={connected:false,active:false,state:'disconnected',provider:'codex',error:null},workerAbort=null,workerGeneration=0,connecting=null,workerRun=null;
  const updateAgent=next=>{agent=next;studioEvents.changed();};
@@ -82,15 +89,15 @@ export async function serve(work,port=5178,options={}){
    if(p==='/api/studio/events'&&req.method==='GET')return studioEvents.subscribe(res);
    if(p==='/api/studio'&&req.method==='GET'){
     const capabilities=await getCaps();
-    if(url.searchParams.get('compact')!=='1')return send(200,await withWorkspaceLock(work,async()=>({version:2,project:projectView(await readProject(work),url.searchParams.get('assetId')||undefined),jobs:await listJobs(work),capabilities,agent:{...agent,lastError:agent.error}})));
+    if(url.searchParams.get('compact')!=='1')return send(200,await withWorkspaceLock(work,async()=>{const cfg=await readProject(work),project=projectView(cfg,url.searchParams.get('assetId')||undefined);return {version:2,project,jobs:await listJobs(work),capabilities,agent:{...agent,lastError:agent.error},...sourceState(cfg,project.activeAssetId)};}));
     return send(200,await withWorkspaceLock(work,async()=>{
-     const project=projectView(await readProject(work),url.searchParams.get('assetId')||undefined),index=await studioJobIndex(work),rows=index.rows.filter(j=>j.assetId===project.activeAssetId),selected=url.searchParams.get('jobId');
+     const cfg=await readProject(work),project=projectView(cfg,url.searchParams.get('assetId')||undefined),index=await studioJobIndex(work),rows=index.rows.filter(j=>j.assetId===project.activeAssetId),selected=url.searchParams.get('jobId');
      const head=project.slots.candidate;
      const owner=head?.derivedByJobId||head?.source?.derivedByJobId;
      const matchesHead=j=>j.state==='complete'&&j.candidate?.sha256===head.sha256&&j.candidate.file===head.file;
      const currentCandidate=head&&(rows.find(j=>j.id===owner&&matchesHead(j))||rows.find(matchesHead));
      const jobs=rows.filter((j,i)=>i===0||activeJobStates.has(j.state)||j.id===selected||j.id===currentCandidate?.id);
-     const payload={version:3,project,jobs,candidateJobId:currentCandidate?.id??null,jobCounts:index.counts,totalJobs:index.total,jobsRevision:index.revision,capabilities,agent:{...agent,lastError:agent.error}};
+     const payload={version:3,project,jobs,candidateJobId:currentCandidate?.id??null,jobCounts:index.counts,totalJobs:index.total,jobsRevision:index.revision,capabilities,agent:{...agent,lastError:agent.error},...sourceState(cfg,project.activeAssetId)};
      const revision=sha(Buffer.from(JSON.stringify(payload)));return url.searchParams.get('since')===revision?{version:3,unchanged:true,revision,assetId:project.activeAssetId}:{...payload,revision};
     }));
    }
@@ -138,6 +145,8 @@ export async function serve(work,port=5178,options={}){
     const modelOpen=p.match(/^\/api\/catalog\/([a-zA-Z0-9_-]{1,80})\/open$/);
     if(modelOpen&&req.method==='POST')return send(200,{project:await openCatalogAsset(work,modelOpen[1],JSON.parse(data.length?data:'{}'))});
     if(p==='/api/characters/map'&&req.method==='POST')return send(200,await saveCharacterMap(work,JSON.parse(data)));
+    const characterSync=p.match(/^\/api\/characters\/([a-zA-Z0-9_-]{1,80})\/sync$/);
+    if(characterSync&&req.method==='POST'){if(!sourceWatch)throw Error('这个动作台没有跟随游戏文件');return send(200,await sourceWatch.sync(characterSync[1]));}
     const characterAction=p.match(/^\/api\/characters\/([a-zA-Z0-9_-]{1,80})\/(open|associate)$/);
     if(characterAction&&req.method==='POST'){const input=JSON.parse(data.length?data:'{}');return send(200,characterAction[2]==='open'?{project:await openCharacter(work,characterAction[1],input)}:await associateCharacterMotion(work,characterAction[1],input));}
     if(p==='/api/project/reveal'&&req.method==='POST')return send(200,await revealWorkspace(work));
@@ -251,9 +260,11 @@ export async function serve(work,port=5178,options={}){
   }catch(e){if(!res.headersSent)send(e.code==='ENOENT'?404:['MODEL_JOB_ACTIVE','AGENT_BUSY'].includes(e.code)?409:400,{error:e.message,...(e.code?{code:e.code}:{}),...(e.jobId?{jobId:e.jobId}:{})});else res.end();}
  });
  server.once('close',()=>{if(workspaceServers.get(serverKey)===server)workspaceServers.delete(serverKey);serverCloseCleanup();});
- const close=server.close.bind(server);server.close=callback=>{studioEvents.close();workerGeneration++;connecting=null;workerAbort?.abort();Promise.all([workerRun,managedPreview.close(),stopCharacterActionDiscovery(work),stopCatalogScan(work),...[...children].filter(c=>c.listening).map(c=>new Promise(r=>c.close(r)))]).catch(()=>{}).finally(()=>close(callback));return server;};
+ const close=server.close.bind(server);server.close=callback=>{const watching=sourceWatch?.stop();studioEvents.close();workerGeneration++;connecting=null;workerAbort?.abort();Promise.all([watching,workerRun,managedPreview.close(),stopCharacterActionDiscovery(work),stopCatalogScan(work),...[...children].filter(c=>c.listening).map(c=>new Promise(r=>c.close(r)))]).catch(()=>{}).finally(()=>close(callback));return server;};
  try{await new Promise((ok,no)=>{server.once('error',no);server.listen(port,'127.0.0.1',ok);});}
  catch(error){throw Object.assign(Error(error.code==='EADDRINUSE'?'本地服务端口已被占用，请关闭旧服务或使用 --port 0 自动选择端口。':'本地服务无法启动，请检查本机网络权限后重试。',{cause:error}),{code:error.code});}
  runtime.server={status:'ready',host:'127.0.0.1',port:server.address().port};workspaceServers.set(serverKey,server);
- await startCatalogScan(work,{force:true}).catch(()=>{});return server;
+ await startCatalogScan(work,{force:true}).catch(()=>{});
+ sourceWatch?.start().catch(()=>{});                       // (not awaited: a refresh on start must not hold the page)
+ return server;
 }

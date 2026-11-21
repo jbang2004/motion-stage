@@ -102,7 +102,7 @@ function sameValues(a,b){
  return a.every((row,i)=>row.length===b[i].length&&row.every((value,j)=>value===b[i][j]));
 }
 
-export function compareCandidate(sourceBytes,candidateBytes,{clip,lockOtherClips=false}={}){
+export function compareCandidate(sourceBytes,candidateBytes,{clip,lockOtherClips=false,only=null}={}){
  const result={version:1,tracks:states(),outside:0,unverifiedClips:0,clips:[],omittedClips:0,protection:lockOtherClips?'verified':'off',keyframeTimes:'unchanged'};
  const identities=new Map();
  const before=animationData(sourceBytes,identities),after=animationData(candidateBytes,identities);
@@ -115,6 +115,7 @@ export function compareCandidate(sourceBytes,candidateBytes,{clip,lockOtherClips
  result.unverifiedClips=Math.max(before.unidentified,after.unidentified);
  let outsideUnknown=result.unverifiedClips>0;
  for(const name of new Set([...before.clips.keys(),...after.clips.keys()])){
+  if(only&&!only.includes(name))continue;
   const a=before.clips.get(name),b=after.clips.get(name);
   const outside=Boolean(clip&&clip!==name),detail={name:label(name),outside,tracks:states(),rows:[],omittedRows:0};
   const record=(status,track,fields=[])=>{
@@ -162,4 +163,28 @@ export function compareCandidate(sourceBytes,candidateBytes,{clip,lockOtherClips
  if(result.keyframeTimes==='unchanged'&&(result.tracks.unverified||result.unverifiedClips||result.tracks.added||result.tracks.removed))result.keyframeTimes='unverified';
  if(lockOtherClips)result.protection=result.outside?'violated':outsideUnknown?'unverified':'verified';
  return result;
+}
+
+// What happened to each named clip between two versions of one model: 'unchanged' (every track the same keys and values),
+// 'changed', 'removed' (gone from the newer one), 'added', or 'unverified' (it could not be paired or read, which is never
+// taken as the same). Only the named clips are decoded.
+export function clipChanges(beforeBytes,afterBytes,clips){
+ const names=[...new Set(clips)].filter(Boolean),result=compareCandidate(beforeBytes,afterBytes,{only:names}),out=new Map();
+ const has=bytes=>{const {doc}=parseGlb(bytes,{copy:false}),c=curveDescriptor(doc);return new Set((c?.clips||doc.animations||[]).map(a=>a.name));};
+ const before=has(beforeBytes),after=has(afterBytes);
+ for(const name of names){
+  if(!before.has(name)){out.set(name,after.has(name)?'added':'unverified');continue;}   // (not in the older one: nothing to call the same)
+  if(!after.has(name)){out.set(name,'removed');continue;}
+  const row=result.clips.find(c=>c.name===name);
+  if(!row){out.set(name,result.unverifiedClips?'unverified':'unchanged');continue;}
+  if(row.status==='removed'||row.status==='added'||row.status==='unverified'){out.set(name,row.status);continue;}
+  const t=row.tracks,edited=row.durationChanged||t.changed||t.added||t.removed;
+  out.set(name,edited?'changed':t.unverified||row.unpaired?'unverified':'unchanged');
+ }
+ return out;
+}
+// The clips a candidate changed against the version it was made from (decoded as clipChanges reads them).
+export function editedClips(sourceBytes,candidateBytes){
+ const result=compareCandidate(sourceBytes,candidateBytes);
+ return {clips:result.clips.map(c=>({name:c.name,status:c.status==='removed'||c.status==='added'||c.status==='unverified'?c.status:(c.durationChanged||c.tracks.changed||c.tracks.added||c.tracks.removed)?'changed':'unverified'})),complete:!result.omittedClips&&!result.unverifiedClips};
 }

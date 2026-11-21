@@ -14,7 +14,7 @@ import {resourceLabel} from './resource-capabilities.mjs';
 import * as T from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {icon,decorateIcons,element as el,createActionButton} from './ui.mjs';
-import {activeStudioJob,currentStudioCandidate,currentComparison,canFollowCandidate,workspaceViewOutdated} from './studio-sync.mjs';
+import {activeStudioJob,currentStudioCandidate,currentComparison,canFollowCandidate,workspaceViewOutdated,jobForClip,otherClipJobs} from './studio-sync.mjs';
 import {createViewState,saveViewDraft,readViewDraft} from './view-state.mjs';
 import {createModelCatalog} from './model-catalog.mjs';
 import {projectArray,renderProjectContext as renderContext} from './project-context-view.mjs';
@@ -647,8 +647,27 @@ async function selectMotion(name,{remember=true}={}){
   const current=()=>epoch===navigationEpoch&&viewState.isUnchanged(ticket);
   await Promise.all(models.map(slot=>selectClip(slot,name,current)));
   if(!current())return false;
-  state.time=0;state.playing=duration()>0;clearTarget();drawLibrary();updateBoneChoices();drawMetadata();render();return true;
+  state.time=0;state.playing=duration()>0;clearTarget();drawLibrary();updateBoneChoices();drawMetadata();render();followClip();return true;
  }catch(error){if(epoch===navigationEpoch&&viewState.isUnchanged(ticket))fail(error);return false;}
+}
+// A clip switched: the panel shows this clip's task (studio-sync.mjs jobForClip), or the composer for it; a task opened from the
+// history on another clip is let go. (A composer the user opened stays.)
+function followClip(){
+ const clip=activeModel()?.clip,picked=state.jobs.find(j=>j.id===state.selectedJob);
+ if(picked&&(picked.clip||'')!==(clip||'')){state.selectedJob=null;state.archivedJobId=null;}
+ if(!state.explicitCompose)state.panelMode=currentJob()?'task':'compose';
+ persistView();drawJobs();drawLatestJob();
+}
+// Under the composer: this model's tasks about other clips that still want attention, each a button to its own clip.
+function drawOtherClipJobs(){
+ const panel=$('composePanel');if(!panel)return;let box=$('otherClipJobs');
+ const others=otherClipJobs(state.jobs,{assetId:state.project?.activeAssetId,legacyAssetId:state.project?.legacyAssetId,clip:activeModel()?.clip});
+ if(!others.length){box?.remove();return;}
+ if(!box){box=el('div',undefined,'other-clip-jobs');box.id='otherClipJobs';panel.prepend(box);}
+ const names={queued:'排队中',running:'执行中','needs-input':'等待补充',complete:'候选待检查'};
+ box.replaceChildren(el('span','其他动作的任务','section-kicker'),...others.slice(0,4).map(job=>actionButton((job.clip||'未命名动作')+' · '+(names[job.state]||job.state),async()=>{
+  try{if(job.state==='complete'&&job.candidate){await showCandidate(job);return;}if(await selectMotion(job.clip)){state.selectedJob=job.id;state.panelMode='task';state.explicitCompose=false;persistView();drawJobs();}}catch(error){fail(error);}
+ },'text-button')));
 }
 function activeOfflinePreset(){
  return offlineSelection&&offlineSelection.assetId===viewState.loadedAssetId?offlineSelection.preset:null;
@@ -1023,7 +1042,7 @@ async function restoreContext(ctx,{isCurrent=()=>true}={}){
  if(ctx.selection){const selected=ctx.selection,m=state.models[selected.slot];if(m?.meta.sha256===selected.assetSha256&&(!selected.bone||joint(m,selected.bone,selected.nodeIndex)))setTarget(structuredClone(selected));else clearTarget();}
 }
 
-function viewMatchesJob(job,needCandidateVisible=false){return Boolean((job.assetId||state.project?.legacyAssetId||'legacy')===state.project?.activeAssetId&&job.candidate&&state.models.candidate?.meta.sha256===job.candidate.sha256&&state.models.baseline?.meta.sha256===jobSourceAsset(job)?.sha256&&(!needCandidateVisible||state.display!=='single'||state.focus==='candidate'));}
+function viewMatchesJob(job,needCandidateVisible=false){const r=job.sourceUpdate?.rebased,pair=r?{baseline:r.baseline,candidate:r.candidate}:{baseline:jobSourceAsset(job),candidate:job.candidate};return Boolean((job.assetId||state.project?.legacyAssetId||'legacy')===state.project?.activeAssetId&&pair.candidate&&state.models.candidate?.meta.sha256===pair.candidate.sha256&&state.models.baseline?.meta.sha256===pair.baseline?.sha256&&(!needCandidateVisible||state.display!=='single'||state.focus==='candidate'));}
 async function showCandidate(job,{restoreAppearance=false,feedbackPoint=null}={}){
  if(job?.summaryOnly){const ticket=viewState.capture();job=await ensureJobDetail(job);if(!job||!viewState.isUnchanged(ticket,job.assetId))return false;}
  const assetId=job?.assetId||state.project?.legacyAssetId||'legacy';
@@ -1036,7 +1055,7 @@ async function showCandidate(job,{restoreAppearance=false,feedbackPoint=null}={}
  state.loading=true;drawMetadata();
  try{
   const appearanceChanged=restoreAppearance?await appearance.chooseRecorded(job.context?.appearance,assetId,()=>viewState.isUnchanged(ticket,assetId)):false;if(appearanceChanged===null)return false;
-  const wanted={baseline:jobSourceAsset(job),candidate:job.candidate};
+  const r=job.sourceUpdate?.rebased,wanted=r?{baseline:r.baseline,candidate:r.candidate}:{baseline:jobSourceAsset(job),candidate:job.candidate};   // (carried onto a newer source: source-sync.mjs)
   if(!await loadPair(wanted,appearanceChanged,()=>viewState.isUnchanged(ticket,assetId),observationFrameOptions(observation,inputSlot)))return false;
   if(!viewState.markLoaded(ticket,assetId))return false;
   state.selectedJob=job.id;state.panelMode='task';state.archivedJobId=archived?job.id:null;state.display='split';state.focus='candidate';
@@ -1055,7 +1074,8 @@ async function showCandidate(job,{restoreAppearance=false,feedbackPoint=null}={}
  }finally{if(viewState.isUnchanged(ticket)){state.loading=false;drawMetadata();drawLatestJob();renderLoop?.wake();}}
 }
 
-function currentJob(){return state.jobs.find(x=>x.id===state.selectedJob)||[...state.jobs].sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''))[0];}
+// (the panel's task is the clip on screen's: studio-sync.mjs jobForClip)
+function currentJob(){return jobForClip(state.jobs,{assetId:state.project?.activeAssetId,legacyAssetId:state.project?.legacyAssetId,clip:activeModel()?.clip,selectedJob:state.selectedJob,baselineSha:state.project?.slots?.baseline?.sha256})||undefined;}
 function activeTask(){return activeStudioJob(state.jobs,state.project?.activeAssetId);}
 function workspaceCandidate(){return currentStudioCandidate(state.jobs,state.project,state.candidateJobId);}
 function candidateViewed(job){return state.selectedJob===job.id&&viewMatchesJob(job);}
@@ -1070,7 +1090,9 @@ function drawStudioSync(){
  const running=activeTask(),candidate=workspaceCandidate();
  const ready=candidate&&!candidateViewed(candidate)&&(!candidate.review&&!candidate.artisticDecision||state.archivedJobId||staleWorkspaceView());
  const stale=state.archivedJobId||staleWorkspaceView();
- const kind=running?'busy':ready?'ready':stale?'stale':'';
+ // (the game's model, followed by the server: source-watch.mjs)
+ const sync=state.sourceSync,blocked=sync?.state==='blocked',changing=sync?.state==='changing';
+ const kind=running?'busy':blocked?'source-blocked':changing?'source-changing':ready?'ready':stale?'stale':'';
  banner.hidden=!kind;banner.dataset.kind=kind;
  let message,label;
  if(kind==='busy'){
@@ -1081,12 +1103,20 @@ function drawStudioSync(){
  }else if(kind==='ready'){
   message=state.archivedJobId?'当前画面是历史对照。新候选已就绪。':'新候选已就绪。可随时查看前后对照。';
   label='查看最新对照';
+ }else if(kind==='source-blocked'){
+  message='游戏模型已更新，尚未载入：'+(sync.reasons||[]).join('；');
+  label='重试载入';
+ }else if(kind==='source-changing'){
+  message='游戏模型正在写入，写完后自动载入新版本。';
+  label='';
  }else if(kind==='stale'){
-  message=state.archivedJobId?'正在查看历史版本。':'素材已更新，画面仍为先前版本。';
+  const u=!state.archivedJobId&&state.sourceUpdate&&state.sourceUpdate.source===state.project?.slots?.baseline?.source?.sha256?state.sourceUpdate:null;
+  message=state.archivedJobId?'正在查看历史版本。':u?'游戏模型已更新并载入'+sourceUpdateSummary(u)+'。画面仍为先前版本。':'素材已更新，画面仍为先前版本。';
   label='返回当前素材';
  }
  if(status.textContent!==(message||''))status.textContent=message||'';
  if(action.textContent!==(label||''))action.textContent=label||'';
+ action.hidden=!label;
  action.disabled=state.loading||state.switching||state.capturing||state.submitting;
  const disabled=Boolean(running)||Boolean(stale);
  $('submitRequest').disabled=disabled||!state.initialized||!state.ready||!activeModel()?.capabilities.canInspect||
@@ -1118,7 +1148,20 @@ async function openSyncedJob(job){
  else{jobsRenderSignature='';drawJobs();}
  persistView();
 }
+// What a source update did to the work on the old version (source-sync.mjs), in a few words.
+function sourceUpdateSummary(u){
+ const parts=[];
+ if(u.carried?.length)parts.push('沿用了 '+u.carried.join('、')+' 的修改');
+ if(u.dropped?.length)parts.push(u.dropped.map(d=>d.clip).join('、')+' 的修改已归档（动作已在新版本中'+(u.dropped.every(d=>d.status==='removed')?'删除':'改变')+'）');
+ const overtaken=(u.tasks||[]).filter(t=>t.status!=='unchanged');
+ if(overtaken.length)parts.push(overtaken.length+' 条旧任务移入历史');
+ return parts.length?'（'+parts.join('；')+'）':'';
+}
 $('studioSyncAction').onclick=()=>{
+ if($('studioSyncBanner').dataset.kind==='source-blocked'){
+  const id=state.project?.activeAssetId;if(!id)return;
+  api('/api/characters/'+encodeURIComponent(id)+'/sync','POST',{}).then(r=>{state.sourceSync=r;drawStudioSync();return pollStudio();}).catch(fail);return;
+ }
  const pending=activeTask(),job=workspaceCandidate();
  if(pending||job&&!candidateViewed(job))openSyncedJob(pending||job).catch(fail);
  else returnCurrentVersion().catch(fail);
@@ -1254,13 +1297,14 @@ function taskDetails(job,disclosures){
 function drawLatestJob(){
  const reviewDock=$('reviewActions');$('composeActions').hidden=true;reviewDock.hidden=true;reviewDock.replaceChildren();
  if(!state.initialized){$('composePanel').hidden=true;$('latestJob').hidden=true;return;}
- const job=currentJob(),card=$('latestJob'),show=state.panelMode==='task'&&Boolean(job);$('backFromCompose').hidden=show;$('composePanel').hidden=show;$('composeActions').hidden=show||Boolean(state.motionPreview);card.hidden=!show;updateWorkflow();if(!show){const candidate=state.composerSource==='candidate';$('composeKicker').textContent=candidate?'基于当前版本':'提出修改';$('composeTitle').textContent=candidate?'还想怎样调整？':'你想改哪里？';$('composeIntro').textContent=candidate?'下一次会在当前版本上修改，最初原版继续保留。':'描述你想要的变化，让 Agent 处理余下的细节。';return;}
+ const job=currentJob(),card=$('latestJob'),show=state.panelMode==='task'&&Boolean(job);$('backFromCompose').hidden=show;$('composePanel').hidden=show;$('composeActions').hidden=show||Boolean(state.motionPreview);card.hidden=!show;updateWorkflow();if(!show){const candidate=state.composerSource==='candidate';$('composeKicker').textContent=candidate?'基于当前版本':'提出修改';$('composeTitle').textContent=candidate?'还想怎样调整？':'你想改哪里？';$('composeIntro').textContent=candidate?'下一次会在当前版本上修改，最初原版继续保留。':'描述你想要的变化，让 Agent 处理余下的细节。';drawOtherClipJobs();return;}
+ drawOtherClipJobs();
  if(job.summaryOnly){card.replaceChildren(el('p','正在读取这条任务的详情…'));ensureJobDetail(job).then(full=>{if(full&&currentJob()?.id===full.id){jobsRenderSignature='';drawJobs();}}).catch(error=>{if(currentJob()?.id===job.id)card.replaceChildren(el('p',error.message,'error-copy'),actionButton('重新读取',()=>{jobsRenderSignature='';drawJobs();}));});return;}
  const same=card.dataset.jobId===job.id,disclosures=same?new Map([...card.querySelectorAll('details[data-disclosure]')].map(d=>[d.dataset.disclosure,d.open])):new Map();const reply=same?card.querySelector('#jobReply')?.value||'':'';const reviewReason=same?card.querySelector('#reviewReason')?.value||'':'',reviewText=same?card.querySelector('#reviewText')?.value||'':'';const transition=!same||card.dataset.state!==job.state;card.dataset.jobId=job.id;card.dataset.state=job.state;card.replaceChildren();
  const pending=['queued','running','needs-input'].includes(job.state),complete=job.state==='complete';
  const recovery=job.reviews?.at(-1)?.recovery;
  const titles={queued:job.executor==='local'?'准备本地微调':job.delivery==='chat'?'等待 '+callerLabel(job.caller)+' 领取':state.agent?.connected?'任务已排队':'等待连接 Agent',running:job.executor==='local'?'正在生成数值候选':'Agent 正在修改',complete:recovery?.direction==='undo'?'已撤销'+recovery.label:(job.review||job.reviews?.at(-1))?.decision==='accept-candidate'?'已采用这版':'修改候选已返回','needs-input':'需要你补充一句',failed:'这次没有完成',cancelled:'任务已停止',stale:'素材版本已变化',interrupted:'执行已中断'};
- const symbol=el('div',job.state==='running'?undefined:complete?'✓':['failed','needs-input'].includes(job.state)?'!':'◷','state-symbol '+job.state);symbol.setAttribute('aria-hidden','true');card.append(symbol,el('span',complete?'检查结果':pending?'修改进展':'修改记录','section-kicker'),el('h2',titles[job.state]||statusNames[job.state]),el('p',jobText(job),job.state==='failed'?'error-copy':'task-explanation'));
+ const symbol=el('div',job.state==='running'?undefined:complete?'✓':['failed','needs-input'].includes(job.state)?'!':'◷','state-symbol '+job.state);symbol.setAttribute('aria-hidden','true');card.append(symbol,el('span',complete?'检查结果':pending?'修改进展':'修改记录','section-kicker'),el('h2',job.sourceUpdate&&job.sourceUpdate.status!=='unchanged'?'游戏源文件已更新':titles[job.state]||statusNames[job.state]),...(job.sourceUpdate?[el('p',job.sourceUpdate.reason+(job.sourceUpdate.rebased?'修改已沿用到新版本。':job.sourceUpdate.status==='unchanged'?'':'下面是旧版本上的记录，仅供查看。'),'task-next')]:[]),el('p',jobText(job),job.state==='failed'?'error-copy':'task-explanation'));
  if(job.caller)card.append(el('p','本次由 '+callerLabel(job.caller)+' 原对话处理','task-next'));
  if(job.state==='running'){
   const progress=el('div',undefined,'progress-card');progress.append(el('span','当前进度','progress-kicker'),el('h3',job.executor==='local'?'按指定倍率调整摆幅':phaseNames[job.progress?.phase]||'Agent 正在执行'),el('p',job.progress?.message||(job.executor==='local'?'数值工具正在执行，不调用 AI。':'正在执行修改任务，尚未上报具体阶段。')));card.append(progress);
@@ -1411,6 +1455,7 @@ async function pollStudio(){
     drawCatalog();
    }
    state.agent=d.agent||d.capabilities?.agent?.worker||null;
+   state.sourceSync=d.sourceSync||null;state.sourceUpdate=d.sourceUpdate||null;
    if(d.capabilities?.runtime)environmentPanel.update(d.capabilities.runtime);
    const selected=state.jobs.find(j=>j.id===state.selectedJob);
    if(selected?.state==='complete'&&viewMatchesJob(selected)&&
