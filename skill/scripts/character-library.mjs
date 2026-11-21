@@ -1,7 +1,9 @@
 import {sampledMetadata} from './curve-resources.mjs';
 import {readFile,stat} from 'node:fs/promises';
 import {basename,extname} from 'node:path';
-import {readProject,modelSlots,setModelSlots,inside,atomic,sha,withWorkspaceLock,importAsset,activateModel,glbInfo} from './core.mjs';
+import {readProject,modelSlots,setModelSlots,inside,atomic,sha,withWorkspaceLock,importAsset,activateModel,glbInfo,stageAsset} from './core.mjs';
+import {sortSourceUpdate,applySourceUpdate,storedJobs} from './source-sync.mjs';
+import {clipChanges} from './candidate-diff.mjs';
 import {readCatalog,catalogPage,glbMetadata,gltfMetadata,gltfDependencyState,readProjectModel,openCatalogAsset} from './asset-catalog.mjs';
 import {getProjectLink} from './project-context.mjs';
 import {characterProfileDigest,characterBindingDigest,consumedDependencies} from './source-dependencies.mjs';
@@ -158,13 +160,40 @@ async function characterModel(work,id){
 export async function characterModelFile(work,id){const {root,file}=await characterModel(work,id);return inside(root,file);}
 // GLB bytes; a .gltf is packed in memory with the files it references.
 export async function characterModelBytes(work,id){const {root,file}=await characterModel(work,id);return (await readProjectModel(root,file)).bytes;}
-export async function openCharacter(work,id,{refreshSource=false,expectedSource}={}){
- const key=work+'|'+id+'|'+refreshSource+'|'+JSON.stringify(expectedSource);if(flights.has(key))return flights.get(key);
- const promise=prepareCharacter(work,id,refreshSource,expectedSource);flights.set(key,promise);try{return await promise;}finally{flights.delete(key);}
+// What stops a character's source from being replaced: a task running on it (its agent would finish against a file that is
+// gone), and an unsent draft about a clip the new source changed or removed (the draft is the user's words about that motion;
+// it is kept and the refresh waits). A candidate does not stop it: source-sync.mjs carries what still applies and archives the
+// rest; a queued or waiting task does not either: it is marked stale with the reason.
+export async function sourceRefreshBlockers(work,id,newBytes){
+ const out=[],cfg=await readProject(work),heads=modelSlots(cfg,id);if(!heads.baseline)return out;
+ const {readDraft}=await import('./drafts.mjs'),{readJobIndex}=await import('./job-index.mjs');
+ const running=(await readJobIndex(work)).rows.find(j=>j.assetId===id&&j.state==='running');
+ if(running)out.push(Object.assign(new String('角色有正在执行的任务（'+(running.clip||running.id)+'），请等它完成或中断后再载入新源'),{code:'MODEL_JOB_ACTIVE',jobId:running.id}));
+ const {draft}=await readDraft(work,id);
+ if(draft&&(draft.request?.trim()||draft.preserve?.trim()||draft.feedbackPoints?.length||draft.footRepair)){
+  const clip=draft.context?.clip||draft.context?.slots?.[draft.context?.slot||'baseline']?.clip||null;
+  let status='unverified';
+  if(clip&&newBytes){try{status=clipChanges(await readFile(await inside(work,heads.baseline.file)),newBytes,[clip]).get(clip);}catch{}}
+  if(status!=='unchanged')out.push('有未提交的草稿'+(clip?'（'+clip+'）':'')+(status==='removed'?'，这个动作已从新源中删除':status==='changed'?'，这个动作在新源中已改变':'')+'；请先提交或清空草稿，草稿仍保留');
+ }
+ return out;
 }
-async function prepareCharacter(work,id,refreshSource,expectedSource){
+
+// The game files each declared character is read from (its main model and animation sources), by the stage's model ID: what
+// source-watch.mjs watches.
+export async function characterTargets(work){
+ const link=await getProjectLink(work);if(!link?.exists)return [];
+ const map=await mapping(work);
+ return map.characters.map(c=>({assetId:assetId(link.id,c.id),profileId:c.id,files:[c.model,...(c.animations||[]).map(a=>a.file)]}));
+}
+
+export async function openCharacter(work,id,{refreshSource=false,expectedSource,activate=true}={}){
+ const key=work+'|'+id+'|'+refreshSource+'|'+JSON.stringify(expectedSource)+'|'+activate;if(flights.has(key))return flights.get(key);
+ const promise=prepareCharacter(work,id,refreshSource,expectedSource,activate);flights.set(key,promise);try{return await promise;}finally{flights.delete(key);}
+}
+async function prepareCharacter(work,id,refreshSource,expectedSource,activate=true){
  const initial=await readProject(work),old=initial.models[id];
- if(old?.origin==='character'&&modelSlots(initial,id).baseline&&!refreshSource)return activateModel(work,id);
+ if(old?.origin==='character'&&modelSlots(initial,id).baseline&&!refreshSource)return activate?activateModel(work,id):null;
  const data=await library(work,{onlyId:id}),row=data.rows.find(r=>r.id===id);requireValue(row?.profile&&data.link?.exists,'角色关联不存在；已有预览可继续打开');
  const profile=row.profile,root=data.link.root;let base,baseSource;
  if(extname(profile.model).toLowerCase()==='.fbx'){
@@ -202,9 +231,25 @@ async function prepareCharacter(work,id,refreshSource,expectedSource){
    for(const head of Object.values(heads))if(head.source?.assembly?.signature===previousSignature)head.source={...head.source,assembly};
    setModelSlots(current,id,heads);await atomic(await inside(work,'project.json'),current);return;
   }
+  // the old version's work, sorted clip by clip before the new source goes in (source-sync.mjs)
+  let sorted=null;
+  if(heads.baseline){
+   const blockers=await sourceRefreshBlockers(work,id,result.bytes),busy=blockers.find(b=>b.code);
+   if(blockers.length)throw Object.assign(Error(blockers.join('；')),busy?{code:busy.code,jobId:busy.jobId}:{});
+   const {readJobIndex}=await import('./job-index.mjs');
+   sorted=await sortSourceUpdate(work,current,id,result.bytes,await storedJobs(work,(await readJobIndex(work)).rows.filter(r=>r.assetId===id).map(r=>r.id)));
+   for(const j of sorted.jobs)await atomic(await inside(work,'jobs/'+j.id+'/job.json'),j);
+  }
   await importAsset(work,'baseline',result.bytes,profile.name,{locked:true,assetId:id,reset:true,activate:false,source,protectActive:true,model:{name:profile.name,origin:'character',relativePath:profile.model,projectId:data.link.id,characterProfileId:profile.id}});
+  if(sorted){
+   let next=await readProject(work);const revision=next.models[id].headRevision;next=await applySourceUpdate(work,next,id,{...sorted,jobs:[]},stageAsset);
+   next.models[id].headRevision=revision;                                     // (one source update, one head revision: the carry is part of it)
+   for(const j of sorted.jobs)if(j.sourceUpdate&&sorted.carry?.jobId===j.id){const head=modelSlots(next,id).candidate;j.sourceUpdate.rebased={baseline:{file:modelSlots(next,id).baseline.file,sha256:modelSlots(next,id).baseline.sha256},candidate:{file:head.file,sha256:head.sha256}};await atomic(await inside(work,'jobs/'+j.id+'/job.json'),j);}
+   next.models[id].sourceUpdate={at:new Date().toISOString(),sha256:result.bytes?sha(result.bytes):null,source:source.sha256,...sorted.report};
+   await atomic(await inside(work,'project.json'),next);
+  }
  });
- return activateModel(work,id);
+ return activate?activateModel(work,id):null;
 }
 
 // Delivery check for one explicitly declared runtime character. Discovery never
@@ -229,13 +274,7 @@ export async function characterSource(work,{profileId,expectedModel,expectedSha2
   if(expectedSha256&&current.sha256!==expectedSha256||expectedFingerprint&&result.sourceFingerprint!==expectedFingerprint)return {...result,status:'source-mismatch'};
   if(refreshSource&&modelFormat(profile.model)==='gltf')requireValue(expectedFingerprint,'glTF 刷新还需要 --source-fingerprint 固定主文件及其依赖');
   if(!row?.readyEvidence)result.blockers.push('项目注册依据已变化，请重新阅读并确认角色关联');
-  if(heads.candidate&&heads.baseline?.sha256!==heads.candidate.sha256)result.blockers.push('已有独立候选，请先处理或明确归档后再载入新源');
-  if(heads.baseline){
-   const {readDraft}=await import('./drafts.mjs'),{listJobs}=await import('./jobs.mjs');
-   const {draft}=await readDraft(work,id);
-   if(draft&&(draft.request?.trim()||draft.preserve?.trim()||draft.feedbackPoints?.length||draft.footRepair))result.blockers.push('已有未提交草稿，请先处理；草稿仍保留');
-   if((await listJobs(work)).some(j=>j.assetId===id&&['queued','running','needs-input'].includes(j.state)))result.blockers.push('角色仍有待处理任务，请先完成或停止');
-  }
+  if(heads.baseline&&heads.baseline.source?.sha256!==current.sha256)result.blockers.push(...(await sourceRefreshBlockers(work,id,current.bytes)).map(String));
   const stale=!heads.baseline||heads.baseline.source?.sha256!==current.sha256||row.sourceChanged;
   return {...result,status:stale?heads.baseline?'stale':'unopened':result.motionSources.some(s=>s.status!=='ready')?'incomplete':'current'};
  };
@@ -244,7 +283,7 @@ export async function characterSource(work,{profileId,expectedModel,expectedSha2
   requireValue(['stale','unopened'].includes(before.status),'来源校验未通过：'+before.status);
   requireValue(!before.blockers.length,before.blockers.join('；'));
   await openCharacter(work,before.assetId,{refreshSource:true,expectedSource:{model:path(expectedModel),sha256:expectedSha256,fingerprint:expectedFingerprint}});
-  return {...await inspect(),refreshed:true};
+  return {...await inspect(),refreshed:true,sourceUpdate:(await readProject(work)).models[before.assetId]?.sourceUpdate||null};
  });
 }
 

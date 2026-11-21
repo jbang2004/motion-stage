@@ -57,6 +57,15 @@ Read this before you declare which model, variants and external motions belong t
 
 **载入源文件新版本** 明确采用源文件变化并归档上一对版本；刷新目录只发现变化，不替换候选。
 
+**源文件更新按动作分拣旧工作**（4.7，`scripts/source-sync.mjs`）。载入新源时，逐个动作比较旧源与新源（关键帧与数值，含 meshopt 压缩动画）：
+
+- 每条在旧源上做的任务记下 `sourceUpdate`：它的动作在新源中 `unchanged`、`changed`、`removed` 或 `unverified`（无法配对或读取时从不当作相同）。排队或等待补充的任务立即转为 `stale` 并写明原因；动作没变的会注明可在新版本上重新提交。
+- 候选按动作处理：候选相对其来源改过的动作，若在新源中未变，就把这些动作的轨道（解码后）写进新源，作为新候选“沿用候选 · 动作名”，原任务记下 `sourceUpdate.rebased` 新的版本对，界面用它打开对照；新源中已改变或删除的动作不沿用，旧的版本对保留在模型 `revisions`。一次源更新只增加一次 `headRevision`。
+- 结果写入模型的 `sourceUpdate`（`carried`、`dropped`、`tasks`），界面横幅据此说明沿用了什么、归档了什么。
+- 仍会阻止载入的只有：角色有**正在执行**的任务（错误码 `MODEL_JOB_ACTIVE`），以及**未提交草稿所指的动作在新源中改变或删除**（草稿原样保留）。候选、排队任务和其他动作的草稿不再阻止。
+
+**动作台跟随游戏文件**（`scripts/source-watch.mjs`）。由 `start.mjs` 或 CLI `serve` 启动的动作台，会轮询每个已打开角色在 character-map 中声明的主模型与动作来源文件（按大小、时间与 inode，安装时“写新文件再改名”也能发现）。文件变化并静止约 1.2 秒后，自动按上面的规则载入新源，不切换页面正在看的角色；被阻止时在横幅显示原因并可“重试载入”（`POST /api/characters/:id/sync`）。启动时也会检查一次，关闭期间安装的新模型会在打开时载入。`serve --no-watch` 关闭跟随。
+
 ## Source verification and delivery
 
 游戏模型安装后，先从实际运行时注册表确认角色的主模型、外部动作所有者和依据文件，再核对 map。不要按文件名、修改时间或同骨架关系推测正式版本，也不要把工程路径写死为某个引擎的目录。保存 map 前读取并保留其他角色；依据变化须重新阅读，不能只删除旧 SHA 来绕过确认。
@@ -78,7 +87,7 @@ node "$CLI" character-source --workspace "$WORKSPACE" --profile-id "$PROFILE_ID"
   --model "$RUNTIME_MODEL" --source-sha256 "$INSTALLED_SOURCE_SHA" --refresh-source
 ```
 
-刷新拒绝预期路径或 SHA 不符、未处理草稿、独立候选及活动任务；不会自动清除这些内容。先处理相应工作，或在已有明确归档授权下使用现有版本操作，再重新校验。通过时原版本进入历史，projectId、角色 ID 和已有任务不变。重复刷新同一源不重置版本。glTF 刷新必须额外传 `--source-fingerprint`（从已核对的安装版本检查结果取得），以固定 JSON 及全部引用依赖；旧依赖指纹会拒绝刷新。命令支持 GLB/glTF 主源；FBX 沿用转换和依赖验证流程。外部源未能完整合成会报告 `incomplete`，不能声称已同步完成。
+刷新拒绝预期路径或 SHA 不符、正在执行的任务，以及所指动作已被新源改变或删除的未提交草稿；草稿不会被清除。候选与排队任务按上文“源文件更新按动作分拣旧工作”处理，不需要先手动归档。通过时原版本进入历史，projectId、角色 ID 不变，旧任务带上 `sourceUpdate`。重复刷新同一源不重置版本。glTF 刷新必须额外传 `--source-fingerprint`（从已核对的安装版本检查结果取得），以固定 JSON 及全部引用依赖；旧依赖指纹会拒绝刷新。命令支持 GLB/glTF 主源；FBX 沿用转换和依赖验证流程。外部源未能完整合成会报告 `incomplete`，不能声称已同步完成。
 
 无法访问外置盘、来源有冲突或尚未解决草稿时，交付报告明确写出“游戏已更新、动作台待同步”及原因。仅扫描目录、修改 map 或打开临时导入都不算同步验收。机器检查之后，在实际动作台 URL 核对角色身份、脸/服装与代表动作；游戏效果仍需实际游戏验证。
 

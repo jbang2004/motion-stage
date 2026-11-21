@@ -1,7 +1,7 @@
 {
   "name": "motion-stage",
-  "version": "4.6.0",
-  "createdAt": "2026-11-16T16:49:53.003842+00:00",
+  "version": "4.7.0",
+  "createdAt": "2026-11-21T15:10:38.463963+00:00",
   "runtime": "Node.js >=22 / Canvas2D curves; WebGL2 spatial previews",
   "externalRuntimeDependencies": {
     "base": [],
@@ -38,8 +38,8 @@
     },
     {
       "path": "SKILL.md",
-      "bytes": 16290,
-      "sha256": "b8b46cfed0fcf77ff651a02003db9cf5325c4fcc8dc250dcec98f757df8358c4"
+      "bytes": 16885,
+      "sha256": "7e24d874ba5bc31bc7007b0ac90b901aa00be56e59a1c36d6dbbe0d13bda1c9b"
     },
     {
       "path": "THIRD_PARTY.md",
@@ -253,8 +253,8 @@
     },
     {
       "path": "assets/viewer/app.js",
-      "bytes": 198586,
-      "sha256": "1a8efe79efb3e3d420e6f561bcb33b6d9550ff2cf8496ea8f3c46ff2ec91da2c"
+      "bytes": 202727,
+      "sha256": "fdf4cd3c9d48cd2fa259a2ac3827e5b9af41b370058718e07ecf217d5b3cb0a9"
     },
     {
       "path": "assets/viewer/asset-loader.mjs",
@@ -428,13 +428,13 @@
     },
     {
       "path": "assets/viewer/studio-sync.mjs",
-      "bytes": 1315,
-      "sha256": "4ed50098f29fafc1b3ac56bee9b477ee3447b0dc694da257204055fa44e68619"
+      "bytes": 3223,
+      "sha256": "e9e010898754ca1ccb4b3aee9de0152e675128291cac9ada84ad2d9e76cb1440"
     },
     {
       "path": "assets/viewer/style.css",
-      "bytes": 67718,
-      "sha256": "39f0225648edb20efa9437e908c39a13492a4efcb2b109ad0a7a13a3fba7d477"
+      "bytes": 68119,
+      "sha256": "99f8cfb7c103198f6be883055adf32c9f88532e53c68bebd69d31af53570cfe4"
     },
     {
       "path": "assets/viewer/thumbnail-studio.mjs",
@@ -459,7 +459,7 @@
     {
       "path": "package.json",
       "bytes": 367,
-      "sha256": "98c3381cc524be7250311fa072fc968793e9ef1e114e9a0a339b5286179078c8"
+      "sha256": "218ec6fbfea0a7910c5ad47e1244d9b1e15d60358d8edb192037414a335e4388"
     },
     {
       "path": "references/action-library.md",
@@ -478,18 +478,18 @@
     },
     {
       "path": "references/asset-library.md",
-      "bytes": 11067,
-      "sha256": "fcdb24a6137b41b3c29d8b081b15393d0e4affc20a74fe97c0e6d93d885bfe41"
+      "bytes": 11227,
+      "sha256": "9497aa4bb6bdcf3d543073cae5082bd2dbce4bf78a2ba78b0a6959890e30f7a6"
     },
     {
       "path": "references/character-map.md",
-      "bytes": 9556,
-      "sha256": "a066ca1e8ab45a27f84a8bae7009f826f0639b081c77cab2817da166e540afb6"
+      "bytes": 11562,
+      "sha256": "3b069cf8d93b88c0da5dcc65545068b122645849574bb1322f15d104198af1a2"
     },
     {
       "path": "references/game-integration.md",
-      "bytes": 8068,
-      "sha256": "5acd17d05b251b1c0bce8e2f7c636a68e103920d41e38d3a9dd026ccc8ffb154"
+      "bytes": 8470,
+      "sha256": "d77de8f8311f64b130f1bde82fa8d99130ff615356c6c187975b79fbec561250"
     },
     {
       "path": "references/project-appearance.md",
@@ -563,8 +563,8 @@
     },
     {
       "path": "scripts/candidate-diff.mjs",
-      "bytes": 8634,
-      "sha256": "7d428e53aaffb61431165872f2fc1255be7cf425491a8c45376ab7c0e1a5e6b6"
+      "bytes": 10545,
+      "sha256": "3966ced98cefb5a3b16bf39e4eb2d9fb6d296786ee16d3dfc0dec10a7ea79d4a"
     },
     {
       "path": "scripts/candidate-validation.mjs",
@@ -578,8 +578,8 @@
     },
     {
       "path": "scripts/character-library.mjs",
-      "bytes": 28508,
-      "sha256": "6444d9269d54121c0c68c72a57211f95eabfa11f7f2c031879c2f5c02cb67f09"
+      "bytes": 31954,
+      "sha256": "0747d8b9cc6d8c7bbb5af2bb9c64263c04821543cc094a2cf8a04be189b88767"
     },
     {
       "path": "scripts/continuity.mjs",
@@ -628,8 +628,8 @@
     },
     {
       "path": "scripts/job-index.mjs",
-      "bytes": 5081,
-      "sha256": "db0388833d710f1c325f0c51ad0478f7afff476fd970c8b83ff71be38bc5de2e"
+      "bytes": 5257,
+      "sha256": "9936144a880bad3fe10d18b76ccac1d93ab395d0e6c3fd00a39f6443b733c785"
     },
     {
       "path": "scripts/job-lineage.mjs",
@@ -663,8 +663,8 @@
     },
     {
       "path": "scripts/motion-feedback.mjs",
-      "bytes": 21422,
-      "sha256": "43d8393e497b025bcc84435faa602d01ac24e8a6575359798e42732a6fae1ff0"
+      "bytes": 21464,
+      "sha256": "cee36d8f63de350ca586e5134fc804d4f86a017a4c0938506603957e71a804d6"
     },
     {
       "path": "scripts/motion-library.mjs",
@@ -713,8 +713,8 @@
     },
     {
       "path": "scripts/server.mjs",
-      "bytes": 29764,
-      "sha256": "88883189e500d1d0ec5c90b65121e2f007ca900ec2d9d36d865920434a321085"
+      "bytes": 31034,
+      "sha256": "d21268f43c765eecf84ae635bbe026e92e3a8cbe0a6e2adbdc47db5ef6de2bdc"
     },
     {
       "path": "scripts/source-dependencies.mjs",
@@ -722,9 +722,19 @@
       "sha256": "8eb4af4ec0dbda62f71d6aa2f07ede6eda9f287de6d67b9e435ed524e7199ec4"
     },
     {
+      "path": "scripts/source-sync.mjs",
+      "bytes": 9345,
+      "sha256": "a5d43e553fb6a7bf9d778f094e33dfbb710e42547b00df616ffbfc1a625c529b"
+    },
+    {
+      "path": "scripts/source-watch.mjs",
+      "bytes": 4423,
+      "sha256": "4e92c54ccd3767a673b8e0886118ee1ad4239dc6c2296cf9a06c219aee565e65"
+    },
+    {
       "path": "scripts/start.mjs",
-      "bytes": 2181,
-      "sha256": "b8d668ad8b624e4ab560e68bac301f4c09d9993e2f57c88fbea8ed42d12dcd35"
+      "bytes": 2199,
+      "sha256": "3b54b6d00033b6f8a2ac5f169abb05920479abf842b6f3b5fc20ce37c8a1c383"
     },
     {
       "path": "scripts/studio-events.mjs",
@@ -833,8 +843,13 @@
     },
     {
       "path": "scripts/test/character-source.test.mjs",
-      "bytes": 8145,
-      "sha256": "577b6a12c8ccd248e32920e68524c72cf1c4525cbd08d7ed3db362fc5e529450"
+      "bytes": 13724,
+      "sha256": "3bfa561a79f0f244f5e96e9378a603f66f9207855f4cff6ba2d4152bc1380ae1"
+    },
+    {
+      "path": "scripts/test/clip-panel.test.mjs",
+      "bytes": 2121,
+      "sha256": "04d473e4c5c6a215c76d6ff248a92f4bf48ebe661cff0071e2d5f45b1fabcef5"
     },
     {
       "path": "scripts/test/continuity.test.mjs",

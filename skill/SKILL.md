@@ -30,6 +30,8 @@ Before launching, set `CALLER` to the actual invoking client (`codex`, `claude`,
 
 The UI defaults to the invoking client’s conversation: save the task, copy its handoff, then the current agent reads and claims it. Saving does not wake a chat. **本机后台处理** scans known local executors and lets the user choose Codex CLI, Claude Code or DeepSeek Harness. The choice freezes as `job.provider`; each worker consumes only its own tasks. Discovery checks executable/version capabilities, not authentication, quota or tool permissions. Installed apps without a supported adapter stay disabled. Do not silently switch providers after a failed scan or execution. The automatic worker excludes tasks addressed to the current chat. Each chat task freezes `caller.client` and `caller.sessionId`; retries and replies retain that routing. A different client or session cannot claim it accidentally. This is routing metadata, not authentication. Existing tasks without `delivery` retain worker compatibility. Do not start a second consumer for a claimed task.
 
+**The right panel follows the clip on screen.** A task belongs to one clip; switching clips shows that clip's live task (queued, running, waiting, or finished and undecided on the current source) or the composer for it, never another clip's task. Tasks on other clips that still want attention are listed above the composer. A task the game's source has overtaken stays in history with the reason (`sourceUpdate`). When the game installs a new model, the stage loads it and sorts the old work clip by clip (see [character-map.md](references/character-map.md#source-verification-and-delivery)).
+
 ## Task loop
 
 ```sh

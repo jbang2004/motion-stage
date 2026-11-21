@@ -9,10 +9,11 @@ import {fileURLToPath} from 'node:url';
 import {initializeWorkspace} from '../project-workspaces.mjs';
 import {linkProject} from '../project-context.mjs';
 import {characterSource,saveCharacterMap} from '../character-library.mjs';
-import {parseGlb,encodeGlb} from '../asset-tools.mjs';
+import {parseGlb,encodeGlb,editGlb} from '../asset-tools.mjs';
+import {clipChanges} from '../candidate-diff.mjs';
 import {readProject,modelSlots,sha,importAsset} from '../core.mjs';
 import {saveDraft} from '../drafts.mjs';
-import {createJob,cancelJob} from '../jobs.mjs';
+import {createJob,cancelJob,claimJob,failJob,getJob} from '../jobs.mjs';
 import {serve} from '../server.mjs';
 import {readProjectModel} from '../asset-catalog.mjs';
 const run=promisify(execFile),bytes=await readFile(new URL('../../assets/demo/baseline.glb',import.meta.url));
@@ -62,20 +63,67 @@ test('external animation assembly compares main-source identity separately from 
  const result=await characterSource(work,{...expected,refreshSource:true});assert.equal(result.status,'current');assert.equal(result.sourceSha256,result.snapshotSourceSha256);assert.notEqual(result.previewSha256,result.sourceSha256);assert.equal(result.motionSources[0].status,'ready');
 }));
 
-test('safe delivery refresh protects pending jobs, unsent drafts and independent candidates',()=>fixture(async({root,work})=>{
+test('a source update waits for running work and for a draft about a clip it changed; anything else goes through',()=>fixture(async({root,work})=>{
  const opened=await characterSource(work,{...expected,refreshSource:true}),id=opened.assetId,heads=modelSlots(await readProject(work),id);
- const job=await createJob(work,{assetId:id,request:'Synthetic pending work',slot:'baseline',context:{asset:heads.baseline,clip:'Run',time:.2}});
- const next=changed(),options={...expected,expectedSha256:sha(next),refreshSource:true};await writeFile(join(root,model),next);
- await assert.rejects(characterSource(work,options),/待处理任务/);await cancelJob(work,job.id);
- await saveDraft(work,id,{expectedRevision:0,draft:{assetId:id,context:{assetId:id},request:'unfinished edit',preserve:''}});
- const saved=await readFile(join(work,'drafts',id+'.json'));await assert.rejects(characterSource(work,options),/草稿/);assert.deepEqual(await readFile(join(work,'drafts',id+'.json')),saved);
- await saveDraft(work,id,{expectedRevision:1,draft:{assetId:id,context:{assetId:id},request:'',preserve:''}});
- await importAsset(work,'candidate',next,'Synthetic candidate',{assetId:id});await assert.rejects(characterSource(work,options),/独立候选/);
- assert.equal(modelSlots(await readProject(work),id).baseline.source.sha256,sha(bytes));
+ const job=await createJob(work,{assetId:id,request:'Synthetic running work',slot:'baseline',context:{asset:heads.baseline,clip:'Run',time:.2}});const claim=await claimJob(work,job.id);
+ const next=editGlb(bytes,{clip:'Salute',bone:'LeftShoulder',factor:.5}).bytes,options={...expected,expectedSha256:sha(next),refreshSource:true};await writeFile(join(root,model),next);
+ await assert.rejects(characterSource(work,options),/正在执行/);assert.ok((await characterSource(work,{profileId:'hero'})).blockers.some(b=>/正在执行/.test(b)));
+ await failJob(work,job.id,{lease:claim.lease,error:'stopped for the test'});
+ await saveDraft(work,id,{expectedRevision:0,draft:{assetId:id,context:{assetId:id,clip:'Salute'},request:'unfinished edit',preserve:''}});
+ const saved=await readFile(join(work,'drafts',id+'.json'));await assert.rejects(characterSource(work,options),/草稿（Salute）/);assert.deepEqual(await readFile(join(work,'drafts',id+'.json')),saved);
+ await saveDraft(work,id,{expectedRevision:1,draft:{assetId:id,context:{assetId:id,clip:'Run'},request:'a draft about a clip the update left alone',preserve:''}});
+ assert.equal((await characterSource(work,options)).status,'current');assert.equal(modelSlots(await readProject(work),id).baseline.source.sha256,sha(next));
+}));
+
+test('a source update sorts the old work clip by clip: queued tasks go stale with the reason, the candidate keeps the clips that still apply',()=>fixture(async({root,work})=>{
+ const opened=await characterSource(work,{...expected,refreshSource:true}),id=opened.assetId;let heads=modelSlots(await readProject(work),id);
+ const done=await createJob(work,{assetId:id,request:'raise the run arm',slot:'baseline',context:{asset:heads.baseline,clip:'Run',time:.2}});
+ const claim=await claimJob(work,done.id);await failJob(work,done.id,{lease:claim.lease,error:'kept as history'});
+ const queued=await createJob(work,{assetId:id,request:'salute higher',slot:'baseline',context:{asset:heads.baseline,clip:'Salute',time:.2}});
+ const base=await readFile(join(work,heads.baseline.file)),edited=editGlb(base,{clip:'Run',bone:'LeftShoulder',factor:.7}).bytes;
+ await importAsset(work,'candidate',edited,'Run edit',{assetId:id});const revision=(await readProject(work)).models[id].headRevision;
+ const next=editGlb(bytes,{clip:'Salute',bone:'LeftShoulder',factor:.5}).bytes;await writeFile(join(root,model),next);
+ const result=await characterSource(work,{...expected,expectedSha256:sha(next),refreshSource:true});assert.equal(result.status,'current');assert.deepEqual(result.sourceUpdate.carried,['Run'],'the delivery result says what was carried');
+ const cfg=await readProject(work);heads=modelSlots(cfg,id);assert.equal(cfg.models[id].headRevision,revision+1,'one update, one head revision');
+ assert.deepEqual(cfg.models[id].sourceUpdate.carried,['Run']);assert.deepEqual(cfg.models[id].sourceUpdate.dropped,[]);
+ const nb=await readFile(join(work,heads.baseline.file)),nc=await readFile(join(work,heads.candidate.file));
+ assert.deepEqual([...clipChanges(nb,nc,['Run','Salute'])],[['Run','changed'],['Salute','unchanged']],'the new source with the candidate\'s run');
+ assert.deepEqual([...clipChanges(edited,nc,['Run'])],[['Run','unchanged']],'the run carried as it was');
+ const q=await getJob(work,queued.id),d=await getJob(work,done.id);
+ assert.equal(q.state,'stale');assert.equal(q.sourceUpdate.status,'changed');assert.match(q.events.at(-1).message,/已被新版本替换/);
+ assert.equal(d.state,'failed');assert.equal(d.sourceUpdate.status,'unchanged');
+}));
+
+test('a clip removed from the game source archives the candidate\'s edit of it and marks its tasks removed',()=>fixture(async({root,work})=>{
+ const opened=await characterSource(work,{...expected,refreshSource:true}),id=opened.assetId;let heads=modelSlots(await readProject(work),id);
+ const job=await createJob(work,{assetId:id,request:'salute higher',slot:'baseline',context:{asset:heads.baseline,clip:'Salute',time:.2}});
+ const base=await readFile(join(work,heads.baseline.file)),edited=editGlb(base,{clip:'Salute',bone:'LeftShoulder',factor:.7}).bytes;
+ const claim=await claimJob(work,job.id);await failJob(work,job.id,{lease:claim.lease,error:'kept'});await importAsset(work,'candidate',edited,'Salute edit',{assetId:id});
+ const p=parseGlb(bytes);p.doc.animations=p.doc.animations.filter(a=>a.name!=='Salute');const next=encodeGlb(p.doc,p.bin,p.extra);await writeFile(join(root,model),next);
+ await characterSource(work,{...expected,expectedSha256:sha(next),refreshSource:true});
+ const cfg=await readProject(work);heads=modelSlots(cfg,id);
+ assert.equal(heads.candidate.sha256,heads.baseline.sha256,'nothing left to carry');assert.deepEqual(cfg.models[id].sourceUpdate.dropped,[{clip:'Salute',status:'removed'}]);
+ assert.equal(cfg.models[id].revisions.at(-1).slots.candidate.sha256,sha(edited),'the old pair archived');
+ assert.equal((await getJob(work,job.id)).sourceUpdate.status,'removed');
+}));
+
+test('the stage follows the game: a changed model is loaded when it holds still, and running work holds it back with the reason',()=>fixture(async({root,work})=>{
+ const opened=await characterSource(work,{...expected,refreshSource:true}),id=opened.assetId;
+ const server=await serve(work,0,{watchSources:true,sourcePoll:{interval:40,stable:80}}),base='http://127.0.0.1:'+server.address().port;
+ const studio=async()=>(await fetch(base+'/api/studio?compact=1&assetId='+id)).json();
+ const until=async(test,what)=>{for(let i=0;i<150;i++){const d=await studio();if(test(d))return d;await new Promise(r=>setTimeout(r,40));}throw Error('timed out waiting for '+what);};
+ try{
+  const next=editGlb(bytes,{clip:'Salute',bone:'LeftShoulder',factor:.5}).bytes;await writeFile(join(root,model),next);
+  await until(d=>d.project?.slots?.baseline?.source?.sha256===sha(next)&&d.sourceSync?.state==='synced','the new source');
+  const heads=modelSlots(await readProject(work),id),job=await createJob(work,{assetId:id,request:'running',slot:'baseline',context:{asset:heads.baseline,clip:'Run',time:.2}});await claimJob(work,job.id);
+  const third=editGlb(bytes,{clip:'Run',bone:'LeftShoulder',factor:.4}).bytes;await writeFile(join(root,model),third);
+  const blocked=await until(d=>d.sourceSync?.state==='blocked','the hold');assert.match(blocked.sourceSync.reasons.join(),/正在执行/);
+  assert.equal(modelSlots(await readProject(work),id).baseline.source.sha256,sha(next),'not replaced under running work');
+ }finally{await new Promise(r=>server.close(r));}
 }));
 
 test('CLI reports a stale source with nonzero status and HTTP identifies the running and installed release',()=>fixture(async({root,work})=>{
  await characterSource(work,{...expected,refreshSource:true});await writeFile(join(root,model),changed());
  await assert.rejects(run(process.execPath,[fileURLToPath(new URL('../motion-feedback.mjs',import.meta.url)),'character-source','--workspace',work,'--profile-id','hero']),error=>{assert.equal(error.code,1);assert.equal(JSON.parse(error.stdout).status,'stale');return true;});
- const server=await serve(work,0);try{const session=await(await fetch('http://127.0.0.1:'+server.address().port+'/api/session')).json();assert.equal(session.runtime.version,'4.6.0');assert.equal(session.runtime.installedVersion,session.runtime.version);}finally{await new Promise(r=>server.close(r));}
+ const server=await serve(work,0);try{const session=await(await fetch('http://127.0.0.1:'+server.address().port+'/api/session')).json();assert.equal(session.runtime.version,'4.7.0');assert.equal(session.runtime.installedVersion,session.runtime.version);}finally{await new Promise(r=>server.close(r));}
 }));
