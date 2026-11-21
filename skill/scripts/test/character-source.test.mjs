@@ -125,5 +125,5 @@ test('the stage follows the game: a changed model is loaded when it holds still,
 test('CLI reports a stale source with nonzero status and HTTP identifies the running and installed release',()=>fixture(async({root,work})=>{
  await characterSource(work,{...expected,refreshSource:true});await writeFile(join(root,model),changed());
  await assert.rejects(run(process.execPath,[fileURLToPath(new URL('../motion-feedback.mjs',import.meta.url)),'character-source','--workspace',work,'--profile-id','hero']),error=>{assert.equal(error.code,1);assert.equal(JSON.parse(error.stdout).status,'stale');return true;});
- const server=await serve(work,0);try{const session=await(await fetch('http://127.0.0.1:'+server.address().port+'/api/session')).json();assert.equal(session.runtime.version,'4.7.0');assert.equal(session.runtime.installedVersion,session.runtime.version);}finally{await new Promise(r=>server.close(r));}
+ const server=await serve(work,0);try{const session=await(await fetch('http://127.0.0.1:'+server.address().port+'/api/session')).json();assert.equal(session.runtime.version,'4.8.0');assert.equal(session.runtime.installedVersion,session.runtime.version);}finally{await new Promise(r=>server.close(r));}
 }));

@@ -50,3 +50,32 @@ export function jobPair(job){
  const rebased=job?.sourceUpdate?.rebased;
  return rebased?{baseline:rebased.baseline,candidate:rebased.candidate}:{baseline:job?.inputs?.[job?.slot||'baseline'],candidate:job?.candidate};
 }
+
+// WHAT THE STAGE SHOWS AGAINST WHAT THE USER KEPT. The baseline slot is the game's model; an edit stays in the candidate slot
+// until someone puts it into the game (accepting it records approval in the studio only). The model's pending edit: the
+// candidate slot's version, whose task it is and what was decided on it — or null when there is none (no candidate, the same
+// bytes as the baseline, or the user kept the original).
+export function pendingEdit(jobs,project){
+ const head=project?.slots?.candidate,base=project?.slots?.baseline;
+ if(!head?.sha256||head.sha256===base?.sha256)return null;
+ const owner=head.derivedByJobId||head.source?.derivedByJobId;
+ const job=jobs.find(j=>j.assetId===project.activeAssetId&&j.state==='complete'&&j.candidate?.sha256===head.sha256&&(!owner||j.id===owner))||null;
+ const decision=job?.review?.decision||job?.artisticDecision||null;
+ if(decision==='keep-baseline')return null;
+ return {job,clip:job?.clip||null,status:!job?'imported':decision==='accept-candidate'?'accepted':'review',integrated:Boolean(job?.integrated)};
+}
+// A new request starts from the newest version the user has not turned down: an edit carries on from the edit.
+export function composeSource(edit){return edit?'candidate':'baseline';}
+// The line the stage shows while it plays the game's version and an edit waits elsewhere (null: nothing to say). An edit of
+// another clip is not this clip's business; a directly loaded version (no task) may touch any clip.
+export function versionNotice(edit,{focus,clip}={}){
+ if(!edit||focus==='candidate'||edit.integrated||edit.clip&&clip&&edit.clip!==clip)return null;
+ if(edit.status==='accepted')return '当前显示游戏里的版本，不含已采用的修改。采用只记在动作台，接入游戏需另外请 Agent 处理。';
+ if(edit.status==='review')return '当前显示游戏里的版本。这段动作有一版修改等你评审。';
+ return '当前显示游戏里的版本。另有一个修改后的版本（未经任务评审）。';
+}
+// Agent drafts (proposals.mjs) for the clip on screen first, then the model's others; the newest first.
+export function proposalFor(proposals,{assetId,clip}={}){
+ const mine=(proposals||[]).filter(p=>p.assetId===assetId).sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''));
+ return mine.find(p=>p.clip===clip)||mine[0]||null;
+}
