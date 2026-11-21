@@ -3,6 +3,7 @@ import {discoverCharacterActions,previewCharacterAction} from './character-actio
 import {actionCatalog} from './action-catalog.mjs';
 import {motionLibrary,registerMotionPack,saveMotionMapping,previewMotion,adoptMotion,removeMotion,materializeMotion,motionRigOptions,exportAdoptedAction} from './motion-library.mjs';
 import {integrationStatus,recordIntegration} from './game-integration.mjs';
+import {proposeTask,listProposals} from './proposals.mjs';
 import {createInterface} from 'node:readline';
 import {readFile,realpath,lstat} from 'node:fs/promises';
 import {resolve,isAbsolute} from 'node:path';
@@ -47,6 +48,8 @@ export const tools=[
  tool('motion_claim_job','Claim a queued task and return its lease. Only claim a user-submitted task you will actually execute.',{id,owner:str,caller:{type:'object',properties:{client:str,sessionId:str},required:['client','sessionId'],additionalProperties:false}},['id']),
  tool('motion_project_context','Read the frozen project evidence, prior user requirements and accepted checkpoints for a job, or preview current task context.',{id,assetId:str,request:str,slot:{type:'string',enum:['baseline','candidate']},clip:str,parentJobId:str}),
  tool('motion_report_progress','Report the actual current stage and a concise user-facing message. Do not invent percentages or expose reasoning.',{id,lease,phase:{type:'string',enum:['reading','editing','checking','exporting']},message:str},['id','lease','phase','message']),
+ tool('motion_propose_task','Draft a change the user asked for in chat into the page, in their own words. The user opens it there, checks the view and submits; this never creates or starts a task. Use instead of loading a chat result into a slot.',{assetId:str,clip:str,request:str,preserve:str,source:{type:'string',enum:['baseline','candidate']},parentJobId:str,caller:{type:'object',properties:{client:str,sessionId:str},required:['client']}},['assetId','clip','request']),
+ tool('motion_list_proposals','List drafts still waiting for the user to open in the page.',{assetId:str}),
  tool('motion_reply_job','Record a user clarification for a needs-input task and queue it again on the same frozen source versions.',{id,message:str},['id','message']),
  tool('motion_complete_job','Return a genuinely modified self-contained GLB candidate. Requires current source versions and matching execution lease; does not install into game or approve art.',{id,lease,candidatePath:{type:'string',description:'Absolute path to generated candidate GLB'},summary:str,audit:{type:'object'}},['id','lease','candidatePath','summary']),
  tool('motion_fail_job','Report an actual error or a concrete clarification question. Keeps source assets intact.',{id,lease,error:str,state:{type:'string',enum:['failed','needs-input']}},['id','lease','error']),
@@ -80,6 +83,8 @@ export async function callTool(work,name,args={}){
  if(name==='motion_claim_job')return claimJob(work,args.id,{owner:args.owner||'mcp-agent',caller:args.caller});
  if(name==='motion_project_context')return args.id?getJobProjectContext(work,args.id):previewProjectContext(work,args);
  if(name==='motion_report_progress')return updateJobProgress(work,args.id,{...args,source:'agent'});
+ if(name==='motion_propose_task')return proposeTask(work,{assetId:args.assetId,clip:args.clip,request:args.request,preserve:args.preserve||'',source:args.source||null,parentJobId:args.parentJobId||null,caller:args.caller||null});
+ if(name==='motion_list_proposals')return {proposals:await listProposals(work,args.assetId)};
  if(name==='motion_reply_job')return replyJob(work,args.id,args);
  if(name==='motion_complete_job')return completeJob(work,args.id,args);
  if(name==='motion_fail_job')return failJob(work,args.id,args);

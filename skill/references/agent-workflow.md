@@ -34,6 +34,8 @@ When the request names one side (左臂, right knee) and the picked bone is on t
 
 For a follow-up task, carry the applicable earlier preserve clauses and read the original requests and clarifications for implicit constraints. Completed goals and AI summaries are background, not instructions to repeat. Current explicit user changes win; ask about material conflicts or ambiguous branches. Details: [project-workspace.md](project-workspace.md).
 
+- **A request made in chat:** `propose` (above in SKILL.md) drafts it into the page with the user's words, clip and starting version. The page never turns a draft into a task by itself; the user opens it with **打开草稿**, checks the frozen view and submits. Never load a chat result straight into a slot to stand in for a task.
+
 ## Claim and bind
 
 ```sh

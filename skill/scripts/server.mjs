@@ -5,6 +5,7 @@ import {discoverCharacterActions,previewCharacterAction,characterActionCurves,st
 import {listThumbnails,saveThumbnail,thumbnailPath} from './thumbnails.mjs';
 import {undoStatus,applyUndo} from './undo.mjs';
 import {readDraft,saveDraft} from './drafts.mjs';
+import {listProposals,dropProposal} from './proposals.mjs';
 import {integrationStatus} from './game-integration.mjs';
 import {motionLibrary,registerMotionPack,saveMotionMapping,previewMotion,adoptMotion,removeMotion,materializeMotion,motionRigOptions} from './motion-library.mjs';
 import {previewReplacement,replaceAction,listReplacementPlans,withdrawReplacementPlan,replacementHandoff} from './action-replacement.mjs';
@@ -89,7 +90,7 @@ export async function serve(work,port=5178,options={}){
    if(p==='/api/studio/events'&&req.method==='GET')return studioEvents.subscribe(res);
    if(p==='/api/studio'&&req.method==='GET'){
     const capabilities=await getCaps();
-    if(url.searchParams.get('compact')!=='1')return send(200,await withWorkspaceLock(work,async()=>{const cfg=await readProject(work),project=projectView(cfg,url.searchParams.get('assetId')||undefined);return {version:2,project,jobs:await listJobs(work),capabilities,agent:{...agent,lastError:agent.error},...sourceState(cfg,project.activeAssetId)};}));
+    if(url.searchParams.get('compact')!=='1')return send(200,await withWorkspaceLock(work,async()=>{const cfg=await readProject(work),project=projectView(cfg,url.searchParams.get('assetId')||undefined);return {version:2,project,jobs:await listJobs(work),proposals:await listProposals(work,project.activeAssetId),capabilities,agent:{...agent,lastError:agent.error},...sourceState(cfg,project.activeAssetId)};}));
     return send(200,await withWorkspaceLock(work,async()=>{
      const cfg=await readProject(work),project=projectView(cfg,url.searchParams.get('assetId')||undefined),index=await studioJobIndex(work),rows=index.rows.filter(j=>j.assetId===project.activeAssetId),selected=url.searchParams.get('jobId');
      const head=project.slots.candidate;
@@ -97,7 +98,7 @@ export async function serve(work,port=5178,options={}){
      const matchesHead=j=>j.state==='complete'&&j.candidate?.sha256===head.sha256&&j.candidate.file===head.file;
      const currentCandidate=head&&(rows.find(j=>j.id===owner&&matchesHead(j))||rows.find(matchesHead));
      const jobs=rows.filter((j,i)=>i===0||activeJobStates.has(j.state)||j.id===selected||j.id===currentCandidate?.id);
-     const payload={version:3,project,jobs,candidateJobId:currentCandidate?.id??null,jobCounts:index.counts,totalJobs:index.total,jobsRevision:index.revision,capabilities,agent:{...agent,lastError:agent.error},...sourceState(cfg,project.activeAssetId)};
+     const payload={version:3,project,jobs,proposals:await listProposals(work,project.activeAssetId),candidateJobId:currentCandidate?.id??null,jobCounts:index.counts,totalJobs:index.total,jobsRevision:index.revision,capabilities,agent:{...agent,lastError:agent.error},...sourceState(cfg,project.activeAssetId)};
      const revision=sha(Buffer.from(JSON.stringify(payload)));return url.searchParams.get('since')===revision?{version:3,unchanged:true,revision,assetId:project.activeAssetId}:{...payload,revision};
     }));
    }
@@ -126,6 +127,8 @@ export async function serve(work,port=5178,options={}){
      }
     }
     if(draftRoute&&req.method==='POST')return send(200,await saveDraft(work,draftRoute[1],JSON.parse(data)));
+    const proposalDrop=p.match(/^\/api\/proposals\/([a-f0-9-]{36})\/drop$/);
+    if(proposalDrop&&req.method==='POST')return send(200,await dropProposal(work,proposalDrop[1]));
     if(p==='/api/undo'&&req.method==='POST')return send(200,await applyUndo(work,JSON.parse(data)));
     // Cache writes and read-only curve reads skip the mutation queue so
     // thumbnails never wait behind character assembly or task commits.

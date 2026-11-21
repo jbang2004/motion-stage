@@ -36,7 +36,7 @@ export function createStudioEvents(work) {
    if(!clients.size){
     root=watchPath(work,{},(_,name)=>{
      if(String(name)==='jobs')watchJobs();
-     if(!name||['project.json','jobs'].includes(String(name)))changed();
+     if(!name||['project.json','proposals.json','jobs'].includes(String(name)))changed();
     });
     watchJobs();
     heartbeat=setInterval(()=>{

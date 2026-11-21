@@ -46,6 +46,14 @@ node "$CLI" complete --workspace "$WORKSPACE" --job "$ID" --lease "$LEASE" --can
 
 `job` returns a current-path `claimCommand`; use it only after confirming its caller matches this conversation. MCP `motion_claim_job` accepts `caller: {client, sessionId}`. Do not impersonate another caller to bypass a mismatch. For an unbound legacy task, omit the caller flags. Saving does not send a message or wake a host; claim directly when handling the submitted task in this conversation, otherwise present the copyable handoff. Do not report a live connection until execution actually begins.
 
+**A change asked for in chat, not in the page.** Do not load a result straight into a slot (`add`): it skips the task, its review and undo. Draft it instead, with the user's own words, and say that they confirm it in the page:
+
+```sh
+node "$CLI" propose --workspace "$WORKSPACE" --asset-id "$ASSET_ID" --clip "$CLIP" --request "用户原话" [--source candidate] [--parent-job "$ID"] --caller "$CALLER" --session "$SESSION"
+```
+
+The page shows **打开草稿**; it fills the composer on that clip, starting from the given version (default: the newest edit the user has not turned down). The user checks the view and submits; then claim the new task as usual. `proposals` lists drafts still waiting. If the user says they submitted and `jobs` shows no new task, say so plainly and look at what the page recorded (a review decision, an empty draft) before anything else.
+
 `--audit` is optional. Keep the returned lease. MCP (`node "$SKILL_DIR/scripts/mcp.mjs" --workspace "$WORKSPACE"`) exposes the same task operations.
 
 1. **Read the frozen evidence.** Read `task.md`, `context.json`, `view.png`, and `projectContextFile` returned by `job`. Use current `executionPaths` after a project move. Bind to `assetId`, the selected input slot and its SHA; the browser's current selection is irrelevant.

@@ -2,7 +2,7 @@
 
 Read this when the user asks to put an accepted edit or an adopted action into the game (接入游戏, 放进游戏, 用这版替换游戏里的, 把收录的动作加到游戏).
 
-Three facts stay separate: a candidate exists, the user accepted it (满意，保留这版) or adopted an action (加入常用动作), and the game uses it. The studio records the first two and never writes game files. It also never wakes the chat: the page tells the user to come back and ask. The third fact happens only when the user asks you. You change the game files, check the result in the game and record what you changed with `integrate`.
+The page says so too: while the stage plays the game's version and an accepted edit of that clip is not in the game, its banner reads 不含已采用的修改 and offers **查看修改后**; a new edit starts from that accepted version, not from the game's. Three facts stay separate: a candidate exists, the user accepted it (满意，保留这版) or adopted an action (加入常用动作), and the game uses it. The studio records the first two and never writes game files. It also never wakes the chat: the page tells the user to come back and ask. The third fact happens only when the user asks you. You change the game files, check the result in the game and record what you changed with `integrate`.
 
 ## Find what is waiting
 
