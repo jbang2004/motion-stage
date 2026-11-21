@@ -53,8 +53,8 @@ Claude Code 将目标换为 `$HOME/.claude/skills/motion-stage`；Windows PowerS
 
 ## 交流群
 
-微信群 **AI 大航海时代**，扫码加入。本次二维码标注 **11 月 18 日前有效**。
+微信群 **AI 大航海时代**，扫码加入。本次二维码标注 **11 月 27 日前有效**。
 
-<img src="assets/community/ai-sailing-wechat.png" width="320" alt="AI 大航海时代微信群二维码，11 月 18 日前有效">
+<img src="assets/community/ai-sailing-wechat.png" width="320" alt="AI 大航海时代微信群二维码，11 月 27 日前有效">
 
 代码与原创练习资源见 [MIT 许可](LICENSE)，随包运行时见 [第三方许可](THIRD_PARTY.md)。
